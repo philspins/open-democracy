@@ -8,33 +8,33 @@ import (
 templ BillsFeed(ps store.ParliamentStatus, bills []store.BillRow, total int, f store.BillFilter) {
 	@Layout("Bills", ps) {
 		<div class="space-y-6">
-			<div class="flex items-center justify-between">
-				<h1 class="text-2xl font-bold text-gray-900">Bills</h1>
+			<div class="title-row">
+				<h1 class="page-title">Bills</h1>
 				<span class="text-sm text-gray-500">{ fmt.Sprint(total) } total</span>
 			</div>
 
 			<!-- Filters -->
-			<form method="GET" action="/bills" class="flex flex-wrap gap-3 items-center">
+			<form method="GET" action="/bills" class="filter-shell">
 				<input type="text" name="q" value={ f.Search } placeholder="Search bills…"
-					class="border border-gray-300 rounded px-3 py-1.5 text-sm w-48"/>
-				<select name="stage" class="border border-gray-300 rounded px-2 py-1.5 text-sm">
+					class="input-field w-48"/>
+				<select name="stage" class="input-field">
 					<option value="">All Stages</option>
 					for _, s := range Stages {
 						<option value={ s } selected?={ f.Stage == s }>{ StageLabel(s) }</option>
 					}
 				</select>
-				<select name="category" class="border border-gray-300 rounded px-2 py-1.5 text-sm">
+				<select name="category" class="input-field">
 					<option value="">All Categories</option>
 					for _, c := range Categories {
 						<option value={ c } selected?={ f.Category == c }>{ c }</option>
 					}
 				</select>
-				<select name="chamber" class="border border-gray-300 rounded px-2 py-1.5 text-sm">
+				<select name="chamber" class="input-field">
 					<option value="">Both Chambers</option>
 					<option value="commons" selected?={ f.Chamber == "commons" }>House</option>
 					<option value="senate" selected?={ f.Chamber == "senate" }>Senate</option>
 				</select>
-				<button type="submit" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700">Filter</button>
+				<button type="submit" class="btn btn-primary">Filter</button>
 				<a href="/bills" class="text-sm text-gray-500 hover:underline">Clear</a>
 			</form>
 
@@ -44,7 +44,7 @@ templ BillsFeed(ps store.ParliamentStatus, bills []store.BillRow, total int, f s
 					@billCard(b)
 				}
 				if len(bills) == 0 {
-					<div class="text-center py-12 text-gray-500">
+					<div class="empty-state text-gray-500">
 						<p>No bills found matching your filters.</p>
 					</div>
 				}
@@ -57,7 +57,7 @@ templ BillsFeed(ps store.ParliamentStatus, bills []store.BillRow, total int, f s
 }
 
 templ billCard(b store.BillRow) {
-	<article class="bg-white rounded-lg border border-gray-200 p-5 hover:shadow-md transition-shadow">
+	<article class="surface-card bg-white rounded-lg border border-gray-200 p-5 hover:shadow-md transition-shadow">
 		<div class="flex items-start justify-between gap-4">
 			<div class="flex-1 min-w-0">
 				<div class="flex items-center gap-2 mb-2">
@@ -107,12 +107,12 @@ templ paginationBar(pi PageInfo, base string, extraParams string) {
 		<div class="flex items-center justify-center gap-2 mt-6">
 			if pi.HasPrev {
 				<a href={ templ.SafeURL(fmt.Sprintf("%s?page=%d%s", base, pi.PrevPage, extraParams)) }
-				   class="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50">← Prev</a>
+				   class="btn btn-secondary">← Prev</a>
 			}
 			<span class="text-sm text-gray-600">Page { fmt.Sprint(pi.Current) } of { fmt.Sprint(pi.Total) }</span>
 			if pi.HasNext {
 				<a href={ templ.SafeURL(fmt.Sprintf("%s?page=%d%s", base, pi.NextPage, extraParams)) }
-				   class="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50">Next →</a>
+				   class="btn btn-secondary">Next →</a>
 			}
 		</div>
 	}

@@ -1,0 +1,79 @@
+{
+  "federal_default_party": "Liberal",
+  "default_style": "background:linear-gradient(90deg,#d4dde7,#b8c6d6);color:#1f3346",
+  "province_fallback_party": "Government Party",
+  "party_style_rules": [
+    {
+      "match": "progressive conservative",
+      "style": "background:linear-gradient(90deg,#4f8ff0,#3d74c1);color:#082348"
+    },
+    {
+      "match": "united conservative",
+      "style": "background:linear-gradient(90deg,#3f7fdd,#2e63b3);color:#071d3c"
+    },
+    {
+      "match": "conservative",
+      "style": "background:linear-gradient(90deg,#4c8fe9,#3f77c8);color:#082348"
+    },
+    {
+      "match": "liberal",
+      "style": "background:linear-gradient(90deg,#ef7d7d,#db5353);color:#4b0f0f"
+    },
+    {
+      "match": "ndp",
+      "style": "background:linear-gradient(90deg,#f4b060,#e79335);color:#4b2a08"
+    },
+    {
+      "match": "new democrat",
+      "style": "background:linear-gradient(90deg,#f4b060,#e79335);color:#4b2a08"
+    },
+    {
+      "match": "green",
+      "style": "background:linear-gradient(90deg,#92cc7e,#65ad4b);color:#16360d"
+    },
+    {
+      "match": "bloc",
+      "style": "background:linear-gradient(90deg,#8dc9f4,#59a7dd);color:#0f3252"
+    },
+    {
+      "match": "coalition avenir quebec",
+      "style": "background:linear-gradient(90deg,#79b7e6,#4f8fcd);color:#0d2b45"
+    },
+    {
+      "match": "saskatchewan party",
+      "style": "background:linear-gradient(90deg,#69b45f,#4a9141);color:#11330d"
+    },
+    {
+      "match": "consensus government",
+      "style": "background:linear-gradient(90deg,#9eb2c7,#7f96ad);color:#1e3248"
+    }
+  ],
+  "province_governing_party": {
+    "AB": "United Conservative",
+    "ALBERTA": "United Conservative",
+    "BC": "New Democratic",
+    "BRITISH COLUMBIA": "New Democratic",
+    "MB": "New Democratic",
+    "MANITOBA": "New Democratic",
+    "NB": "Progressive Conservative",
+    "NEW BRUNSWICK": "Progressive Conservative",
+    "NL": "Liberal",
+    "NEWFOUNDLAND AND LABRADOR": "Liberal",
+    "NS": "Progressive Conservative",
+    "NOVA SCOTIA": "Progressive Conservative",
+    "NT": "Consensus Government",
+    "NORTHWEST TERRITORIES": "Consensus Government",
+    "NU": "Consensus Government",
+    "NUNAVUT": "Consensus Government",
+    "ON": "Progressive Conservative",
+    "ONTARIO": "Progressive Conservative",
+    "PE": "Progressive Conservative",
+    "PRINCE EDWARD ISLAND": "Progressive Conservative",
+    "QC": "Coalition Avenir Quebec",
+    "QUEBEC": "Coalition Avenir Quebec",
+    "SK": "Saskatchewan Party",
+    "SASKATCHEWAN": "Saskatchewan Party",
+    "YT": "Liberal",
+    "YUKON": "Liberal"
+  }
+}

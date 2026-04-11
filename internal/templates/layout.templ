@@ -9,41 +9,375 @@ templ Layout(title string, ps store.ParliamentStatus) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>{ title } — CivicTracker</title>
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
+			<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 			<script src="https://cdn.tailwindcss.com"></script>
+			<style>
+				:root {
+					--ink-900: #0f2230;
+					--ink-700: #1f3b52;
+					--ink-500: #456277;
+					--paper: #f8faf8;
+					--paper-strong: #ffffff;
+					--line: #dbe4e1;
+					--accent: #0d6a6a;
+					--accent-strong: #095555;
+					--warm: #f4b860;
+					--shadow: 0 14px 40px rgba(15, 34, 48, 0.12);
+				}
+
+				html,
+				body {
+					min-height: 100%;
+				}
+
+				body {
+					font-family: "Manrope", "Segoe UI", sans-serif;
+					color: var(--ink-900);
+					background:
+						radial-gradient(circle at 10% -5%, rgba(13, 106, 106, 0.2), transparent 45%),
+						radial-gradient(circle at 90% 8%, rgba(244, 184, 96, 0.26), transparent 38%),
+						linear-gradient(180deg, #eef4f1 0%, var(--paper) 46%, #f7f8f4 100%);
+				}
+
+				h1,
+				h2,
+				h3,
+				h4 {
+					font-family: "Fraunces", Georgia, serif;
+					letter-spacing: -0.02em;
+				}
+
+				a {
+					color: var(--ink-700);
+					transition: color 160ms ease;
+				}
+
+				a:hover {
+					color: var(--accent-strong);
+				}
+
+				.site-nav {
+					position: sticky;
+					top: 0;
+					z-index: 20;
+					backdrop-filter: blur(10px);
+					background: rgba(248, 250, 248, 0.88);
+					border-bottom: 1px solid rgba(219, 228, 225, 0.92);
+				}
+
+				.nav-inner {
+					max-width: 1100px;
+					display: flex;
+					justify-content: space-between;
+					align-items: center;
+					gap: 1rem;
+					height: auto;
+					padding: 0.85rem 1.1rem;
+					margin: 0 auto;
+					flex-wrap: wrap;
+				}
+
+				.nav-brand {
+					font-family: "Fraunces", Georgia, serif;
+					font-size: 1.25rem;
+					font-weight: 700;
+					color: var(--ink-900);
+				}
+
+				.nav-brand::before {
+					content: "";
+					display: inline-block;
+					width: 0.65rem;
+					height: 0.65rem;
+					margin-right: 0.55rem;
+					border-radius: 50%;
+					background: linear-gradient(135deg, var(--accent), var(--warm));
+					box-shadow: 0 0 0 4px rgba(13, 106, 106, 0.16);
+					vertical-align: middle;
+				}
+
+				.nav-links {
+					display: flex;
+					gap: 0.9rem;
+					align-items: center;
+					font-size: 0.92rem;
+					font-weight: 600;
+					color: var(--ink-500);
+					flex-wrap: wrap;
+				}
+
+				.search-form {
+					display: flex;
+					align-items: center;
+					gap: 0.55rem;
+					flex-wrap: wrap;
+				}
+
+				.input-field,
+				select,
+				input[type="text"] {
+					border: 1px solid var(--line);
+					border-radius: 10px;
+					padding: 0.56rem 0.72rem;
+					background: var(--paper-strong);
+					font-size: 0.92rem;
+					color: var(--ink-900);
+					outline: none;
+					transition: border-color 160ms ease, box-shadow 160ms ease;
+				}
+
+				.input-field:focus,
+				select:focus,
+				input[type="text"]:focus {
+					border-color: var(--accent);
+					box-shadow: 0 0 0 3px rgba(13, 106, 106, 0.15);
+				}
+
+				.btn {
+					display: inline-flex;
+					align-items: center;
+					justify-content: center;
+					gap: 0.4rem;
+					padding: 0.58rem 0.96rem;
+					font-size: 0.9rem;
+					font-weight: 700;
+					border-radius: 11px;
+					border: 1px solid transparent;
+					transition: transform 120ms ease, box-shadow 160ms ease, background-color 160ms ease;
+					cursor: pointer;
+				}
+
+				.btn:hover {
+					transform: translateY(-1px);
+				}
+
+				.btn-primary {
+					background: linear-gradient(135deg, var(--accent), #0f7d7d);
+					color: #fff;
+					box-shadow: 0 8px 22px rgba(13, 106, 106, 0.22);
+				}
+
+				.btn-primary:hover {
+					background: linear-gradient(135deg, #0f7d7d, var(--accent-strong));
+					color: #fff;
+				}
+
+				.btn-secondary {
+					background: #ffffff;
+					border-color: var(--line);
+					color: var(--ink-700);
+				}
+
+				.session-banner {
+					text-align: center;
+					padding: 0.55rem 1rem;
+					font-size: 0.86rem;
+					font-weight: 700;
+					letter-spacing: 0.01em;
+					color: #fff;
+				}
+
+				.session-banner.in-session {
+					background: linear-gradient(135deg, #0f8a5f, #13916b);
+				}
+
+				.session-banner.on-break {
+					background: linear-gradient(135deg, #cb8c2a, #dba944);
+				}
+
+				.site-main {
+					max-width: 1100px;
+					margin: 1.8rem auto 0;
+					padding: 0 1.1rem 2.2rem;
+				}
+
+				.site-main > * {
+					animation: rise-in 420ms ease both;
+				}
+
+				.surface-card,
+				.bg-white.rounded-lg.border {
+					background: rgba(255, 255, 255, 0.9);
+					border: 1px solid var(--line);
+					border-radius: 16px;
+					box-shadow: var(--shadow);
+				}
+
+				.table-shell,
+				.overflow-x-auto.bg-white.rounded-lg.border {
+					border-radius: 16px;
+					border: 1px solid var(--line);
+					box-shadow: var(--shadow);
+					background: rgba(255, 255, 255, 0.92);
+				}
+
+				table thead tr {
+					background: linear-gradient(180deg, #f6faf9, #f2f6f5);
+				}
+
+				table tbody tr {
+					transition: background-color 120ms ease;
+				}
+
+				table tbody tr:hover {
+					background: #f4fbf9;
+				}
+
+				.page-title {
+					font-size: clamp(1.7rem, 2vw, 2.2rem);
+					line-height: 1.1;
+					color: var(--ink-900);
+				}
+
+				.kicker {
+					display: inline-block;
+					font-size: 0.74rem;
+					letter-spacing: 0.12em;
+					font-weight: 700;
+					text-transform: uppercase;
+					color: var(--accent-strong);
+					background: rgba(13, 106, 106, 0.1);
+					padding: 0.3rem 0.55rem;
+					border-radius: 999px;
+				}
+
+				.hero-panel {
+					border: 1px solid var(--line);
+					border-radius: 22px;
+					padding: clamp(1.4rem, 3vw, 2.4rem);
+					background:
+						linear-gradient(130deg, rgba(13, 106, 106, 0.13), rgba(244, 184, 96, 0.16)),
+						rgba(255, 255, 255, 0.88);
+					box-shadow: var(--shadow);
+				}
+
+				.title-row {
+					display: flex;
+					justify-content: space-between;
+					align-items: end;
+					gap: 1rem;
+					flex-wrap: wrap;
+				}
+
+				.filter-shell {
+					display: flex;
+					flex-wrap: wrap;
+					gap: 0.65rem;
+					align-items: center;
+					padding: 0.95rem;
+					border-radius: 14px;
+					border: 1px solid var(--line);
+					background: rgba(255, 255, 255, 0.85);
+				}
+
+				.metric-grid {
+					display: grid;
+					grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+					gap: 0.8rem;
+				}
+
+				.metric-card {
+					padding: 0.95rem;
+					border-radius: 14px;
+					border: 1px solid var(--line);
+					background: rgba(255, 255, 255, 0.88);
+					text-align: center;
+				}
+
+				.empty-state {
+					text-align: center;
+					padding: 2.6rem 1rem;
+					border: 1px dashed #bfd0cc;
+					border-radius: 14px;
+					color: var(--ink-500);
+					background: rgba(255, 255, 255, 0.6);
+				}
+
+				.section-lead {
+					font-size: 1.02rem;
+					line-height: 1.55;
+					color: var(--ink-500);
+				}
+
+				.footer-shell {
+					max-width: 1100px;
+					margin: 2.2rem auto 0;
+					padding: 1.4rem 1.1rem 2.4rem;
+					border-top: 1px solid var(--line);
+					font-size: 0.78rem;
+					color: var(--ink-500);
+					text-align: center;
+				}
+
+				@keyframes rise-in {
+					from {
+						opacity: 0;
+						transform: translateY(10px);
+					}
+					to {
+						opacity: 1;
+						transform: translateY(0);
+					}
+				}
+
+				@media (max-width: 760px) {
+					.hero-panel {
+						padding: 1.2rem;
+					}
+
+					.search-form {
+						width: 100%;
+					}
+
+					.search-form input[type="text"] {
+						flex: 1;
+						min-width: 180px;
+					}
+
+					.nav-links {
+						font-size: 0.87rem;
+						gap: 0.7rem;
+					}
+				}
+			</style>
 		</head>
-		<body class="bg-gray-50 text-gray-900 min-h-screen">
+		<body class="min-h-screen">
 			<!-- Nav -->
-			<nav class="bg-white border-b border-gray-200 sticky top-0 z-10">
-				<div class="max-w-6xl mx-auto px-4 flex items-center justify-between h-14">
-					<div class="flex items-center gap-6">
-						<a href="/" class="font-bold text-blue-700 text-lg">CivicTracker</a>
-						<a href="/bills" class="text-sm text-gray-600 hover:text-blue-700">Bills</a>
-						<a href="/votes" class="text-sm text-gray-600 hover:text-blue-700">Votes</a>
-						<a href="/members" class="text-sm text-gray-600 hover:text-blue-700">MPs</a>
-						<a href="/compare" class="text-sm text-gray-600 hover:text-blue-700">Compare</a>
+			<nav class="site-nav">
+				<div class="nav-inner">
+					<div class="flex items-center gap-5">
+						<a href="/" class="nav-brand">CivicTracker</a>
+						<div class="nav-links">
+							<a href="/bills">Bills</a>
+							<a href="/votes">Votes</a>
+							<a href="/members">MPs</a>
+							<a href="/compare">Compare</a>
+						</div>
 					</div>
-					<form method="GET" action="/riding" class="flex items-center gap-2">
+					<form method="GET" action="/" class="search-form">
 						<input type="text" name="postal" placeholder="Riding / postal code"
-							class="border border-gray-300 rounded px-2 py-1 text-sm w-44"/>
-						<button type="submit" class="text-sm bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">Find MP</button>
+							class="input-field w-44"/>
+						<button type="submit" class="btn btn-primary">Set Riding</button>
 					</form>
 				</div>
 			</nav>
 			<!-- Session banner -->
 			if ps.Status == "in_session" {
-				<div class="bg-green-600 text-white text-center text-sm py-1 px-4">
+				<div class="session-banner in-session">
 					🟢 { ps.Label } — { ps.Detail }
 				</div>
 			} else if ps.Status == "on_break" {
-				<div class="bg-amber-500 text-white text-center text-sm py-1 px-4">
+				<div class="session-banner on-break">
 					🟡 { ps.Label } — { ps.Detail }
 				</div>
 			}
 			<!-- Main content -->
-			<main class="max-w-6xl mx-auto px-4 py-8">
+			<main class="site-main">
 				{ children... }
 			</main>
-			<footer class="border-t border-gray-200 mt-16 py-6 text-center text-xs text-gray-400">
+			<footer class="footer-shell">
 				CivicTracker — Data sourced from the Parliament of Canada Open Data portal
 			</footer>
 		</body>

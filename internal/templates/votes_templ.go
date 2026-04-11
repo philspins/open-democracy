@@ -46,7 +46,7 @@ func VotesFeed(ps store.ParliamentStatus, divs []store.DivisionRow, total int, p
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><div class=\"flex items-center justify-between\"><h1 class=\"text-2xl font-bold text-gray-900\">Recorded Votes</h1><span class=\"text-sm text-gray-500\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><div class=\"title-row\"><h1 class=\"page-title\">Recorded Votes</h1><span class=\"text-sm text-gray-500\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -59,7 +59,7 @@ func VotesFeed(ps store.ParliamentStatus, divs []store.DivisionRow, total int, p
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " total</span></div><div class=\"overflow-x-auto bg-white rounded-lg border border-gray-200\"><table class=\"min-w-full text-sm\"><thead><tr class=\"bg-gray-50 text-left text-xs text-gray-500 border-b border-gray-200\"><th class=\"px-4 py-3\">Date</th><th class=\"px-4 py-3\">Description</th><th class=\"px-4 py-3\">Bill</th><th class=\"px-4 py-3 text-right\">Yeas</th><th class=\"px-4 py-3 text-right\">Nays</th><th class=\"px-4 py-3\">Result</th><th class=\"px-4 py-3\">Chamber</th></tr></thead> <tbody class=\"divide-y divide-gray-100\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " total</span></div><div class=\"table-shell overflow-x-auto bg-white rounded-lg border border-gray-200\"><table class=\"min-w-full text-sm\"><thead><tr class=\"bg-gray-50 text-left text-xs text-gray-500 border-b border-gray-200\"><th class=\"px-4 py-3\">Date</th><th class=\"px-4 py-3\">Description</th><th class=\"px-4 py-3\">Bill</th><th class=\"px-4 py-3 text-right\">Yeas</th><th class=\"px-4 py-3 text-right\">Nays</th><th class=\"px-4 py-3\">Result</th><th class=\"px-4 py-3\">Chamber</th></tr></thead> <tbody class=\"divide-y divide-gray-100\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

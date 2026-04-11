@@ -43,7 +43,7 @@ func MembersDirectory(ps store.ParliamentStatus, members []store.MemberRow, sear
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><h1 class=\"text-2xl font-bold text-gray-900\">Members of Parliament</h1><form method=\"GET\" action=\"/members\" class=\"flex flex-wrap gap-3 items-center\"><input type=\"text\" name=\"q\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><h1 class=\"page-title\">Members of Parliament</h1><form method=\"GET\" action=\"/members\" class=\"filter-shell\"><input type=\"text\" name=\"q\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -56,7 +56,7 @@ func MembersDirectory(ps store.ParliamentStatus, members []store.MemberRow, sear
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" placeholder=\"Search name or riding…\" class=\"border border-gray-300 rounded px-3 py-1.5 text-sm w-48\"> <input type=\"text\" name=\"party\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" placeholder=\"Search name or riding…\" class=\"input-field w-48\"> <input type=\"text\" name=\"party\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -69,7 +69,7 @@ func MembersDirectory(ps store.ParliamentStatus, members []store.MemberRow, sear
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" placeholder=\"Party\" class=\"border border-gray-300 rounded px-3 py-1.5 text-sm w-32\"> <input type=\"text\" name=\"province\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" placeholder=\"Party\" class=\"input-field w-32\"> <input type=\"text\" name=\"province\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -82,7 +82,7 @@ func MembersDirectory(ps store.ParliamentStatus, members []store.MemberRow, sear
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" placeholder=\"Province\" class=\"border border-gray-300 rounded px-3 py-1.5 text-sm w-24\"> <button type=\"submit\" class=\"bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700\">Search</button> <a href=\"/members\" class=\"text-sm text-gray-500 hover:underline\">Clear</a></form><div class=\"grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" placeholder=\"Province\" class=\"input-field w-24\"> <button type=\"submit\" class=\"btn btn-primary\">Search</button> <a href=\"/members\" class=\"text-sm text-gray-500 hover:underline\">Clear</a></form><div class=\"grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -146,7 +146,7 @@ func memberCard(m store.MemberRow) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" class=\"block bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow\"><div class=\"flex items-center gap-3\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" class=\"surface-card block bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow\"><div class=\"flex items-center gap-3\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

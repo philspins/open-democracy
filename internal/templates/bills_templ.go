@@ -46,7 +46,7 @@ func BillsFeed(ps store.ParliamentStatus, bills []store.BillRow, total int, f st
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><div class=\"flex items-center justify-between\"><h1 class=\"text-2xl font-bold text-gray-900\">Bills</h1><span class=\"text-sm text-gray-500\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><div class=\"title-row\"><h1 class=\"page-title\">Bills</h1><span class=\"text-sm text-gray-500\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -59,7 +59,7 @@ func BillsFeed(ps store.ParliamentStatus, bills []store.BillRow, total int, f st
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " total</span></div><!-- Filters --><form method=\"GET\" action=\"/bills\" class=\"flex flex-wrap gap-3 items-center\"><input type=\"text\" name=\"q\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " total</span></div><!-- Filters --><form method=\"GET\" action=\"/bills\" class=\"filter-shell\"><input type=\"text\" name=\"q\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -72,7 +72,7 @@ func BillsFeed(ps store.ParliamentStatus, bills []store.BillRow, total int, f st
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" placeholder=\"Search bills…\" class=\"border border-gray-300 rounded px-3 py-1.5 text-sm w-48\"> <select name=\"stage\" class=\"border border-gray-300 rounded px-2 py-1.5 text-sm\"><option value=\"\">All Stages</option> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" placeholder=\"Search bills…\" class=\"input-field w-48\"> <select name=\"stage\" class=\"input-field\"><option value=\"\">All Stages</option> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -118,7 +118,7 @@ func BillsFeed(ps store.ParliamentStatus, bills []store.BillRow, total int, f st
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</select> <select name=\"category\" class=\"border border-gray-300 rounded px-2 py-1.5 text-sm\"><option value=\"\">All Categories</option> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</select> <select name=\"category\" class=\"input-field\"><option value=\"\">All Categories</option> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -164,7 +164,7 @@ func BillsFeed(ps store.ParliamentStatus, bills []store.BillRow, total int, f st
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</select> <select name=\"chamber\" class=\"border border-gray-300 rounded px-2 py-1.5 text-sm\"><option value=\"\">Both Chambers</option> <option value=\"commons\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</select> <select name=\"chamber\" class=\"input-field\"><option value=\"\">Both Chambers</option> <option value=\"commons\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -184,7 +184,7 @@ func BillsFeed(ps store.ParliamentStatus, bills []store.BillRow, total int, f st
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, ">Senate</option></select> <button type=\"submit\" class=\"bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700\">Filter</button> <a href=\"/bills\" class=\"text-sm text-gray-500 hover:underline\">Clear</a></form><!-- Bills list --><div class=\"space-y-3\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, ">Senate</option></select> <button type=\"submit\" class=\"btn btn-primary\">Filter</button> <a href=\"/bills\" class=\"text-sm text-gray-500 hover:underline\">Clear</a></form><!-- Bills list --><div class=\"space-y-3\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -195,7 +195,7 @@ func BillsFeed(ps store.ParliamentStatus, bills []store.BillRow, total int, f st
 				}
 			}
 			if len(bills) == 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<div class=\"text-center py-12 text-gray-500\"><p>No bills found matching your filters.</p></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<div class=\"empty-state text-gray-500\"><p>No bills found matching your filters.</p></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -243,7 +243,7 @@ func billCard(b store.BillRow) templ.Component {
 			templ_7745c5c3_Var9 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<article class=\"bg-white rounded-lg border border-gray-200 p-5 hover:shadow-md transition-shadow\"><div class=\"flex items-start justify-between gap-4\"><div class=\"flex-1 min-w-0\"><div class=\"flex items-center gap-2 mb-2\"><span class=\"font-mono font-semibold text-blue-600\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<article class=\"surface-card bg-white rounded-lg border border-gray-200 p-5 hover:shadow-md transition-shadow\"><div class=\"flex items-start justify-between gap-4\"><div class=\"flex-1 min-w-0\"><div class=\"flex items-center gap-2 mb-2\"><span class=\"font-mono font-semibold text-blue-600\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -523,7 +523,7 @@ func paginationBar(pi PageInfo, base string, extraParams string) templ.Component
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "\" class=\"px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50\">← Prev</a> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "\" class=\"btn btn-secondary\">← Prev</a> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -572,7 +572,7 @@ func paginationBar(pi PageInfo, base string, extraParams string) templ.Component
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "\" class=\"px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50\">Next →</a>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "\" class=\"btn btn-secondary\">Next →</a>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

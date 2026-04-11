@@ -4,6 +4,7 @@ package server
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/philspins/open-democracy/internal/scraper"
 	"github.com/philspins/open-democracy/internal/store"
@@ -44,7 +45,21 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	ps := s.parliamentStatus()
 	bills, _ := s.store.GetRecentBills(5)
 	divs, _ := s.store.GetRecentDivisions(10)
-	_ = templates.Home(ps, bills, divs).Render(r.Context(), w)
+	postal := strings.TrimSpace(r.URL.Query().Get("postal"))
+	var federalRep store.MemberRow
+	if postal != "" {
+		members, _ := s.store.GetMembersByRiding(postal)
+		for _, m := range members {
+			if strings.EqualFold(m.Chamber, "commons") {
+				federalRep = m
+				break
+			}
+		}
+		if federalRep.ID == "" && len(members) > 0 {
+			federalRep = members[0]
+		}
+	}
+	_ = templates.Home(ps, bills, divs, postal, federalRep).Render(r.Context(), w)
 }
 
 func (s *Server) handleBills(w http.ResponseWriter, r *http.Request) {

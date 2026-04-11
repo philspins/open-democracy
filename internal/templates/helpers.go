@@ -2,11 +2,148 @@
 package templates
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/philspins/open-democracy/internal/store"
 )
+
+type PartyStyleRule struct {
+	Match string `json:"match"`
+	Style string `json:"style"`
+}
+
+type PartyThemeConfig struct {
+	FederalDefaultParty    string            `json:"federal_default_party"`
+	DefaultStyle           string            `json:"default_style"`
+	ProvinceFallbackParty  string            `json:"province_fallback_party"`
+	PartyStyleRules        []PartyStyleRule  `json:"party_style_rules"`
+	ProvinceGoverningParty map[string]string `json:"province_governing_party"`
+}
+
+var (
+	partyThemeOnce sync.Once
+	partyThemeCfg  PartyThemeConfig
+)
+
+func loadPartyTheme() PartyThemeConfig {
+	partyThemeOnce.Do(func() {
+		cfg := defaultPartyThemeConfig()
+		path := os.Getenv("CIVICTRACKER_PARTY_THEME_FILE")
+		if strings.TrimSpace(path) == "" {
+			path = "config/party-theme.json"
+		}
+		if b, err := os.ReadFile(path); err == nil {
+			var fileCfg PartyThemeConfig
+			if json.Unmarshal(b, &fileCfg) == nil {
+				cfg = mergePartyThemeConfig(cfg, fileCfg)
+			}
+		}
+		partyThemeCfg = cfg
+	})
+	return partyThemeCfg
+}
+
+func mergePartyThemeConfig(base, override PartyThemeConfig) PartyThemeConfig {
+	out := base
+	if strings.TrimSpace(override.FederalDefaultParty) != "" {
+		out.FederalDefaultParty = override.FederalDefaultParty
+	}
+	if strings.TrimSpace(override.DefaultStyle) != "" {
+		out.DefaultStyle = override.DefaultStyle
+	}
+	if strings.TrimSpace(override.ProvinceFallbackParty) != "" {
+		out.ProvinceFallbackParty = override.ProvinceFallbackParty
+	}
+	if len(override.PartyStyleRules) > 0 {
+		out.PartyStyleRules = override.PartyStyleRules
+	}
+	if len(override.ProvinceGoverningParty) > 0 {
+		if out.ProvinceGoverningParty == nil {
+			out.ProvinceGoverningParty = map[string]string{}
+		}
+		for k, v := range override.ProvinceGoverningParty {
+			out.ProvinceGoverningParty[strings.ToUpper(strings.TrimSpace(k))] = v
+		}
+	}
+	return out
+}
+
+func defaultPartyThemeConfig() PartyThemeConfig {
+	return PartyThemeConfig{
+		FederalDefaultParty:   "Liberal",
+		DefaultStyle:          "background:linear-gradient(90deg,#d4dde7,#b8c6d6);color:#1f3346",
+		ProvinceFallbackParty: "Government Party",
+		PartyStyleRules: []PartyStyleRule{
+			{Match: "progressive conservative", Style: "background:linear-gradient(90deg,#4f8ff0,#3d74c1);color:#082348"},
+			{Match: "united conservative", Style: "background:linear-gradient(90deg,#3f7fdd,#2e63b3);color:#071d3c"},
+			{Match: "conservative", Style: "background:linear-gradient(90deg,#4c8fe9,#3f77c8);color:#082348"},
+			{Match: "liberal", Style: "background:linear-gradient(90deg,#ef7d7d,#db5353);color:#4b0f0f"},
+			{Match: "ndp", Style: "background:linear-gradient(90deg,#f4b060,#e79335);color:#4b2a08"},
+			{Match: "new democrat", Style: "background:linear-gradient(90deg,#f4b060,#e79335);color:#4b2a08"},
+			{Match: "green", Style: "background:linear-gradient(90deg,#92cc7e,#65ad4b);color:#16360d"},
+			{Match: "bloc", Style: "background:linear-gradient(90deg,#8dc9f4,#59a7dd);color:#0f3252"},
+			{Match: "coalition avenir quebec", Style: "background:linear-gradient(90deg,#79b7e6,#4f8fcd);color:#0d2b45"},
+			{Match: "saskatchewan party", Style: "background:linear-gradient(90deg,#69b45f,#4a9141);color:#11330d"},
+			{Match: "consensus government", Style: "background:linear-gradient(90deg,#189491,#7f96ad);color:#1e3248"},
+		},
+		ProvinceGoverningParty: map[string]string{
+			"AB":                        "United Conservative",
+			"ALBERTA":                   "United Conservative",
+			"BC":                        "New Democratic",
+			"BRITISH COLUMBIA":          "New Democratic",
+			"MB":                        "New Democratic",
+			"MANITOBA":                  "New Democratic",
+			"NB":                        "Progressive Conservative",
+			"NEW BRUNSWICK":             "Progressive Conservative",
+			"NL":                        "Liberal",
+			"NEWFOUNDLAND AND LABRADOR": "Liberal",
+			"NS":                        "Progressive Conservative",
+			"NOVA SCOTIA":               "Progressive Conservative",
+			"NT":                        "Consensus Government",
+			"NORTHWEST TERRITORIES":     "Consensus Government",
+			"NU":                        "Consensus Government",
+			"NUNAVUT":                   "Consensus Government",
+			"ON":                        "Progressive Conservative",
+			"ONTARIO":                   "Progressive Conservative",
+			"PE":                        "Progressive Conservative",
+			"PRINCE EDWARD ISLAND":      "Progressive Conservative",
+			"QC":                        "Coalition Avenir Quebec",
+			"QUEBEC":                    "Coalition Avenir Quebec",
+			"SK":                        "Saskatchewan Party",
+			"SASKATCHEWAN":              "Saskatchewan Party",
+			"YT":                        "Liberal",
+			"YUKON":                     "Liberal",
+		},
+	}
+}
+
+func defaultFederalParty() string {
+	return loadPartyTheme().FederalDefaultParty
+}
+
+func partyBannerStyle(party string) string {
+	cfg := loadPartyTheme()
+	low := strings.ToLower(party)
+	for _, rule := range cfg.PartyStyleRules {
+		if strings.Contains(low, strings.ToLower(rule.Match)) {
+			return rule.Style
+		}
+	}
+	return cfg.DefaultStyle
+}
+
+func provinceGoverningParty(province string) string {
+	cfg := loadPartyTheme()
+	key := strings.ToUpper(strings.TrimSpace(province))
+	if p, ok := cfg.ProvinceGoverningParty[key]; ok {
+		return p
+	}
+	return cfg.ProvinceFallbackParty
+}
 
 // StageEntry pairs a stage key with its human-readable label.
 type StageEntry struct {
@@ -122,20 +259,20 @@ func VoteBadgeClass(vote string) string {
 // CategoryBadgeStyle returns an inline background-color style for a category badge.
 func CategoryBadgeStyle(category string) string {
 	colors := map[string]string{
-		"Budget":          "background-color:#3b82f6",
-		"Criminal Justice": "background-color:#ef4444",
-		"Environment":     "background-color:#22c55e",
-		"Health":          "background-color:#ec4899",
-		"Housing":         "background-color:#f97316",
-		"Immigration":     "background-color:#8b5cf6",
-		"Indigenous":      "background-color:#d97706",
-		"Infrastructure":  "background-color:#6b7280",
-		"Justice":         "background-color:#dc2626",
-		"Labour":          "background-color:#0ea5e9",
+		"Budget":            "background-color:#3b82f6",
+		"Criminal Justice":  "background-color:#ef4444",
+		"Environment":       "background-color:#22c55e",
+		"Health":            "background-color:#ec4899",
+		"Housing":           "background-color:#f97316",
+		"Immigration":       "background-color:#8b5cf6",
+		"Indigenous":        "background-color:#d97706",
+		"Infrastructure":    "background-color:#6b7280",
+		"Justice":           "background-color:#dc2626",
+		"Labour":            "background-color:#0ea5e9",
 		"National Security": "background-color:#1d4ed8",
-		"Social Policy":   "background-color:#7c3aed",
-		"Trade":           "background-color:#059669",
-		"Veterans":        "background-color:#b45309",
+		"Social Policy":     "background-color:#7c3aed",
+		"Trade":             "background-color:#059669",
+		"Veterans":          "background-color:#b45309",
 	}
 	if c, ok := colors[category]; ok {
 		return c
