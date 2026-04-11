@@ -65,7 +65,7 @@ func main() {
 				return runAll(sdb, client, delay)
 			},
 			FrequentVoteCheck: func(sdb *sql.DB) error {
-				return runFrequentVoteCheck(sdb, client, delay)
+				return runFrequentVoteCheck(sdb, client, delay, "")
 			},
 		})
 		return // never reached
@@ -75,27 +75,27 @@ func main() {
 	shouldRunAll := !(*billsFlag || *votesFlag || *senateFlag || *membersFlag || *calendarFlag)
 
 	if *calendarFlag || shouldRunAll {
-		if err := crawlCalendar(conn, client, delay); err != nil {
+		if err := crawlCalendar(conn, client, delay, ""); err != nil {
 			log.Printf("[main] calendar error: %v", err)
 		}
 	}
 	if *billsFlag || shouldRunAll {
-		if err := crawlBills(conn, client, delay); err != nil {
+		if err := crawlBills(conn, client, delay, ""); err != nil {
 			log.Printf("[main] bills error: %v", err)
 		}
 	}
 	if *membersFlag || shouldRunAll {
-		if err := crawlMembers(conn, client, delay); err != nil {
+		if err := crawlMembers(conn, client, delay, "", ""); err != nil {
 			log.Printf("[main] members error: %v", err)
 		}
 	}
 	if *votesFlag || shouldRunAll {
-		if err := crawlVotes(conn, client, delay); err != nil {
+		if err := crawlVotes(conn, client, delay, ""); err != nil {
 			log.Printf("[main] votes error: %v", err)
 		}
 	}
 	if *senateFlag || shouldRunAll {
-		if err := crawlSenate(conn, client, delay); err != nil {
+		if err := crawlSenate(conn, client, delay, ""); err != nil {
 			log.Printf("[main] senate error: %v", err)
 		}
 	}
@@ -104,9 +104,14 @@ func main() {
 }
 
 // ── domain crawlers ───────────────────────────────────────────────────────────
+//
+// Each function accepts an optional sourceURL parameter. When empty ("") the
+// crawler falls back to the real government website URL. Passing a non-empty
+// value injects a test server, making each function independently testable
+// without hitting the network.
 
-func crawlCalendar(conn *sql.DB, client *http.Client, delay time.Duration) error {
-	dates, err := scraper.CrawlSittingCalendar("", client)
+func crawlCalendar(conn *sql.DB, client *http.Client, delay time.Duration, sourceURL string) error {
+	dates, err := scraper.CrawlSittingCalendar(sourceURL, client)
 	if err != nil {
 		return err
 	}
@@ -118,8 +123,8 @@ func crawlCalendar(conn *sql.DB, client *http.Client, delay time.Duration) error
 	return nil
 }
 
-func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration) error {
-	stubs, err := scraper.CrawlBillsRSS("", client)
+func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration, rssURL string) error {
+	stubs, err := scraper.CrawlBillsRSS(rssURL, client)
 	if err != nil {
 		return err
 	}
@@ -175,13 +180,14 @@ func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration) error {
 	return nil
 }
 
-func crawlMembers(conn *sql.DB, client *http.Client, delay time.Duration) error {
-	stubs, err := scraper.CrawlMembersList("", client)
+func crawlMembers(conn *sql.DB, client *http.Client, delay time.Duration, listURL, profileBaseURL string) error {
+	stubs, err := scraper.CrawlMembersList(listURL, client)
 	if err != nil {
 		return err
 	}
 	for _, stub := range stubs {
-		profile, err := scraper.CrawlMemberProfile(stub.ID, "", client)
+		profileURL := profileBaseURL // use override if set; otherwise CrawlMemberProfile constructs the real URL
+		profile, err := scraper.CrawlMemberProfile(stub.ID, profileURL, client)
 		if err != nil {
 			log.Printf("[members] profile error for %s: %v", stub.ID, err)
 		}
@@ -216,8 +222,8 @@ func crawlMembers(conn *sql.DB, client *http.Client, delay time.Duration) error 
 	return nil
 }
 
-func crawlVotes(conn *sql.DB, client *http.Client, delay time.Duration) error {
-	divs, err := scraper.CrawlVotesIndex("", scraper.CurrentParliament, scraper.CurrentSession, client)
+func crawlVotes(conn *sql.DB, client *http.Client, delay time.Duration, indexURL string) error {
+	divs, err := scraper.CrawlVotesIndex(indexURL, scraper.CurrentParliament, scraper.CurrentSession, client)
 	if err != nil {
 		return err
 	}
@@ -259,8 +265,8 @@ func crawlVotes(conn *sql.DB, client *http.Client, delay time.Duration) error {
 	return nil
 }
 
-func crawlSenate(conn *sql.DB, client *http.Client, delay time.Duration) error {
-	divs, err := scraper.CrawlSenateVotesIndex("", scraper.CurrentParliament, scraper.CurrentSession, client)
+func crawlSenate(conn *sql.DB, client *http.Client, delay time.Duration, indexURL string) error {
+	divs, err := scraper.CrawlSenateVotesIndex(indexURL, scraper.CurrentParliament, scraper.CurrentSession, client)
 	if err != nil {
 		return err
 	}
@@ -305,15 +311,15 @@ func crawlSenate(conn *sql.DB, client *http.Client, delay time.Duration) error {
 // ── scheduled helpers ─────────────────────────────────────────────────────────
 
 func runAll(conn *sql.DB, client *http.Client, delay time.Duration) error {
-	crawlCalendar(conn, client, delay)
-	crawlBills(conn, client, delay)
-	crawlMembers(conn, client, delay)
-	crawlVotes(conn, client, delay)
-	crawlSenate(conn, client, delay)
+	crawlCalendar(conn, client, delay, "")
+	crawlBills(conn, client, delay, "")
+	crawlMembers(conn, client, delay, "", "")
+	crawlVotes(conn, client, delay, "")
+	crawlSenate(conn, client, delay, "")
 	return nil
 }
 
-func runFrequentVoteCheck(conn *sql.DB, client *http.Client, delay time.Duration) error {
+func runFrequentVoteCheck(conn *sql.DB, client *http.Client, delay time.Duration, votesURL string) error {
 	dates, err := db.SittingDates(conn, scraper.CurrentParliament, scraper.CurrentSession)
 	if err != nil {
 		return err
@@ -322,5 +328,5 @@ func runFrequentVoteCheck(conn *sql.DB, client *http.Client, delay time.Duration
 		log.Println("[scheduler] parliament not sitting today — skipping frequent vote check")
 		return nil
 	}
-	return crawlVotes(conn, client, delay)
+	return crawlVotes(conn, client, delay, votesURL)
 }
