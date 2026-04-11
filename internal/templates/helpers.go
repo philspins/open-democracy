@@ -49,8 +49,14 @@ func StageLabel(key string) string {
 			return s.Label + " Reading"
 		}
 	}
-	// Fallback: replace underscores and title-case
-	return strings.ReplaceAll(strings.Title(strings.ReplaceAll(key, "_", " ")), "  ", " ") //nolint:staticcheck
+	// Fallback: replace underscores with spaces and capitalise each word.
+	words := strings.Fields(strings.ReplaceAll(key, "_", " "))
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // StageIndexOf returns the 0-based index of a stage in StageOrder, or -1 if not found.

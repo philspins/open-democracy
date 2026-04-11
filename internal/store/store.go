@@ -440,31 +440,58 @@ func (s *Store) GetMemberVotes(id string, limit int) ([]VoteRow, error) {
 	}
 	rows.Close()
 
+	if len(rawVotes) == 0 {
+		return nil, nil
+	}
+
 	// Get member's party
 	var party string
 	_ = s.db.QueryRow("SELECT COALESCE(party,'') FROM members WHERE id = ?", id).Scan(&party)
 
+	// Batch-fetch party majority for all divisions in one query.
+	// partyMajority maps division_id → "Yea" | "Nay" | ""
+	partyMajorityMap := make(map[string]string, len(rawVotes))
+	if party != "" {
+		divIDs := make([]string, len(rawVotes))
+		for i, rv := range rawVotes {
+			divIDs[i] = rv.divisionID
+		}
+		placeholders := strings.Repeat("?,", len(divIDs))
+		placeholders = placeholders[:len(placeholders)-1]
+		args := make([]interface{}, 0, len(divIDs)+1)
+		for _, d := range divIDs {
+			args = append(args, d)
+		}
+		args = append(args, party)
+
+		pmRows, err := s.db.Query(`
+			SELECT mv.division_id,
+			       COALESCE(SUM(CASE WHEN mv.vote = 'Yea' THEN 1 ELSE 0 END), 0),
+			       COALESCE(SUM(CASE WHEN mv.vote = 'Nay' THEN 1 ELSE 0 END), 0)
+			FROM member_votes mv
+			JOIN members m ON m.id = mv.member_id
+			WHERE mv.division_id IN (`+placeholders+`) AND m.party = ?
+			GROUP BY mv.division_id`, args...)
+		if err == nil {
+			defer pmRows.Close()
+			for pmRows.Next() {
+				var divID string
+				var y, n int
+				if err := pmRows.Scan(&divID, &y, &n); err == nil {
+					if y > n {
+						partyMajorityMap[divID] = "Yea"
+					} else if n > y {
+						partyMajorityMap[divID] = "Nay"
+					}
+				}
+			}
+		}
+	}
+
 	out := make([]VoteRow, 0, len(rawVotes))
 	for _, rv := range rawVotes {
-		partyMajority := ""
-		votedWithParty := false
-		if party != "" {
-			var yeas, nays int
-			_ = s.db.QueryRow(`
-				SELECT
-					COALESCE(SUM(CASE WHEN mv.vote = 'Yea' THEN 1 ELSE 0 END), 0),
-					COALESCE(SUM(CASE WHEN mv.vote = 'Nay' THEN 1 ELSE 0 END), 0)
-				FROM member_votes mv
-				JOIN members m ON m.id = mv.member_id
-				WHERE mv.division_id = ? AND m.party = ?`,
-				rv.divisionID, party).Scan(&yeas, &nays)
-			if yeas > nays {
-				partyMajority = "Yea"
-			} else if nays > yeas {
-				partyMajority = "Nay"
-			}
-			votedWithParty = partyMajority != "" && rv.vote == partyMajority
-		}
+		partyMajority := partyMajorityMap[rv.divisionID]
+		votedWithParty := partyMajority != "" && rv.vote == partyMajority
 		out = append(out, VoteRow{
 			DivisionID:     rv.divisionID,
 			Date:           rv.date,
@@ -514,28 +541,47 @@ func (s *Store) GetMemberStats(id string) (MemberStats, error) {
 	totalVoted := len(votes)
 	partyLine := 0
 
-	for _, dv := range votes {
-		if party == "" {
-			continue
+	// Batch-fetch party majority for all divisions in one query to avoid N+1.
+	if len(votes) > 0 && party != "" {
+		divIDs := make([]string, len(votes))
+		memberVoteMap := make(map[string]string, len(votes))
+		for i, dv := range votes {
+			divIDs[i] = dv.divisionID
+			memberVoteMap[dv.divisionID] = dv.vote
 		}
-		var yeas, nays int
-		_ = s.db.QueryRow(`
-			SELECT
-				COALESCE(SUM(CASE WHEN mv.vote = 'Yea' THEN 1 ELSE 0 END), 0),
-				COALESCE(SUM(CASE WHEN mv.vote = 'Nay' THEN 1 ELSE 0 END), 0)
+		placeholders := strings.Repeat("?,", len(divIDs))
+		placeholders = placeholders[:len(placeholders)-1]
+		args := make([]interface{}, 0, len(divIDs)+2)
+		for _, d := range divIDs {
+			args = append(args, d)
+		}
+		args = append(args, party, id)
+
+		pmRows, err := s.db.Query(`
+			SELECT mv.division_id,
+			       COALESCE(SUM(CASE WHEN mv.vote = 'Yea' THEN 1 ELSE 0 END), 0),
+			       COALESCE(SUM(CASE WHEN mv.vote = 'Nay' THEN 1 ELSE 0 END), 0)
 			FROM member_votes mv
 			JOIN members m ON m.id = mv.member_id
-			WHERE mv.division_id = ? AND m.party = ? AND m.id != ?`,
-			dv.divisionID, party, id).Scan(&yeas, &nays)
-
-		partyMajority := ""
-		if yeas > nays {
-			partyMajority = "Yea"
-		} else if nays > yeas {
-			partyMajority = "Nay"
-		}
-		if partyMajority != "" && dv.vote == partyMajority {
-			partyLine++
+			WHERE mv.division_id IN (`+placeholders+`) AND m.party = ? AND m.id != ?
+			GROUP BY mv.division_id`, args...)
+		if err == nil {
+			defer pmRows.Close()
+			for pmRows.Next() {
+				var divID string
+				var y, n int
+				if scanErr := pmRows.Scan(&divID, &y, &n); scanErr == nil {
+					partyMajority := ""
+					if y > n {
+						partyMajority = "Yea"
+					} else if n > y {
+						partyMajority = "Nay"
+					}
+					if partyMajority != "" && memberVoteMap[divID] == partyMajority {
+						partyLine++
+					}
+				}
+			}
 		}
 	}
 
