@@ -24,3 +24,5 @@ civictracker_cache.sqlite
 *.swp
 *.swo
 
+*.db-shm
+*.db-wal

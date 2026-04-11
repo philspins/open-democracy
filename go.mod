@@ -4,13 +4,13 @@ go 1.25.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.12.0
+	github.com/a-h/templ v0.3.1001
 	github.com/mattn/go-sqlite3 v1.14.42
 	github.com/mmcdole/gofeed v1.3.0
 	github.com/robfig/cron/v3 v3.0.1
 )
 
 require (
-	github.com/a-h/templ v0.3.1001 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mmcdole/goxpp v1.1.1-0.20240225020742-a0c311522b23 // indirect
