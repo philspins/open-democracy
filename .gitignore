@@ -1,6 +1,8 @@
 # Go build artefacts
 /bin/
 /dist/
+/crawler
+/civictracker-crawler
 *.exe
 *.exe~
 *.dll
