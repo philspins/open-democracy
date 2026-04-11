@@ -61,6 +61,11 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# CivicTracker runtime files
+civictracker.db
+civictracker_cache.sqlite
+*_cache.sqlite
+
 # Flask stuff:
 instance/
 .webassets-cache
