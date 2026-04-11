@@ -1,0 +1,64 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/philspins/open-democracy/internal/store"
+)
+
+templ CompareMPs(ps store.ParliamentStatus, m1, m2 store.MemberRow, overlap, total int) {
+	@Layout("Compare MPs", ps) {
+		<div class="space-y-6">
+			<h1 class="text-2xl font-bold text-gray-900">Compare MPs</h1>
+
+			<form method="GET" action="/compare" class="flex flex-wrap gap-3 items-center bg-white rounded-lg border border-gray-200 p-4">
+				<div class="flex-1">
+					<label class="text-xs text-gray-500 block mb-1">MP 1 (ID)</label>
+					<input type="text" name="a" value={ m1.ID } placeholder="Member ID"
+						class="border border-gray-300 rounded px-3 py-1.5 text-sm w-full"/>
+				</div>
+				<div class="flex-1">
+					<label class="text-xs text-gray-500 block mb-1">MP 2 (ID)</label>
+					<input type="text" name="b" value={ m2.ID } placeholder="Member ID"
+						class="border border-gray-300 rounded px-3 py-1.5 text-sm w-full"/>
+				</div>
+				<button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 self-end">Compare</button>
+			</form>
+
+			if m1.ID != "" && m2.ID != "" {
+				<div class="grid grid-cols-2 gap-6">
+					@memberCompactCard(m1)
+					@memberCompactCard(m2)
+				</div>
+
+				<div class="bg-white rounded-lg border border-gray-200 p-6 text-center">
+					if total > 0 {
+						<p class="text-4xl font-bold text-blue-700">{ fmt.Sprintf("%.0f%%", float64(overlap)/float64(total)*100) }</p>
+						<p class="text-gray-600 mt-1">Agreement rate</p>
+						<p class="text-sm text-gray-400 mt-2">{ fmt.Sprint(overlap) } matching votes out of { fmt.Sprint(total) } shared divisions</p>
+					} else {
+						<p class="text-gray-500">No shared votes found.</p>
+					}
+				</div>
+			}
+		</div>
+	}
+}
+
+templ memberCompactCard(m store.MemberRow) {
+	<div class="bg-white rounded-lg border border-gray-200 p-4">
+		<div class="flex items-center gap-3">
+			if m.PhotoURL != "" {
+				<img src={ m.PhotoURL } alt={ m.Name } class="w-12 h-12 rounded-full object-cover"/>
+			} else {
+				<div class="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-gray-400 text-lg font-semibold">
+					{ string([]rune(m.Name)[0:1]) }
+				</div>
+			}
+			<div>
+				<p class="font-medium text-gray-900">{ m.Name }</p>
+				<p class={ "text-sm", PartyClass(m.Party) }>{ m.Party }</p>
+				<p class="text-xs text-gray-500">{ m.Riding }</p>
+			</div>
+		</div>
+	</div>
+}

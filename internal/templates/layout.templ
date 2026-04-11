@@ -1,0 +1,51 @@
+package templates
+
+import "github.com/philspins/open-democracy/internal/store"
+
+templ Layout(title string, ps store.ParliamentStatus) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title } — CivicTracker</title>
+			<script src="https://cdn.tailwindcss.com"></script>
+		</head>
+		<body class="bg-gray-50 text-gray-900 min-h-screen">
+			<!-- Nav -->
+			<nav class="bg-white border-b border-gray-200 sticky top-0 z-10">
+				<div class="max-w-6xl mx-auto px-4 flex items-center justify-between h-14">
+					<div class="flex items-center gap-6">
+						<a href="/" class="font-bold text-blue-700 text-lg">CivicTracker</a>
+						<a href="/bills" class="text-sm text-gray-600 hover:text-blue-700">Bills</a>
+						<a href="/votes" class="text-sm text-gray-600 hover:text-blue-700">Votes</a>
+						<a href="/members" class="text-sm text-gray-600 hover:text-blue-700">MPs</a>
+						<a href="/compare" class="text-sm text-gray-600 hover:text-blue-700">Compare</a>
+					</div>
+					<form method="GET" action="/riding" class="flex items-center gap-2">
+						<input type="text" name="postal" placeholder="Riding / postal code"
+							class="border border-gray-300 rounded px-2 py-1 text-sm w-44"/>
+						<button type="submit" class="text-sm bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">Find MP</button>
+					</form>
+				</div>
+			</nav>
+			<!-- Session banner -->
+			if ps.Status == "in_session" {
+				<div class="bg-green-600 text-white text-center text-sm py-1 px-4">
+					🟢 { ps.Label } — { ps.Detail }
+				</div>
+			} else if ps.Status == "on_break" {
+				<div class="bg-amber-500 text-white text-center text-sm py-1 px-4">
+					🟡 { ps.Label } — { ps.Detail }
+				</div>
+			}
+			<!-- Main content -->
+			<main class="max-w-6xl mx-auto px-4 py-8">
+				{ children... }
+			</main>
+			<footer class="border-t border-gray-200 mt-16 py-6 text-center text-xs text-gray-400">
+				CivicTracker — Data sourced from the Parliament of Canada Open Data portal
+			</footer>
+		</body>
+	</html>
+}

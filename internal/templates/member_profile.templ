@@ -1,0 +1,112 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/philspins/open-democracy/internal/store"
+)
+
+templ MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []store.VoteRow, stats store.MemberStats) {
+	@Layout(member.Name, ps) {
+		<div class="space-y-6">
+			<a href="/members" class="text-sm text-blue-600 hover:underline">← Members</a>
+
+			<!-- Header -->
+			<div class="bg-white rounded-lg border border-gray-200 p-6 flex items-start gap-6">
+				if member.PhotoURL != "" {
+					<img src={ member.PhotoURL } alt={ member.Name } class="w-24 h-24 rounded-full object-cover flex-shrink-0"/>
+				} else {
+					<div class="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-3xl font-semibold flex-shrink-0">
+						{ string([]rune(member.Name)[0:1]) }
+					</div>
+				}
+				<div>
+					<h1 class="text-2xl font-bold text-gray-900">{ member.Name }</h1>
+					<p class={ "text-lg", PartyClass(member.Party) }>{ member.Party }</p>
+					<p class="text-gray-600">{ member.Riding } · { member.Province }</p>
+					if member.Role != "" {
+						<p class="text-sm text-gray-500 mt-1">{ member.Role }</p>
+					}
+					<div class="flex gap-4 mt-2">
+						if member.Email != "" {
+							<a href={ templ.SafeURL("mailto:" + member.Email) } class="text-sm text-blue-600 hover:underline">Email</a>
+						}
+						if member.Website != "" {
+							<a href={ templ.SafeURL(member.Website) } target="_blank" rel="noopener" class="text-sm text-blue-600 hover:underline">Website</a>
+						}
+					</div>
+				</div>
+			</div>
+
+			<!-- Stats -->
+			<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+				<div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
+					<p class="text-2xl font-bold text-gray-900">{ fmt.Sprint(stats.TotalVotes) }</p>
+					<p class="text-sm text-gray-500">Total Votes</p>
+				</div>
+				<div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
+					<p class="text-2xl font-bold text-green-600">{ fmt.Sprint(stats.PartyLinePct) }%</p>
+					<p class="text-sm text-gray-500">Party Line</p>
+				</div>
+				<div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
+					<p class="text-2xl font-bold text-orange-500">{ fmt.Sprint(stats.RebelPct) }%</p>
+					<p class="text-sm text-gray-500">Against Party</p>
+				</div>
+				<div class="bg-white rounded-lg border border-gray-200 p-4 text-center">
+					<p class="text-2xl font-bold text-gray-500">{ fmt.Sprint(stats.MissedPct) }%</p>
+					<p class="text-sm text-gray-500">Missed Votes</p>
+				</div>
+			</div>
+
+			<!-- Compare link -->
+			<div>
+				<a href={ templ.SafeURL("/compare?a=" + member.ID) } class="text-sm text-blue-600 hover:underline">Compare with another MP →</a>
+			</div>
+
+			<!-- Vote history -->
+			<section>
+				<h2 class="text-lg font-semibold text-gray-800 mb-3">Recent Votes</h2>
+				<div class="overflow-x-auto bg-white rounded-lg border border-gray-200">
+					<table class="min-w-full text-sm">
+						<thead>
+							<tr class="bg-gray-50 text-left text-xs text-gray-500 border-b">
+								<th class="px-4 py-2">Date</th>
+								<th class="px-4 py-2">Vote</th>
+								<th class="px-4 py-2">Bill</th>
+								<th class="px-4 py-2">Description</th>
+								<th class="px-4 py-2">Result</th>
+								<th class="px-4 py-2">Party</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100">
+							for _, v := range votes {
+								<tr class="hover:bg-gray-50">
+									<td class="px-4 py-2 text-gray-500 whitespace-nowrap">{ FormatDate(v.Date) }</td>
+									<td class={ "px-4 py-2", VoteBadgeClass(v.Vote) }>{ v.Vote }</td>
+									<td class="px-4 py-2">
+										if v.BillNumber != "" {
+											<a href={ templ.SafeURL("/bills/" + v.BillID) } class="text-blue-600 hover:underline font-mono">{ v.BillNumber }</a>
+										}
+									</td>
+									<td class="px-4 py-2 max-w-xs truncate text-gray-700">{ v.Description }</td>
+									<td class="px-4 py-2 text-gray-500">{ v.Result }</td>
+									<td class="px-4 py-2">
+										if v.VotedWithParty {
+											<span class="text-green-600 text-xs">✓ party</span>
+										} else if v.PartyMajority != "" {
+											<span class="text-orange-500 text-xs">✗ rebel</span>
+										}
+									</td>
+								</tr>
+							}
+							if len(votes) == 0 {
+								<tr>
+									<td colspan="6" class="px-4 py-8 text-center text-gray-500">No votes recorded.</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			</section>
+		</div>
+	}
+}
