@@ -46,7 +46,7 @@ go test ./internal/scraper/... -v
 go test ./... -run TestCrawlSenate
 ```
 
-All 85 tests are offline — they use `httptest.Server` and temporary SQLite files; no network access is required.
+All 95 tests are offline — they use `httptest.Server` and temporary SQLite files; no network access is required.
 
 ---
 
@@ -85,8 +85,26 @@ The `civictracker-crawler` binary fetches data from Canadian public government s
 |---|---|---|
 | `--db PATH` | `civictracker.db` | Path to the SQLite database file |
 | `--delay MS` | `500` | Milliseconds to sleep between HTTP requests |
+| `--parallelism N` | `5` | Max domain crawlers running concurrently (env: `CRAWLER_PARALLELISM`) |
 | `--schedule` | — | Run the background scheduler (blocks indefinitely) |
 | `-v` | — | Verbose logging |
+
+### Parallelism
+
+By default all five domain crawlers (calendar, bills, members, votes, senate) run concurrently. Use `--parallelism` or the `CRAWLER_PARALLELISM` environment variable to cap concurrency. A value of `1` runs crawlers sequentially.
+
+```bash
+# Run at most 2 crawlers at a time
+./civictracker-crawler --parallelism 2
+
+# Using the environment variable
+CRAWLER_PARALLELISM=2 ./civictracker-crawler
+
+# Sequential (safe for low-resource environments)
+./civictracker-crawler --parallelism 1
+```
+
+The semaphore pattern is used internally: a buffered channel of size N limits the number of goroutines that may execute concurrently. Each domain crawler acquires a slot on start and releases it when done.
 
 ### Scheduled mode
 

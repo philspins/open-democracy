@@ -6,15 +6,16 @@
 //
 // Flags:
 //
-//	--bills       Crawl bills only (LEGISinfo RSS + detail)
-//	--votes       Crawl Commons votes only
-//	--senate      Crawl Senate votes only
-//	--members     Crawl MP profiles only
-//	--calendar    Crawl sitting calendar only
-//	--schedule    Run the APScheduler (blocks indefinitely)
-//	--db PATH     Path to SQLite database file (default: civictracker.db)
-//	--delay MS    Milliseconds between HTTP requests (default: 500)
-//	-v            Verbose logging
+//	--bills           Crawl bills only (LEGISinfo RSS + detail)
+//	--votes           Crawl Commons votes only
+//	--senate          Crawl Senate votes only
+//	--members         Crawl MP profiles only
+//	--calendar        Crawl sitting calendar only
+//	--schedule        Run the APScheduler (blocks indefinitely)
+//	--db PATH         Path to SQLite database file (default: civictracker.db)
+//	--delay MS        Milliseconds between HTTP requests (default: 500)
+//	--parallelism N   Max domain crawlers to run concurrently (default: 5, env: CRAWLER_PARALLELISM)
+//	-v                Verbose logging
 //
 // If no specific domain flag is provided, all crawlers run once.
 package main
@@ -24,6 +25,9 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/philspins/open-democracy/internal/db"
@@ -41,6 +45,7 @@ func main() {
 	scheduleFlag := flag.Bool("schedule", false, "Run the APScheduler (blocks indefinitely)")
 	dbPath       := flag.String("db", db.DefaultPath, "Path to SQLite database file")
 	delayMS      := flag.Int("delay", 500, "Milliseconds between HTTP requests")
+	parallelism  := flag.Int("parallelism", defaultParallelism(), "Max domain crawlers to run concurrently (env: CRAWLER_PARALLELISM)")
 	verbose      := flag.Bool("v", false, "Verbose logging")
 	flag.Parse()
 
@@ -59,10 +64,11 @@ func main() {
 
 	// ── Scheduler mode ───────────────────────────────────────────────────────
 	if *scheduleFlag {
+		p := *parallelism
 		scheduler.Start(scheduler.Config{
 			DB: conn,
 			FullCrawlFn: func(sdb *sql.DB) error {
-				return runAll(sdb, client, delay)
+				return runAll(sdb, client, delay, p)
 			},
 			FrequentVoteCheck: func(sdb *sql.DB) error {
 				return runFrequentVoteCheck(sdb, client, delay, "")
@@ -74,33 +80,76 @@ func main() {
 	// ── One-shot mode ────────────────────────────────────────────────────────
 	shouldRunAll := !(*billsFlag || *votesFlag || *senateFlag || *membersFlag || *calendarFlag)
 
+	// Build the set of crawl tasks the user selected (or all if none specified).
+	type task struct {
+		name string
+		fn   func() error
+	}
+	var tasks []task
 	if *calendarFlag || shouldRunAll {
-		if err := crawlCalendar(conn, client, delay, ""); err != nil {
-			log.Printf("[main] calendar error: %v", err)
-		}
+		tasks = append(tasks, task{"calendar", func() error { return crawlCalendar(conn, client, delay, "") }})
 	}
 	if *billsFlag || shouldRunAll {
-		if err := crawlBills(conn, client, delay, ""); err != nil {
-			log.Printf("[main] bills error: %v", err)
-		}
+		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "") }})
 	}
 	if *membersFlag || shouldRunAll {
-		if err := crawlMembers(conn, client, delay, "", ""); err != nil {
-			log.Printf("[main] members error: %v", err)
-		}
+		tasks = append(tasks, task{"members", func() error { return crawlMembers(conn, client, delay, "", "") }})
 	}
 	if *votesFlag || shouldRunAll {
-		if err := crawlVotes(conn, client, delay, ""); err != nil {
-			log.Printf("[main] votes error: %v", err)
-		}
+		tasks = append(tasks, task{"votes", func() error { return crawlVotes(conn, client, delay, "") }})
 	}
 	if *senateFlag || shouldRunAll {
-		if err := crawlSenate(conn, client, delay, ""); err != nil {
-			log.Printf("[main] senate error: %v", err)
+		tasks = append(tasks, task{"senate", func() error { return crawlSenate(conn, client, delay, "") }})
+	}
+
+	// Wrap each task so errors are logged with the domain name.
+	fns := make([]func(), len(tasks))
+	for i, t := range tasks {
+		fns[i] = func() {
+			if err := t.fn(); err != nil {
+				log.Printf("[main] %s error: %v", t.name, err)
+			}
 		}
 	}
 
+	runParallel(*parallelism, fns)
 	log.Println("[main] done")
+}
+
+// ── parallelism helpers ───────────────────────────────────────────────────────
+
+// defaultParallelism reads the CRAWLER_PARALLELISM environment variable and
+// returns its integer value when set and valid. Otherwise it returns 5 (one
+// goroutine per domain crawler).
+func defaultParallelism() int {
+	if v := os.Getenv("CRAWLER_PARALLELISM"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 5
+}
+
+// runParallel runs each function in fns in its own goroutine, allowing at most
+// parallelism goroutines to execute concurrently (semaphore pattern). It waits
+// for all goroutines to finish before returning. parallelism < 1 is treated as 1.
+// Callers are responsible for handling errors (e.g. by logging) inside fns.
+func runParallel(parallelism int, fns []func()) {
+	if parallelism < 1 {
+		parallelism = 1
+	}
+	sem := make(chan struct{}, parallelism)
+	var wg sync.WaitGroup
+	for _, fn := range fns {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}        // acquire a slot
+			defer func() { <-sem }() // release on return
+			fn()
+		}()
+	}
+	wg.Wait()
 }
 
 // ── domain crawlers ───────────────────────────────────────────────────────────
@@ -310,12 +359,15 @@ func crawlSenate(conn *sql.DB, client *http.Client, delay time.Duration, indexUR
 
 // ── scheduled helpers ─────────────────────────────────────────────────────────
 
-func runAll(conn *sql.DB, client *http.Client, delay time.Duration) error {
-	crawlCalendar(conn, client, delay, "")
-	crawlBills(conn, client, delay, "")
-	crawlMembers(conn, client, delay, "", "")
-	crawlVotes(conn, client, delay, "")
-	crawlSenate(conn, client, delay, "")
+func runAll(conn *sql.DB, client *http.Client, delay time.Duration, parallelism int) error {
+	fns := []func(){
+		func() { crawlCalendar(conn, client, delay, "") },
+		func() { crawlBills(conn, client, delay, "") },
+		func() { crawlMembers(conn, client, delay, "", "") },
+		func() { crawlVotes(conn, client, delay, "") },
+		func() { crawlSenate(conn, client, delay, "") },
+	}
+	runParallel(parallelism, fns)
 	return nil
 }
 
@@ -330,3 +382,4 @@ func runFrequentVoteCheck(conn *sql.DB, client *http.Client, delay time.Duration
 	}
 	return crawlVotes(conn, client, delay, votesURL)
 }
+

@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -271,7 +273,139 @@ func TestCrawlSenate_ReturnsErrorOnBadServer(t *testing.T) {
 	}
 }
 
-// ── runFrequentVoteCheck ──────────────────────────────────────────────────────
+// ── runParallel ───────────────────────────────────────────────────────────────
+
+func TestRunParallel_RunsAllFunctions(t *testing.T) {
+	const n = 5
+	var mu sync.Mutex
+	called := make(map[int]bool)
+
+	fns := make([]func(), n)
+	for i := range fns {
+		fns[i] = func() {
+			mu.Lock()
+			called[i] = true
+			mu.Unlock()
+		}
+	}
+
+	runParallel(3, fns)
+
+	for i := range n {
+		if !called[i] {
+			t.Errorf("function %d was not called", i)
+		}
+	}
+}
+
+func TestRunParallel_RespectsParallelismLimit(t *testing.T) {
+	const parallelism = 2
+	const total = 6
+
+	var mu sync.Mutex
+	maxConcurrent := 0
+	current := 0
+
+	fns := make([]func(), total)
+	for i := range fns {
+		fns[i] = func() {
+			mu.Lock()
+			current++
+			if current > maxConcurrent {
+				maxConcurrent = current
+			}
+			mu.Unlock()
+
+			time.Sleep(5 * time.Millisecond) // simulate work
+
+			mu.Lock()
+			current--
+			mu.Unlock()
+		}
+	}
+
+	runParallel(parallelism, fns)
+
+	if maxConcurrent > parallelism {
+		t.Errorf("max concurrent goroutines=%d, want ≤%d", maxConcurrent, parallelism)
+	}
+}
+
+func TestRunParallel_SerialWhenParallelismOne(t *testing.T) {
+	order := make([]int, 0, 3)
+	var mu sync.Mutex
+
+	fns := []func(){
+		func() { mu.Lock(); order = append(order, 1); mu.Unlock() },
+		func() { mu.Lock(); order = append(order, 2); mu.Unlock() },
+		func() { mu.Lock(); order = append(order, 3); mu.Unlock() },
+	}
+
+	runParallel(1, fns)
+
+	if len(order) != 3 {
+		t.Errorf("expected 3 calls, got %d", len(order))
+	}
+}
+
+func TestRunParallel_NilParallelismDefaultsToSerial(t *testing.T) {
+	var called int32
+	fns := []func(){
+		func() { atomic.AddInt32(&called, 1) },
+		func() { atomic.AddInt32(&called, 1) },
+	}
+	runParallel(0, fns) // 0 treated as 1
+	if atomic.LoadInt32(&called) != 2 {
+		t.Errorf("expected 2 calls, got %d", called)
+	}
+}
+
+func TestRunParallel_EmptyFnsNoOp(t *testing.T) {
+	// Should not panic and should return immediately.
+	runParallel(5, nil)
+}
+
+// ── defaultParallelism ────────────────────────────────────────────────────────
+
+func TestDefaultParallelism_DefaultFive(t *testing.T) {
+	t.Setenv("CRAWLER_PARALLELISM", "")
+	got := defaultParallelism()
+	if got != 5 {
+		t.Errorf("defaultParallelism()=%d, want 5", got)
+	}
+}
+
+func TestDefaultParallelism_ReadsEnvVar(t *testing.T) {
+	t.Setenv("CRAWLER_PARALLELISM", "3")
+	got := defaultParallelism()
+	if got != 3 {
+		t.Errorf("defaultParallelism()=%d, want 3", got)
+	}
+}
+
+func TestDefaultParallelism_IgnoresInvalidEnvVar(t *testing.T) {
+	t.Setenv("CRAWLER_PARALLELISM", "not-a-number")
+	got := defaultParallelism()
+	if got != 5 {
+		t.Errorf("defaultParallelism()=%d, want 5 for invalid env", got)
+	}
+}
+
+func TestDefaultParallelism_IgnoresZeroEnvVar(t *testing.T) {
+	t.Setenv("CRAWLER_PARALLELISM", "0")
+	got := defaultParallelism()
+	if got != 5 {
+		t.Errorf("defaultParallelism()=%d, want 5 for zero env", got)
+	}
+}
+
+func TestDefaultParallelism_IgnoresNegativeEnvVar(t *testing.T) {
+	t.Setenv("CRAWLER_PARALLELISM", "-2")
+	got := defaultParallelism()
+	if got != 5 {
+		t.Errorf("defaultParallelism()=%d, want 5 for negative env", got)
+	}
+}
 
 func TestRunFrequentVoteCheck_SkipsWhenNotSitting(t *testing.T) {
 	conn := newDB(t)
