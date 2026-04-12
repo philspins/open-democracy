@@ -1,4 +1,4 @@
-// Package store provides read-only query helpers for the CivicTracker web frontend.
+// Package store provides read-only query helpers for the Open Democracy web frontend.
 package store
 
 import (

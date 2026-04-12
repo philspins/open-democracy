@@ -1,4 +1,4 @@
-# CivicTracker — Implementation Plan Overview
+# Open Democracy — Implementation Plan Overview
 
 > A Canadian civic transparency platform built almost entirely on existing open government data.
 

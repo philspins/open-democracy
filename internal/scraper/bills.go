@@ -1,4 +1,4 @@
-// Package scraper implements all the data scrapers for CivicTracker.
+// Package scraper implements all the data scrapers for Open Democracy.
 //
 // Bills:
 //   - LEGISinfo RSS feed   → bill stubs

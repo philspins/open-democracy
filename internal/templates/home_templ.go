@@ -51,7 +51,7 @@ func Home(ps store.ParliamentStatus, bills []store.BillRow, divs []store.Divisio
 			if federalParty == "" {
 				federalParty = defaultFederalParty()
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><section class=\"hero-panel\"><div class=\"title-row\"><div><span class=\"kicker\">CivicTracker Overview</span><h1 class=\"page-title mt-3\">Your representatives and what they are voting on</h1><p class=\"section-lead mt-3 max-w-2xl\">Follow bills and recorded divisions from the ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><section class=\"hero-panel\"><div class=\"title-row\"><div><span class=\"kicker\">Open Democracy Overview</span><h1 class=\"page-title mt-3\">Your representatives and what they are voting on</h1><p class=\"section-lead mt-3 max-w-2xl\">Follow bills and recorded divisions from the ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

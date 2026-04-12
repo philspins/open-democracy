@@ -1,4 +1,4 @@
-// Package templates provides templ components and helper functions for CivicTracker.
+// Package templates provides templ components and helper functions for Open Democracy.
 package templates
 
 import (
