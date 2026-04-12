@@ -609,3 +609,126 @@ func ordinal(n int) string {
 	}
 	return "th"
 }
+
+// ── phase 4: user engagement ────────────────────────────────────────────────
+
+func userIDFromEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func (s *Store) UpsertUser(email, postalCode string) (UserRow, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return UserRow{}, fmt.Errorf("email required")
+	}
+	id := userIDFromEmail(email)
+	postalCode = strings.TrimSpace(postalCode)
+
+	_, err := s.db.Exec(`
+		INSERT INTO users (id, email, postal_code)
+		VALUES (?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			email = excluded.email,
+			postal_code = CASE WHEN excluded.postal_code != '' THEN excluded.postal_code ELSE users.postal_code END`,
+		id, email, postalCode)
+	if err != nil {
+		return UserRow{}, err
+	}
+
+	var u UserRow
+	err = s.db.QueryRow(`
+		SELECT id, COALESCE(email,''), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
+		       COALESCE(provincial_riding_id,''), COALESCE(created_at,''), COALESCE(email_digest,'weekly')
+		FROM users WHERE id = ?`, id).Scan(
+		&u.ID, &u.Email, &u.PostalCode, &u.FederalRidingID, &u.ProvincialRidingID, &u.CreatedAt, &u.EmailDigest,
+	)
+	return u, err
+}
+
+func (s *Store) FollowMember(email, postalCode, memberID string) error {
+	u, err := s.UpsertUser(email, postalCode)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`
+		INSERT INTO user_follows (user_id, member_id)
+		VALUES (?, ?)
+		ON CONFLICT(user_id, member_id) DO NOTHING`, u.ID, memberID)
+	return err
+}
+
+func (s *Store) ReactToBill(email, postalCode, billID, reaction, note string) error {
+	reaction = strings.ToLower(strings.TrimSpace(reaction))
+	if reaction != "support" && reaction != "oppose" && reaction != "neutral" {
+		return fmt.Errorf("invalid reaction")
+	}
+	u, err := s.UpsertUser(email, postalCode)
+	if err != nil {
+		return err
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO bill_reactions (user_id, bill_id, reaction, note)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(user_id, bill_id) DO UPDATE SET
+			reaction = excluded.reaction,
+			note = excluded.note,
+			created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`,
+		u.ID, billID, reaction, strings.TrimSpace(note))
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO bill_reaction_counts (bill_id, support_count, oppose_count, neutral_count, total_reactions, refreshed_at)
+		SELECT
+			?,
+			COALESCE(SUM(CASE WHEN reaction='support' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN reaction='oppose' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN reaction='neutral' THEN 1 ELSE 0 END),0),
+			COUNT(*),
+			strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+		FROM bill_reactions WHERE bill_id = ?
+		ON CONFLICT(bill_id) DO UPDATE SET
+			support_count = excluded.support_count,
+			oppose_count = excluded.oppose_count,
+			neutral_count = excluded.neutral_count,
+			total_reactions = excluded.total_reactions,
+			refreshed_at = excluded.refreshed_at`, billID, billID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) GetBillReactionCounts(billID string) (BillReactionCounts, error) {
+	var c BillReactionCounts
+	err := s.db.QueryRow(`
+		SELECT bill_id, support_count, oppose_count, neutral_count, total_reactions, COALESCE(refreshed_at,'')
+		FROM bill_reaction_counts WHERE bill_id = ?`, billID).Scan(
+		&c.BillID, &c.SupportCount, &c.OpposeCount, &c.NeutralCount, &c.TotalReactions, &c.RefreshedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return BillReactionCounts{BillID: billID}, nil
+	}
+	return c, err
+}
+
+func (s *Store) LogPolicySubmission(email, postalCode, memberID, subject, body, category string) error {
+	u, err := s.UpsertUser(email, postalCode)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`
+		INSERT INTO policy_submissions (user_id, member_id, subject, body, category)
+		VALUES (?, ?, ?, ?, ?)`,
+		u.ID, memberID, strings.TrimSpace(subject), strings.TrimSpace(body), strings.TrimSpace(category))
+	return err
+}

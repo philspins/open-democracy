@@ -104,11 +104,53 @@ func Migrate(db *sql.DB) error {
 			date       TEXT,
 			PRIMARY KEY (parliament, session, date)
 		)`,
+		`CREATE TABLE IF NOT EXISTS users (
+			id                   TEXT PRIMARY KEY,
+			email                TEXT UNIQUE,
+			postal_code          TEXT,
+			federal_riding_id    TEXT,
+			provincial_riding_id TEXT,
+			created_at           TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+			email_digest         TEXT DEFAULT 'weekly'
+		)`,
+		`CREATE TABLE IF NOT EXISTS user_follows (
+			user_id    TEXT REFERENCES users(id) ON DELETE CASCADE,
+			member_id  TEXT REFERENCES members(id) ON DELETE CASCADE,
+			created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+			PRIMARY KEY (user_id, member_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS bill_reactions (
+			user_id    TEXT REFERENCES users(id) ON DELETE CASCADE,
+			bill_id    TEXT REFERENCES bills(id) ON DELETE CASCADE,
+			reaction   TEXT CHECK (reaction IN ('support', 'oppose', 'neutral')),
+			note       TEXT,
+			created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+			PRIMARY KEY (user_id, bill_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS policy_submissions (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id      TEXT REFERENCES users(id),
+			member_id    TEXT REFERENCES members(id),
+			subject      TEXT,
+			body         TEXT,
+			category     TEXT,
+			submitted_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS bill_reaction_counts (
+			bill_id          TEXT PRIMARY KEY REFERENCES bills(id),
+			support_count    INTEGER DEFAULT 0,
+			oppose_count     INTEGER DEFAULT 0,
+			neutral_count    INTEGER DEFAULT 0,
+			total_reactions  INTEGER DEFAULT 0,
+			refreshed_at     TEXT
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_divisions_bill      ON divisions(bill_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_member_votes_member ON member_votes(member_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_bills_stage         ON bills(current_stage)`,
 		`CREATE INDEX IF NOT EXISTS idx_bills_category      ON bills(category)`,
 		`CREATE INDEX IF NOT EXISTS idx_bill_stages_bill    ON bill_stages(bill_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_follows_member ON user_follows(member_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_bill_reactions_bill ON bill_reactions(bill_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

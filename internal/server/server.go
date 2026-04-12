@@ -2,6 +2,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -28,6 +29,9 @@ func New(st *store.Store) *Server {
 	s.mux.HandleFunc("GET /members/{id}", s.handleMemberProfile)
 	s.mux.HandleFunc("GET /compare", s.handleCompare)
 	s.mux.HandleFunc("GET /riding", s.handleRiding)
+	s.mux.HandleFunc("POST /api/follow", s.handleFollow)
+	s.mux.HandleFunc("POST /api/react", s.handleReact)
+	s.mux.HandleFunc("POST /api/log-submission", s.handleLogSubmission)
 	return s
 }
 
@@ -92,7 +96,8 @@ func (s *Server) handleBillDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	stages, _ := s.store.GetBillStages(id)
 	divs, _ := s.store.GetBillDivisions(id)
-	_ = templates.BillDetail(ps, bill, stages, divs).Render(r.Context(), w)
+	reactions, _ := s.store.GetBillReactionCounts(id)
+	_ = templates.BillDetail(ps, bill, stages, divs, reactions).Render(r.Context(), w)
 }
 
 func (s *Server) handleVotes(w http.ResponseWriter, r *http.Request) {
@@ -156,4 +161,93 @@ func (s *Server) handleRiding(w http.ResponseWriter, r *http.Request) {
 		members, _ = s.store.GetMembersByRiding(postal)
 	}
 	_ = templates.RidingLookup(ps, postal, members).Render(r.Context(), w)
+}
+
+func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	email := r.FormValue("email")
+	postal := r.FormValue("postal_code")
+	memberID := r.FormValue("member_id")
+	if strings.TrimSpace(email) == "" || strings.TrimSpace(memberID) == "" {
+		http.Error(w, "email and member_id required", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.FollowMember(email, postal, memberID); err != nil {
+		http.Error(w, "failed to follow", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/members/"+memberID, http.StatusSeeOther)
+}
+
+func (s *Server) handleReact(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	email := r.FormValue("email")
+	postal := r.FormValue("postal_code")
+	billID := r.FormValue("bill_id")
+	reaction := r.FormValue("reaction")
+	note := r.FormValue("note")
+	if strings.TrimSpace(email) == "" || strings.TrimSpace(billID) == "" {
+		http.Error(w, "email and bill_id required", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.ReactToBill(email, postal, billID, reaction, note); err != nil {
+		http.Error(w, "failed to save reaction", http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/bills/"+billID, http.StatusSeeOther)
+}
+
+func (s *Server) handleLogSubmission(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Email      string `json:"email"`
+		PostalCode string `json:"postal_code"`
+		MemberID   string `json:"member_id"`
+		Subject    string `json:"subject"`
+		Body       string `json:"body"`
+		Category   string `json:"category"`
+	}
+
+	contentType := r.Header.Get("Content-Type")
+	if strings.Contains(contentType, "application/json") {
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+	} else {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		payload.Email = r.FormValue("email")
+		payload.PostalCode = r.FormValue("postal_code")
+		payload.MemberID = r.FormValue("member_id")
+		payload.Subject = r.FormValue("subject")
+		payload.Body = r.FormValue("body")
+		payload.Category = r.FormValue("category")
+	}
+
+	if strings.TrimSpace(payload.Email) == "" || strings.TrimSpace(payload.MemberID) == "" {
+		http.Error(w, "email and member_id required", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.LogPolicySubmission(
+		payload.Email,
+		payload.PostalCode,
+		payload.MemberID,
+		payload.Subject,
+		payload.Body,
+		payload.Category,
+	); err != nil {
+		http.Error(w, "failed to log submission", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"ok":true}`))
 }

@@ -222,3 +222,86 @@ func TestCompareMemberVotes(t *testing.T) {
 		t.Errorf("want overlap=2, got %d", overlap)
 	}
 }
+
+func TestUpsertUserAndFollowMember(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, err := conn.Exec(`INSERT INTO members (id, name, chamber, active) VALUES ('m1', 'Jane MP', 'commons', 1)`)
+	if err != nil {
+		t.Fatalf("insert member: %v", err)
+	}
+
+	u, err := st.UpsertUser("person@example.com", "K1A0B1")
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+	if u.ID == "" || u.Email != "person@example.com" {
+		t.Fatalf("unexpected user: %+v", u)
+	}
+
+	if err := st.FollowMember("person@example.com", "K1A0B1", "m1"); err != nil {
+		t.Fatalf("FollowMember: %v", err)
+	}
+
+	var count int
+	err = conn.QueryRow(`SELECT COUNT(*) FROM user_follows WHERE user_id=? AND member_id='m1'`, u.ID).Scan(&count)
+	if err != nil {
+		t.Fatalf("query follow: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 follow row, got %d", count)
+	}
+}
+
+func TestReactToBillAndCounts(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, err := conn.Exec(`INSERT INTO bills (id, parliament, session, number, title) VALUES ('b1', 45, 1, 'C-1', 'Test Bill')`)
+	if err != nil {
+		t.Fatalf("insert bill: %v", err)
+	}
+
+	if err := st.ReactToBill("a@example.com", "", "b1", "support", "Looks good"); err != nil {
+		t.Fatalf("ReactToBill support: %v", err)
+	}
+	if err := st.ReactToBill("b@example.com", "", "b1", "oppose", "Concerned"); err != nil {
+		t.Fatalf("ReactToBill oppose: %v", err)
+	}
+	if err := st.ReactToBill("a@example.com", "", "b1", "neutral", "Updating vote"); err != nil {
+		t.Fatalf("ReactToBill update: %v", err)
+	}
+
+	c, err := st.GetBillReactionCounts("b1")
+	if err != nil {
+		t.Fatalf("GetBillReactionCounts: %v", err)
+	}
+	if c.TotalReactions != 2 || c.SupportCount != 0 || c.OpposeCount != 1 || c.NeutralCount != 1 {
+		t.Fatalf("unexpected counts: %+v", c)
+	}
+}
+
+func TestLogPolicySubmission(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, err := conn.Exec(`INSERT INTO members (id, name, chamber, active) VALUES ('m1', 'Jane MP', 'commons', 1)`)
+	if err != nil {
+		t.Fatalf("insert member: %v", err)
+	}
+
+	err = st.LogPolicySubmission("person@example.com", "K1A0B1", "m1", "Housing support", "Please support this bill", "Housing")
+	if err != nil {
+		t.Fatalf("LogPolicySubmission: %v", err)
+	}
+
+	var count int
+	err = conn.QueryRow(`SELECT COUNT(*) FROM policy_submissions`).Scan(&count)
+	if err != nil {
+		t.Fatalf("query submissions: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 submission row, got %d", count)
+	}
+}

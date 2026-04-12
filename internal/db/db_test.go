@@ -24,6 +24,7 @@ func TestMigrate_CreatesAllTables(t *testing.T) {
 	tables := []string{
 		"members", "bills", "divisions",
 		"member_votes", "bill_stages", "sitting_calendar",
+		"users", "user_follows", "bill_reactions", "policy_submissions", "bill_reaction_counts",
 	}
 	for _, tbl := range tables {
 		var name string
@@ -45,6 +46,8 @@ func TestMigrate_CreatesIndices(t *testing.T) {
 		"idx_bills_stage",
 		"idx_bills_category",
 		"idx_bill_stages_bill",
+		"idx_user_follows_member",
+		"idx_bill_reactions_bill",
 	}
 	for _, idx := range indices {
 		var name string

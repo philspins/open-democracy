@@ -95,3 +95,22 @@ type BillStageRow struct {
 	Date    string
 	Notes   string
 }
+
+type UserRow struct {
+	ID                 string
+	Email              string
+	PostalCode         string
+	FederalRidingID    string
+	ProvincialRidingID string
+	CreatedAt          string
+	EmailDigest        string
+}
+
+type BillReactionCounts struct {
+	BillID         string
+	SupportCount   int
+	OpposeCount    int
+	NeutralCount   int
+	TotalReactions int
+	RefreshedAt    string
+}

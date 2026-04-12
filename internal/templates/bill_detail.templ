@@ -5,7 +5,7 @@ import (
 	"github.com/philspins/open-democracy/internal/store"
 )
 
-templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.BillStageRow, divs []store.DivisionRow) {
+templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.BillStageRow, divs []store.DivisionRow, reactions store.BillReactionCounts) {
 	@Layout(bill.Number+" — "+ShortOrFullTitle(bill), ps) {
 		<div class="space-y-6">
 			<!-- Header -->
@@ -105,6 +105,39 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 					   class="text-sm text-blue-600 hover:underline">Full Text →</a>
 				}
 			</div>
+
+			<!-- Constituent sentiment -->
+			<section class="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+				<h2 class="text-lg font-semibold text-gray-800">Constituent Sentiment</h2>
+				<p class="text-sm text-gray-600">Total responses: { fmt.Sprint(reactions.TotalReactions) }</p>
+				<div class="space-y-2">
+					<div>
+						<div class="flex justify-between text-xs text-gray-600"><span>Support</span><span>{ fmt.Sprint(reactions.SupportCount) }</span></div>
+						<div class="h-2 bg-gray-100 rounded"><div class="h-2 bg-green-500 rounded" style={ fmt.Sprintf("width:%d%%", ReactionPercent(reactions.SupportCount, reactions.TotalReactions)) }></div></div>
+					</div>
+					<div>
+						<div class="flex justify-between text-xs text-gray-600"><span>Oppose</span><span>{ fmt.Sprint(reactions.OpposeCount) }</span></div>
+						<div class="h-2 bg-gray-100 rounded"><div class="h-2 bg-red-500 rounded" style={ fmt.Sprintf("width:%d%%", ReactionPercent(reactions.OpposeCount, reactions.TotalReactions)) }></div></div>
+					</div>
+					<div>
+						<div class="flex justify-between text-xs text-gray-600"><span>Neutral</span><span>{ fmt.Sprint(reactions.NeutralCount) }</span></div>
+						<div class="h-2 bg-gray-100 rounded"><div class="h-2 bg-gray-400 rounded" style={ fmt.Sprintf("width:%d%%", ReactionPercent(reactions.NeutralCount, reactions.TotalReactions)) }></div></div>
+					</div>
+				</div>
+
+				<form method="POST" action="/api/react" class="grid sm:grid-cols-2 gap-3 pt-2 border-t border-gray-100">
+					<input type="hidden" name="bill_id" value={ bill.ID }/>
+					<input type="email" name="email" class="input-field" placeholder="Your email" required/>
+					<input type="text" name="postal_code" class="input-field" placeholder="Postal code (optional)"/>
+					<select name="reaction" class="input-field" required>
+						<option value="support">Support</option>
+						<option value="oppose">Oppose</option>
+						<option value="neutral">Neutral</option>
+					</select>
+					<input type="text" name="note" class="input-field sm:col-span-2" placeholder="Optional note"/>
+					<button type="submit" class="btn btn-primary sm:col-span-2">Submit Reaction</button>
+				</form>
+			</section>
 
 			<!-- Divisions -->
 			if len(divs) > 0 {

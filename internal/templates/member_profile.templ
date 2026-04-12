@@ -62,6 +62,27 @@ templ MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []s
 				<a href={ templ.SafeURL("/compare?a=" + member.ID) } class="text-sm text-blue-600 hover:underline">Compare with another MP →</a>
 			</div>
 
+			<!-- Follow + policy actions -->
+			<section class="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
+				<h2 class="text-lg font-semibold text-gray-800">Engage With This MP</h2>
+				<form method="POST" action="/api/follow" class="grid sm:grid-cols-3 gap-3">
+					<input type="hidden" name="member_id" value={ member.ID }/>
+					<input type="email" name="email" class="input-field" placeholder="Your email" required/>
+					<input type="text" name="postal_code" class="input-field" placeholder="Postal code (optional)"/>
+					<button type="submit" class="btn btn-primary">Follow { member.Name }</button>
+				</form>
+
+				<form method="POST" action="/api/log-submission" class="grid sm:grid-cols-2 gap-3 pt-3 border-t border-gray-100">
+					<input type="hidden" name="member_id" value={ member.ID }/>
+					<input type="email" name="email" class="input-field" placeholder="Your email" required/>
+					<input type="text" name="postal_code" class="input-field" placeholder="Postal code (optional)"/>
+					<input type="text" name="category" class="input-field" placeholder="Category (e.g. Housing)"/>
+					<input type="text" name="subject" class="input-field sm:col-span-2" placeholder="Policy idea subject"/>
+					<textarea name="body" class="input-field sm:col-span-2" rows="5" placeholder="Describe your policy idea"></textarea>
+					<button type="submit" class="btn btn-secondary sm:col-span-2">Log Policy Submission</button>
+				</form>
+			</section>
+
 			<!-- Vote history -->
 			<section>
 				<h2 class="text-lg font-semibold text-gray-800 mb-3">Recent Votes</h2>

@@ -364,3 +364,10 @@ func truncate(s string, n int) string {
 func HasSummary(b store.BillRow) bool {
 	return strings.TrimSpace(b.SummaryLoP) != "" || strings.TrimSpace(b.SummaryAI) != ""
 }
+
+func ReactionPercent(count, total int) int {
+	if total <= 0 {
+		return 0
+	}
+	return (count * 100) / total
+}
