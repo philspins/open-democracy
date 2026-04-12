@@ -47,9 +47,6 @@ func selectedClaudeModels() []string {
 
 	// Fallback candidates to tolerate model deprecations/availability changes.
 	add(claudeModel)
-	add("claude-3-7-sonnet-20250219")
-	add("claude-3-5-sonnet-20241022")
-	add("claude-3-5-haiku-20241022")
 
 	return models
 }
