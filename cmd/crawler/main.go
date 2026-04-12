@@ -21,6 +21,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"log"
@@ -33,6 +34,7 @@ import (
 	"github.com/philspins/open-democracy/internal/db"
 	"github.com/philspins/open-democracy/internal/scraper"
 	"github.com/philspins/open-democracy/internal/scheduler"
+	"github.com/philspins/open-democracy/internal/summarizer"
 	"github.com/philspins/open-democracy/internal/utils"
 )
 
@@ -72,6 +74,12 @@ func main() {
 			},
 			FrequentVoteCheck: func(sdb *sql.DB) error {
 				return runFrequentVoteCheck(sdb, client, delay, "")
+			},
+			LoPSummaryFn: func(ctx context.Context, sdb *sql.DB) (int, error) {
+				return summarizer.DownloadLoPSummaries(ctx, sdb)
+			},
+			AISummarizationFn: func(ctx context.Context, sdb *sql.DB) (int, error) {
+				return summarizer.SummarizeNewBills(ctx, sdb, true)
 			},
 		})
 		return // never reached
