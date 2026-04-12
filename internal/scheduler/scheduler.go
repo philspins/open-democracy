@@ -99,8 +99,12 @@ func Start(cfg Config) {
 	log.Println("[scheduler] starting (UTC)")
 	log.Println("[scheduler]   nightly_full_crawl   : daily at 02:00 UTC")
 	log.Println("[scheduler]   frequent_vote_check  : every 4 hours")
-	log.Println("[scheduler]   lop_summary_download : daily at 04:00 UTC")
-	log.Println("[scheduler]   ai_summarization     : daily at 05:00 UTC")
+	if cfg.LoPSummaryFn != nil {
+		log.Println("[scheduler]   lop_summary_download : daily at 04:00 UTC")
+	}
+	if cfg.AISummarizationFn != nil {
+		log.Println("[scheduler]   ai_summarization     : daily at 05:00 UTC")
+	}
 
 	c := New(cfg)
 	c.Start()

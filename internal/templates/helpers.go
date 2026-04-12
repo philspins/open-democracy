@@ -34,10 +34,6 @@ func loadPartyTheme() PartyThemeConfig {
 		cfg := defaultPartyThemeConfig()
 		path := os.Getenv("PARTY_THEME_FILE")
 		if strings.TrimSpace(path) == "" {
-			// Backward compatibility for older environment configuration.
-			path = os.Getenv("PARTY_THEME_FILE")
-		}
-		if strings.TrimSpace(path) == "" {
 			path = "config/party-theme.json"
 		}
 		if b, err := os.ReadFile(path); err == nil {
