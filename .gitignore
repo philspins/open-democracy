@@ -2,7 +2,6 @@
 /bin/
 /dist/
 /crawler
-/civictracker-crawler
 *.exe
 *.exe~
 *.dll
@@ -13,9 +12,8 @@
 vendor/
 
 # Open Democracy runtime files
-civictracker.db
-civictracker_cache.sqlite
-*_cache.sqlite
+*.db
+*.sqlite
 
 # Editor / OS
 .DS_Store

@@ -12,7 +12,7 @@ import (
 )
 
 // DefaultPath is the SQLite database file used when no path is provided.
-const DefaultPath = "civictracker.db"
+const DefaultPath = "open-democracy.db"
 
 // Open returns an initialised *sql.DB with WAL mode and FK enforcement.
 func Open(path string) (*sql.DB, error) {

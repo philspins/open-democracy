@@ -32,7 +32,11 @@ var (
 func loadPartyTheme() PartyThemeConfig {
 	partyThemeOnce.Do(func() {
 		cfg := defaultPartyThemeConfig()
-		path := os.Getenv("CIVICTRACKER_PARTY_THEME_FILE")
+		path := os.Getenv("PARTY_THEME_FILE")
+		if strings.TrimSpace(path) == "" {
+			// Backward compatibility for older environment configuration.
+			path = os.Getenv("PARTY_THEME_FILE")
+		}
 		if strings.TrimSpace(path) == "" {
 			path = "config/party-theme.json"
 		}
@@ -333,12 +337,13 @@ func NewPageInfo(page, total, perPage int) PageInfo {
 
 // ParsedSummary represents a parsed AI-generated bill summary.
 type ParsedSummary struct {
-	OneSentence   string
-	PlainSummary  string
-	KeyChanges    []string
-	WhoIsAffected []string
-	EstimatedCost string
-	Category      string
+	OneSentence           string   `json:"one_sentence"`
+	PlainSummary          string   `json:"plain_summary"`
+	KeyChanges            []string `json:"key_changes"`
+	WhoIsAffected         []string `json:"who_is_affected"`
+	NotableConsiderations []string `json:"notable_considerations"`
+	EstimatedCost         string   `json:"estimated_cost"`
+	Category              string   `json:"category"`
 }
 
 // ParseAISummary parses a JSON-encoded summary string. Returns zero value if parsing fails.

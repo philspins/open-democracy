@@ -12,7 +12,7 @@
 //	--members         Crawl MP profiles only
 //	--calendar        Crawl sitting calendar only
 //	--schedule        Run the APScheduler (blocks indefinitely)
-//	--db PATH         Path to SQLite database file (default: civictracker.db)
+//	--db PATH         Path to SQLite database file (default: open-democracy.db)
 //	--delay MS        Milliseconds between HTTP requests (default: 500)
 //	--parallelism N   Max domain crawlers to run concurrently (default: 5, env: CRAWLER_PARALLELISM)
 //	-v                Verbose logging

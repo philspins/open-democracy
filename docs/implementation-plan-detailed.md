@@ -129,7 +129,7 @@ CREATE INDEX idx_bills_category ON bills(category);
 
 ```go
 // cmd/crawler/main.go — entry point
-// Run with: go run ./cmd/crawler --db civictracker.db
+// Run with: go run ./cmd/crawler --db open-democracy.db
 // Scheduled with robfig/cron (see internal/scheduler/scheduler.go)
 
 package main
