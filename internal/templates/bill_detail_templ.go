@@ -336,15 +336,15 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var19 string
-				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(bill.SummaryAI)
+				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(ParseAISummary(bill.SummaryAI).PlainSummary)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 88, Col: 25}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 91, Col: 54}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</p></div></section>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</p></div><p class=\"text-xs text-gray-400 mt-1\">Automatically generated from bill text using Claude</p></section>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -361,7 +361,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 				var templ_7745c5c3_Var20 templ.SafeURL
 				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(bill.LegisInfoURL))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 96, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 100, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 				if templ_7745c5c3_Err != nil {
@@ -380,7 +380,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 				var templ_7745c5c3_Var21 templ.SafeURL
 				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(bill.FullTextURL))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 100, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 104, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 				if templ_7745c5c3_Err != nil {
@@ -408,7 +408,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					var templ_7745c5c3_Var22 string
 					templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(FormatDate(d.Date))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 123, Col: 84}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 127, Col: 84}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 					if templ_7745c5c3_Err != nil {
@@ -421,7 +421,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					var templ_7745c5c3_Var23 string
 					templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(d.Description)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 124, Col: 47}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 128, Col: 47}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 					if templ_7745c5c3_Err != nil {
@@ -434,7 +434,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					var templ_7745c5c3_Var24 string
 					templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(d.Yeas))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 125, Col: 90}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 129, Col: 90}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 					if templ_7745c5c3_Err != nil {
@@ -447,7 +447,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					var templ_7745c5c3_Var25 string
 					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(d.Nays))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 126, Col: 88}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 130, Col: 88}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 					if templ_7745c5c3_Err != nil {
@@ -460,7 +460,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					var templ_7745c5c3_Var26 string
 					templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(d.Result)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 127, Col: 56}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 131, Col: 56}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 					if templ_7745c5c3_Err != nil {

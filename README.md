@@ -15,6 +15,21 @@ Built with the **GOAT Stack**: Go · Templ · Alpine.js · Tailwind CSS.
 
 ---
 
+## Environment variables
+
+| Variable | Required | Used by | Purpose |
+|---|---|---|---|
+| `CRAWLER_PARALLELISM` | No | crawler | Caps concurrent domain crawlers (same effect as `--parallelism`) |
+| `ANTHROPIC_API_KEY` | Only for AI summaries | summarizer | Enables Claude API fallback summaries (`summary_ai`) |
+| `PARTY_THEME_FILE` | No | frontend templates | Override path for party/province style config (default `config/party-theme.json`) |
+
+Notes:
+
+- The service runs without `ANTHROPIC_API_KEY`; only AI summarization is disabled.
+- LoP summary scraping still runs without an API key.
+
+---
+
 ## Build
 
 ```bash
@@ -22,10 +37,16 @@ Built with the **GOAT Stack**: Go · Templ · Alpine.js · Tailwind CSS.
 go mod download
 
 # Compile the crawler binary
-go build -o civictracker-crawler ./cmd/crawler
+go build -o open-democracy-crawler ./cmd/crawler
+
+# Compile the web server binary
+go build -o open-democracy-server ./cmd/server
+
+# Regenerate templ-generated Go files (needed after editing *.templ files)
+go run github.com/a-h/templ/cmd/templ@v0.3.1001 generate
 
 # Verify the build
-./civictracker-crawler --help
+./open-democracy-crawler --help
 ```
 
 ---
@@ -52,38 +73,38 @@ All 95 tests are offline — they use `httptest.Server` and temporary SQLite fil
 
 ## Using the crawler CLI
 
-The `civictracker-crawler` binary fetches data from Canadian public government sources and writes it to a local SQLite database.
+The `open-democracy-crawler` binary fetches data from Canadian public government sources and writes it to a local SQLite database.
 
 ### One-shot crawl (all domains)
 
 ```bash
-./civictracker-crawler --db civictracker.db
+./open-democracy-crawler --db open-democracy.db
 ```
 
 ### Crawl specific domains
 
 ```bash
 # Bills only (LEGISinfo RSS + detail + Library of Parliament summaries)
-./civictracker-crawler --bills
+./open-democracy-crawler --bills
 
 # House of Commons votes only
-./civictracker-crawler --votes
+./open-democracy-crawler --votes
 
 # Senate votes only
-./civictracker-crawler --senate
+./open-democracy-crawler --senate
 
 # MP profiles only
-./civictracker-crawler --members
+./open-democracy-crawler --members
 
 # Sitting calendar only
-./civictracker-crawler --calendar
+./open-democracy-crawler --calendar
 ```
 
 ### Flags
 
 | Flag | Default | Description |
 |---|---|---|
-| `--db PATH` | `civictracker.db` | Path to the SQLite database file |
+| `--db PATH` | `open-democracy.db` | Path to the SQLite database file |
 | `--delay MS` | `500` | Milliseconds to sleep between HTTP requests |
 | `--parallelism N` | `5` | Max domain crawlers running concurrently (env: `CRAWLER_PARALLELISM`) |
 | `--schedule` | — | Run the background scheduler (blocks indefinitely) |
@@ -95,29 +116,44 @@ By default all five domain crawlers (calendar, bills, members, votes, senate) ru
 
 ```bash
 # Run at most 2 crawlers at a time
-./civictracker-crawler --parallelism 2
+./open-democracy-crawler --parallelism 2
 
 # Using the environment variable
-CRAWLER_PARALLELISM=2 ./civictracker-crawler
+CRAWLER_PARALLELISM=2 ./open-democracy-crawler
 
 # Sequential (safe for low-resource environments)
-./civictracker-crawler --parallelism 1
+./open-democracy-crawler --parallelism 1
 ```
 
 The semaphore pattern is used internally: a buffered channel of size N limits the number of goroutines that may execute concurrently. Each domain crawler acquires a slot on start and releases it when done.
 
 ### Scheduled mode
 
-The scheduler runs two jobs:
+The scheduler runs four jobs:
 
 | Job | Schedule |
 |---|---|
 | Full crawl (all domains) | Daily at 02:00 UTC |
 | Frequent vote check | Every 4 hours (skipped when parliament is not sitting) |
+| LoP summary download | Daily at 04:00 UTC |
+| AI summarization fallback | Daily at 05:00 UTC |
 
 ```bash
-./civictracker-crawler --schedule --db civictracker.db
+./open-democracy-crawler --schedule --db open-democracy.db
 ```
+
+If `ANTHROPIC_API_KEY` is not set, the AI summarization job will not be able to generate Claude summaries.
+
+---
+
+## Run the web frontend (Phase 2)
+
+```bash
+# Runs the read-only frontend on http://127.0.0.1:8080
+go run ./cmd/server -db open-democracy.db -addr :8080
+```
+
+The server expects a populated SQLite database. Run the crawler first (one-shot or scheduler mode) to ingest data.
 
 ---
 
@@ -128,7 +164,7 @@ The SQLite database contains six tables:
 | Table | Contents |
 |---|---|
 | `members` | MP profiles (name, party, riding, province, photo, email) |
-| `bills` | Bill metadata (number, title, stage, status, sponsor, full-text URL, LoP summary) |
+| `bills` | Bill metadata (number, title, stage, status, sponsor, full-text URL, LoP summary, AI summary JSON, category) |
 | `divisions` | House and Senate vote divisions |
 | `member_votes` | Per-member votes (Yea / Nay / Paired / Abstain) |
 | `bill_stages` | Individual legislative stages for each bill |
@@ -147,6 +183,9 @@ internal/
   db/               SQLite schema and upsert helpers
   scraper/          Domain scrapers (bills, votes, members, senate)
   scheduler/        Cron scheduler (robfig/cron)
+  server/           HTTP handlers and routes for the web frontend
+  summarizer/       LoP + Claude summarization pipeline
+  templates/        Templ UI components
   utils/            HTTP client, URL/ID helpers, date parser
 ```
 

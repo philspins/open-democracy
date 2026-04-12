@@ -11,8 +11,8 @@
 //	--senate          Crawl Senate votes only
 //	--members         Crawl MP profiles only
 //	--calendar        Crawl sitting calendar only
-//	--schedule        Run the APScheduler (blocks indefinitely)
-//	--db PATH         Path to SQLite database file (default: civictracker.db)
+//	--schedule        Run the background scheduler (blocks indefinitely)
+//	--db PATH         Path to SQLite database file (default: open-democracy.db)
 //	--delay MS        Milliseconds between HTTP requests (default: 500)
 //	--parallelism N   Max domain crawlers to run concurrently (default: 5, env: CRAWLER_PARALLELISM)
 //	-v                Verbose logging
@@ -21,6 +21,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"log"
@@ -31,22 +32,23 @@ import (
 	"time"
 
 	"github.com/philspins/open-democracy/internal/db"
-	"github.com/philspins/open-democracy/internal/scraper"
 	"github.com/philspins/open-democracy/internal/scheduler"
+	"github.com/philspins/open-democracy/internal/scraper"
+	"github.com/philspins/open-democracy/internal/summarizer"
 	"github.com/philspins/open-democracy/internal/utils"
 )
 
 func main() {
-	billsFlag    := flag.Bool("bills", false, "Crawl bills only")
-	votesFlag    := flag.Bool("votes", false, "Crawl Commons votes only")
-	senateFlag   := flag.Bool("senate", false, "Crawl Senate votes only")
-	membersFlag  := flag.Bool("members", false, "Crawl MP profiles only")
+	billsFlag := flag.Bool("bills", false, "Crawl bills only")
+	votesFlag := flag.Bool("votes", false, "Crawl Commons votes only")
+	senateFlag := flag.Bool("senate", false, "Crawl Senate votes only")
+	membersFlag := flag.Bool("members", false, "Crawl MP profiles only")
 	calendarFlag := flag.Bool("calendar", false, "Crawl sitting calendar only")
-	scheduleFlag := flag.Bool("schedule", false, "Run the APScheduler (blocks indefinitely)")
-	dbPath       := flag.String("db", db.DefaultPath, "Path to SQLite database file")
-	delayMS      := flag.Int("delay", 500, "Milliseconds between HTTP requests")
-	parallelism  := flag.Int("parallelism", defaultParallelism(), "Max domain crawlers to run concurrently (env: CRAWLER_PARALLELISM)")
-	verbose      := flag.Bool("v", false, "Verbose logging")
+	scheduleFlag := flag.Bool("schedule", false, "Run the background scheduler (blocks indefinitely)")
+	dbPath := flag.String("db", db.DefaultPath, "Path to SQLite database file")
+	delayMS := flag.Int("delay", 500, "Milliseconds between HTTP requests")
+	parallelism := flag.Int("parallelism", defaultParallelism(), "Max domain crawlers to run concurrently (env: CRAWLER_PARALLELISM)")
+	verbose := flag.Bool("v", false, "Verbose logging")
 	flag.Parse()
 
 	if !*verbose {
@@ -72,6 +74,12 @@ func main() {
 			},
 			FrequentVoteCheck: func(sdb *sql.DB) error {
 				return runFrequentVoteCheck(sdb, client, delay, "")
+			},
+			LoPSummaryFn: func(ctx context.Context, sdb *sql.DB) (int, error) {
+				return summarizer.DownloadLoPSummaries(ctx, sdb, nil)
+			},
+			AISummarizationFn: func(ctx context.Context, sdb *sql.DB) (int, error) {
+				return summarizer.SummarizeNewBills(ctx, sdb, true)
 			},
 		})
 		return // never reached
@@ -382,4 +390,3 @@ func runFrequentVoteCheck(conn *sql.DB, client *http.Client, delay time.Duration
 	}
 	return crawlVotes(conn, client, delay, votesURL)
 }
-

@@ -73,6 +73,12 @@ templ billCard(b store.BillRow) {
 				if b.SponsorName != "" {
 					<p class="text-sm text-gray-600 mt-1">Sponsor: { b.SponsorName }</p>
 				}
+				<!-- Summary preview -->
+				if b.SummaryLoP != "" {
+					<p class="text-sm text-gray-600 mt-2">{ truncate(b.SummaryLoP, 120) }</p>
+				} else if b.SummaryAI != "" {
+					<p class="text-sm text-amber-700 mt-2 italic">{ ParseAISummary(b.SummaryAI).OneSentence }</p>
+				}
 			</div>
 			<div class="shrink-0 text-right">
 				<p class="text-sm font-medium text-gray-700">{ StageLabel(b.CurrentStage) }</p>

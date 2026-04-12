@@ -83,10 +83,14 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 				</section>
 			} else if bill.SummaryAI != "" {
 				<section>
-					<h2 class="text-lg font-semibold text-gray-800 mb-2">Summary <span class="text-xs font-normal text-gray-400">(AI-generated)</span></h2>
+					<h2 class="text-lg font-semibold text-gray-800 mb-2">
+						Summary
+						<span class="text-xs font-normal text-gray-400">(AI-generated)</span>
+					</h2>
 					<div class="prose prose-sm max-w-none text-gray-700 bg-yellow-50 rounded-lg p-4">
-						<p>{ bill.SummaryAI }</p>
+						<p>{ ParseAISummary(bill.SummaryAI).PlainSummary }</p>
 					</div>
+					<p class="text-xs text-gray-400 mt-1">Automatically generated from bill text using Claude</p>
 				</section>
 			}
 

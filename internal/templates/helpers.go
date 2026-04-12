@@ -32,7 +32,7 @@ var (
 func loadPartyTheme() PartyThemeConfig {
 	partyThemeOnce.Do(func() {
 		cfg := defaultPartyThemeConfig()
-		path := os.Getenv("CIVICTRACKER_PARTY_THEME_FILE")
+		path := os.Getenv("PARTY_THEME_FILE")
 		if strings.TrimSpace(path) == "" {
 			path = "config/party-theme.json"
 		}
@@ -327,4 +327,40 @@ func NewPageInfo(page, total, perPage int) PageInfo {
 		PrevPage: page - 1,
 		NextPage: page + 1,
 	}
+}
+
+// ── Summary helpers ───────────────────────────────────────────────────────────
+
+// ParsedSummary represents a parsed AI-generated bill summary.
+type ParsedSummary struct {
+	OneSentence           string   `json:"one_sentence"`
+	PlainSummary          string   `json:"plain_summary"`
+	KeyChanges            []string `json:"key_changes"`
+	WhoIsAffected         []string `json:"who_is_affected"`
+	NotableConsiderations []string `json:"notable_considerations"`
+	EstimatedCost         string   `json:"estimated_cost"`
+	Category              string   `json:"category"`
+}
+
+// ParseAISummary parses a JSON-encoded summary string. Returns zero value if parsing fails.
+func ParseAISummary(summaryJSON string) ParsedSummary {
+	if strings.TrimSpace(summaryJSON) == "" {
+		return ParsedSummary{}
+	}
+	var result ParsedSummary
+	_ = json.Unmarshal([]byte(summaryJSON), &result)
+	return result
+}
+
+// truncate returns the first n characters of a string, appending "..." if truncated.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+// HasSummary checks if a bill has either LoP or AI summary.
+func HasSummary(b store.BillRow) bool {
+	return strings.TrimSpace(b.SummaryLoP) != "" || strings.TrimSpace(b.SummaryAI) != ""
 }
