@@ -40,7 +40,7 @@ Provide your response as valid JSON only (no markdown or extra text):
   "plain_summary": "2–3 paragraph plain-English explanation. What does it do? Who does it affect? Why was it introduced?",
   "key_changes": ["List of 3–6 specific things this bill would change or create"],
   "who_is_affected": ["List of groups, industries, or people most affected"],
-	"notable_considerations": ["List of 0–5 potential caveats, non-obvious trade-offs, or implementation considerations in neutral language"],
+  "notable_considerations": ["List of 0–5 potential caveats, non-obvious trade-offs, or implementation considerations in neutral language"],
   "estimated_cost": "Fiscal impact if mentioned in the bill, or 'Not specified'",
   "category": "One of: Housing, Health, Environment, Defence, Indigenous, Finance, Justice, Agriculture, Transport, Labour, Education, Foreign Affairs, Digital/Tech, Other"
 }`
