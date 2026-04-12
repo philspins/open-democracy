@@ -11,7 +11,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -185,7 +184,8 @@ func SummarizeNewBills(ctx context.Context, db *sql.DB, onlyMissing bool) (int, 
 	query := `
 		SELECT id, number, title, full_text_url
 		FROM bills
-		WHERE summary_lop IS NULL AND summary_ai IS NULL
+		WHERE (summary_lop IS NULL OR summary_lop = '')
+		  AND (summary_ai IS NULL OR summary_ai = '')
 		ORDER BY introduced_date DESC
 		LIMIT 50  -- Batch size to avoid API overload
 	`
@@ -246,7 +246,11 @@ func SummarizeNewBills(ctx context.Context, db *sql.DB, onlyMissing bool) (int, 
 		processed++
 		log.Printf("[summarizer] ✓ stored summary for %q", number)
 
-		// Rate limit: 1 second between API calls to be polite.
+		select {
+		case <-time.After(1 * time.Second):
+		case <-ctx.Done():
+			return processed, ctx.Err()
+		}
 		time.Sleep(1 * time.Second)
 	}
 
@@ -290,20 +294,6 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 	text = collapseWhitespace(text)
 
 	return strings.TrimSpace(text), nil
-}
-
-func removeHTMLTags(s string, tags ...string) string {
-	for _, tag := range tags {
-		pattern := fmt.Sprintf(`(?i)<%s[^>]*>.*?</%s>`, tag, tag)
-		re := regexp.MustCompile(pattern)
-		s = re.ReplaceAllString(s, "")
-	}
-	return s
-}
-
-func removeAllHTMLTags(s string) string {
-	re := regexp.MustCompile(`<[^>]+>`)
-	return re.ReplaceAllString(s, "")
 }
 
 func collapseWhitespace(s string) string {
