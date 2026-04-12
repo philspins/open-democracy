@@ -121,6 +121,23 @@ func main() {
 	}
 
 	runParallel(*parallelism, fns)
+
+	// In one-shot mode, run summarization after bill crawling so summaries are
+	// persisted in the same execution path.
+	if *billsFlag || shouldRunAll {
+		ctx := context.Background()
+		if n, err := summarizer.DownloadLoPSummaries(ctx, conn, nil); err != nil {
+			log.Printf("[main] lop summary job error: %v", err)
+		} else {
+			log.Printf("[main] lop summaries updated: %d", n)
+		}
+		if n, err := summarizer.SummarizeNewBills(ctx, conn, true); err != nil {
+			log.Printf("[main] ai summarization job error: %v", err)
+		} else {
+			log.Printf("[main] ai summaries generated: %d", n)
+		}
+	}
+
 	log.Println("[main] done")
 }
 

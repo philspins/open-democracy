@@ -2,7 +2,11 @@
 package store
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -637,12 +641,267 @@ func (s *Store) UpsertUser(email, postalCode string) (UserRow, error) {
 
 	var u UserRow
 	err = s.db.QueryRow(`
-		SELECT id, COALESCE(email,''), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
+		SELECT id, COALESCE(email,''), COALESCE(email_verified,0), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
 		       COALESCE(provincial_riding_id,''), COALESCE(created_at,''), COALESCE(email_digest,'weekly')
 		FROM users WHERE id = ?`, id).Scan(
-		&u.ID, &u.Email, &u.PostalCode, &u.FederalRidingID, &u.ProvincialRidingID, &u.CreatedAt, &u.EmailDigest,
+		&u.ID, &u.Email, &u.EmailVerified, &u.PostalCode, &u.FederalRidingID, &u.ProvincialRidingID, &u.CreatedAt, &u.EmailDigest,
 	)
 	return u, err
+}
+
+func randomToken(nBytes int) (string, error) {
+	b := make([]byte, nBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+func tokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func codeHash(code string) string {
+	return tokenHash(strings.TrimSpace(code))
+}
+
+func randomCode6() (string, error) {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	v := int(b[0])<<24 | int(b[1])<<16 | int(b[2])<<8 | int(b[3])
+	if v < 0 {
+		v = -v
+	}
+	return fmt.Sprintf("%06d", v%1000000), nil
+}
+
+func (s *Store) GetUserByEmail(email string) (UserRow, error) {
+	id := userIDFromEmail(email)
+	var u UserRow
+	err := s.db.QueryRow(`
+		SELECT id, COALESCE(email,''), COALESCE(email_verified,0), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
+		       COALESCE(provincial_riding_id,''), COALESCE(created_at,''), COALESCE(email_digest,'weekly')
+		FROM users WHERE id = ?`, id).Scan(
+		&u.ID, &u.Email, &u.EmailVerified, &u.PostalCode, &u.FederalRidingID, &u.ProvincialRidingID, &u.CreatedAt, &u.EmailDigest,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return UserRow{}, fmt.Errorf("user not found")
+	}
+	return u, err
+}
+
+func (s *Store) CreateEmailVerification(email, postalCode string, ttl time.Duration) (token string, code string, err error) {
+	u, err := s.UpsertUser(email, postalCode)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Basic anti-abuse cooldown per user to reduce rapid token churn.
+	var lastCreated string
+	err = s.db.QueryRow(`
+		SELECT COALESCE(MAX(created_at),'')
+		FROM email_verification_tokens
+		WHERE user_id = ?`, u.ID).Scan(&lastCreated)
+	if err != nil {
+		return "", "", err
+	}
+	if lastCreated != "" {
+		if t, parseErr := time.Parse(time.RFC3339, lastCreated); parseErr == nil {
+			if time.Since(t) < time.Minute {
+				return "", "", fmt.Errorf("verification recently requested")
+			}
+		}
+	}
+
+	token, err = randomToken(24)
+	if err != nil {
+		return "", "", err
+	}
+	code, err = randomCode6()
+	if err != nil {
+		return "", "", err
+	}
+	expires := time.Now().UTC().Add(ttl).Format(time.RFC3339)
+	tokenDigest := tokenHash(token)
+	codeDigest := codeHash(code)
+	_, err = s.db.Exec(`
+		INSERT INTO email_verification_tokens (user_id, email, token, code, expires_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		u.ID, strings.ToLower(strings.TrimSpace(email)), tokenDigest, codeDigest, expires)
+	if err != nil {
+		return "", "", err
+	}
+	return token, code, nil
+}
+
+func (s *Store) VerifyEmailToken(token string) (UserRow, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return UserRow{}, fmt.Errorf("token required")
+	}
+	tokenDigest := tokenHash(token)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return UserRow{}, err
+	}
+	defer tx.Rollback()
+
+	var userID, expiresAt string
+	err = tx.QueryRow(`
+		SELECT user_id, expires_at
+		FROM email_verification_tokens
+		WHERE token = ? AND used_at IS NULL`, tokenDigest).Scan(&userID, &expiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return UserRow{}, fmt.Errorf("invalid or used token")
+	}
+	if err != nil {
+		return UserRow{}, err
+	}
+
+	exp, err := time.Parse(time.RFC3339, expiresAt)
+	if err != nil {
+		return UserRow{}, err
+	}
+	if time.Now().UTC().After(exp) {
+		return UserRow{}, fmt.Errorf("token expired")
+	}
+
+	if _, err := tx.Exec(`UPDATE users SET email_verified = 1 WHERE id = ?`, userID); err != nil {
+		return UserRow{}, err
+	}
+	if _, err := tx.Exec(`UPDATE email_verification_tokens SET used_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE token = ?`, tokenDigest); err != nil {
+		return UserRow{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return UserRow{}, err
+	}
+
+	var u UserRow
+	err = s.db.QueryRow(`
+		SELECT id, COALESCE(email,''), COALESCE(email_verified,0), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
+		       COALESCE(provincial_riding_id,''), COALESCE(created_at,''), COALESCE(email_digest,'weekly')
+		FROM users WHERE id = ?`, userID).Scan(
+		&u.ID, &u.Email, &u.EmailVerified, &u.PostalCode, &u.FederalRidingID, &u.ProvincialRidingID, &u.CreatedAt, &u.EmailDigest,
+	)
+	return u, err
+}
+
+func (s *Store) VerifyEmailCode(email, code string) (UserRow, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	code = strings.TrimSpace(code)
+	if email == "" || code == "" {
+		return UserRow{}, fmt.Errorf("email and code required")
+	}
+	userID := userIDFromEmail(email)
+	codeDigest := codeHash(code)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return UserRow{}, err
+	}
+	defer tx.Rollback()
+
+	var tokenDigest, expiresAt string
+	err = tx.QueryRow(`
+		SELECT token, expires_at
+		FROM email_verification_tokens
+		WHERE user_id = ? AND code = ? AND used_at IS NULL
+		ORDER BY created_at DESC
+		LIMIT 1`, userID, codeDigest).Scan(&tokenDigest, &expiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return UserRow{}, fmt.Errorf("invalid code")
+	}
+	if err != nil {
+		return UserRow{}, err
+	}
+
+	exp, err := time.Parse(time.RFC3339, expiresAt)
+	if err != nil {
+		return UserRow{}, err
+	}
+	if time.Now().UTC().After(exp) {
+		return UserRow{}, fmt.Errorf("code expired")
+	}
+
+	if _, err := tx.Exec(`UPDATE users SET email_verified = 1 WHERE id = ?`, userID); err != nil {
+		return UserRow{}, err
+	}
+	if _, err := tx.Exec(`UPDATE email_verification_tokens SET used_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE token = ?`, tokenDigest); err != nil {
+		return UserRow{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return UserRow{}, err
+	}
+	return s.GetUserByEmail(email)
+}
+
+func (s *Store) CreateSession(userID string, ttl time.Duration) (string, error) {
+	sessionID, err := randomToken(24)
+	if err != nil {
+		return "", err
+	}
+	expires := time.Now().UTC().Add(ttl).Format(time.RFC3339)
+	sessionDigest := tokenHash(sessionID)
+	_, err = s.db.Exec(`INSERT INTO user_sessions (id, user_id, expires_at) VALUES (?, ?, ?)`, sessionDigest, userID, expires)
+	return sessionID, err
+}
+
+func (s *Store) DeleteSession(sessionID string) error {
+	_, err := s.db.Exec(`DELETE FROM user_sessions WHERE id = ?`, tokenHash(sessionID))
+	return err
+}
+
+func (s *Store) GetUserBySession(sessionID string) (UserRow, error) {
+	var userID, expiresAt string
+	err := s.db.QueryRow(`SELECT user_id, expires_at FROM user_sessions WHERE id = ?`, tokenHash(sessionID)).Scan(&userID, &expiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return UserRow{}, fmt.Errorf("session not found")
+	}
+	if err != nil {
+		return UserRow{}, err
+	}
+	exp, err := time.Parse(time.RFC3339, expiresAt)
+	if err != nil || time.Now().UTC().After(exp) {
+		_ = s.DeleteSession(sessionID)
+		return UserRow{}, fmt.Errorf("session expired")
+	}
+
+	var u UserRow
+	err = s.db.QueryRow(`
+		SELECT id, COALESCE(email,''), COALESCE(email_verified,0), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
+		       COALESCE(provincial_riding_id,''), COALESCE(created_at,''), COALESCE(email_digest,'weekly')
+		FROM users WHERE id = ?`, userID).Scan(
+		&u.ID, &u.Email, &u.EmailVerified, &u.PostalCode, &u.FederalRidingID, &u.ProvincialRidingID, &u.CreatedAt, &u.EmailDigest,
+	)
+	return u, err
+}
+
+func (s *Store) AuthenticateOAuth(provider, providerUserID, email, postalCode string, markEmailVerified bool) (UserRow, error) {
+	u, err := s.UpsertUser(email, postalCode)
+	if err != nil {
+		return UserRow{}, err
+	}
+	if markEmailVerified {
+		_, err = s.db.Exec(`UPDATE users SET email_verified = 1 WHERE id = ?`, u.ID)
+		if err != nil {
+			return UserRow{}, err
+		}
+	}
+	_, err = s.db.Exec(`
+		INSERT INTO oauth_identities (provider, provider_user_id, user_id, email)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(provider, provider_user_id) DO UPDATE SET
+			user_id = excluded.user_id,
+			email = excluded.email`, provider, providerUserID, u.ID, strings.ToLower(strings.TrimSpace(email)))
+	if err != nil {
+		return UserRow{}, err
+	}
+	return s.GetUserByEmail(email)
 }
 
 func (s *Store) FollowMember(email, postalCode, memberID string) error {

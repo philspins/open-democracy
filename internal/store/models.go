@@ -99,6 +99,7 @@ type BillStageRow struct {
 type UserRow struct {
 	ID                 string
 	Email              string
+	EmailVerified      bool
 	PostalCode         string
 	FederalRidingID    string
 	ProvincialRidingID string

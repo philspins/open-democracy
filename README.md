@@ -22,11 +22,45 @@ Built with the **GOAT Stack**: Go · Templ · Alpine.js · Tailwind CSS.
 | `CRAWLER_PARALLELISM` | No | crawler | Caps concurrent domain crawlers (same effect as `--parallelism`) |
 | `ANTHROPIC_API_KEY` | Only for AI summaries | summarizer | Enables Claude API fallback summaries (`summary_ai`) |
 | `PARTY_THEME_FILE` | No | frontend templates | Override path for party/province style config (default `config/party-theme.json`) |
+| `OAUTH_BASE_URL` | Recommended for auth/OAuth | server | Public app base URL used to build verification and OAuth callback URLs (e.g. `https://open-democracy.ca`) |
+| `SES_FROM_EMAIL` | Yes for verification email delivery | server | Verified SES sender address used for outgoing verification emails (e.g. `contact@open-democracy.ca`) |
+| `GOOGLE_CLIENT_ID` | Only for Google login | server | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Only for Google login | server | Google OAuth client secret |
+| `FACEBOOK_CLIENT_ID` | Only for Facebook login | server | Facebook OAuth app client ID |
+| `FACEBOOK_CLIENT_SECRET` | Only for Facebook login | server | Facebook OAuth app client secret |
+| `AWS_REGION` | Usually yes for SES | server | AWS region for SES client (for example `ca-central-1`) |
+| `AWS_ACCESS_KEY_ID` | Optional (depends on credential source) | server | AWS credentials for SES if not using instance/profile credentials |
+| `AWS_SECRET_ACCESS_KEY` | Optional (depends on credential source) | server | AWS credentials for SES if not using instance/profile credentials |
+| `AWS_SESSION_TOKEN` | Optional | server | Temporary session token when using temporary AWS credentials |
 
 Notes:
 
 - The service runs without `ANTHROPIC_API_KEY`; only AI summarization is disabled.
 - LoP summary scraping still runs without an API key.
+- If `SES_FROM_EMAIL` is unset, verification requests are accepted but emails are not sent.
+- OAuth login routes require provider credentials to be set (`GOOGLE_*` and/or `FACEBOOK_*`).
+- AWS credentials are loaded via the default AWS SDK chain (env vars, shared config/profile, or attached role).
+
+Auth/OAuth examples:
+
+```bash
+# Base URL used in OAuth callbacks and verification links
+OAUTH_BASE_URL=https://open-democracy.ca
+
+# SES sender (must be verified in SES)
+SES_FROM_EMAIL=contact@open-democracy.ca
+
+# Optional explicit AWS credentials (if not using role/profile)
+AWS_REGION=ca-central-1
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+
+# Optional social providers
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+FACEBOOK_CLIENT_ID=...
+FACEBOOK_CLIENT_SECRET=...
+```
 
 ---
 
