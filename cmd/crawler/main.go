@@ -45,6 +45,10 @@ func main() {
 		log.Printf("warning: could not load .env: %v", err)
 	}
 
+	if err := utils.LoadDotEnv(".env"); err != nil {
+		log.Printf("warning: could not load .env: %v", err)
+	}
+
 	billsFlag := flag.Bool("bills", false, "Crawl bills only")
 	votesFlag := flag.Bool("votes", false, "Crawl Commons votes only")
 	senateFlag := flag.Bool("senate", false, "Crawl Senate votes only")
@@ -113,12 +117,11 @@ func main() {
 		fn   func() error
 	}
 	var tasks []task
-
 	if *calendarFlag || shouldRunAll {
 		tasks = append(tasks, task{"calendar", func() error { return crawlCalendar(conn, client, delay, "") }})
 	}
 	if *billsFlag || shouldRunAll {
-		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "", nil) }})
+		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "") }})
 	}
 	if *membersFlag || shouldRunAll {
 		tasks = append(tasks, task{"members", func() error { return crawlMembers(conn, client, delay, "", "") }})
@@ -141,20 +144,6 @@ func main() {
 	}
 
 	runParallel(*parallelism, fns)
-
-	// Run AI summarization after all crawlers have finished (including the
-	// inline per-bill LoP scraping inside crawlBills).  This guarantees that
-	// shouldSummarizeBill sees up-to-date LoP data and avoids wasting API
-	// calls on bills that already have a Library of Parliament summary.
-	if *billsFlag || shouldRunAll {
-		ctx := context.Background()
-		if n, err := summarizer.SummarizeNewBills(ctx, conn, true); err != nil {
-			log.Printf("[main] ai summarization error: %v", err)
-		} else {
-			log.Printf("[main] ai summaries generated: %d", n)
-		}
-	}
-
 	log.Println("[main] done")
 }
 
