@@ -516,7 +516,22 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("http %d", resp.StatusCode)
+		preview, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		snippet := strings.TrimSpace(collapseWhitespace(string(preview)))
+		if len(snippet) > 220 {
+			snippet = snippet[:220] + "..."
+		}
+		if snippet == "" {
+			snippet = "<empty body>"
+		}
+		return "", fmt.Errorf(
+			"GET %s: http %d %s (content-type=%q, body=%q)",
+			url,
+			resp.StatusCode,
+			http.StatusText(resp.StatusCode),
+			resp.Header.Get("Content-Type"),
+			snippet,
+		)
 	}
 
 	// Use goquery to parse HTML and extract text.
