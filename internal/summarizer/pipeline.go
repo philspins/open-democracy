@@ -29,36 +29,43 @@ Your job is to summarize bills from the Parliament of Canada in plain English.
 You must be accurate, neutral, and clear. Never editorialize or express opinions.
 Always write for a Canadian high school student — no legal jargon.
 
+In addition to the main summary, identify any notable considerations: provisions,
+exceptions, side effects, carve-outs, enforcement details, or hidden trade-offs
+that may not be obvious at first read. Describe these neutrally and factually.
+If no notable considerations are found, explicitly state that.
+
 Provide your response as valid JSON only (no markdown or extra text):
 {
   "one_sentence": "One sentence (max 25 words) describing what this bill does.",
   "plain_summary": "2–3 paragraph plain-English explanation. What does it do? Who does it affect? Why was it introduced?",
   "key_changes": ["List of 3–6 specific things this bill would change or create"],
   "who_is_affected": ["List of groups, industries, or people most affected"],
+	"notable_considerations": ["List of 0–5 potential caveats, non-obvious trade-offs, or implementation considerations in neutral language"],
   "estimated_cost": "Fiscal impact if mentioned in the bill, or 'Not specified'",
   "category": "One of: Housing, Health, Environment, Defence, Indigenous, Finance, Justice, Agriculture, Transport, Labour, Education, Foreign Affairs, Digital/Tech, Other"
 }`
 
 // SummaryResult holds the structured fields returned by Claude.
 type SummaryResult struct {
-	OneSentence   string   `json:"one_sentence"`
-	PlainSummary  string   `json:"plain_summary"`
-	KeyChanges    []string `json:"key_changes"`
-	WhoIsAffected []string `json:"who_is_affected"`
-	EstimatedCost string   `json:"estimated_cost"`
-	Category      string   `json:"category"`
-	BillID        string   `json:"bill_id"`
-	GeneratedAt   string   `json:"generated_at"`
-	Model         string   `json:"model"`
+	OneSentence           string   `json:"one_sentence"`
+	PlainSummary          string   `json:"plain_summary"`
+	KeyChanges            []string `json:"key_changes"`
+	WhoIsAffected         []string `json:"who_is_affected"`
+	NotableConsiderations []string `json:"notable_considerations"`
+	EstimatedCost         string   `json:"estimated_cost"`
+	Category              string   `json:"category"`
+	BillID                string   `json:"bill_id"`
+	GeneratedAt           string   `json:"generated_at"`
+	Model                 string   `json:"model"`
 }
 
 // claudeRequest is the request body structure for Claude API.
 type claudeRequest struct {
-	Model      string        `json:"model"`
-	MaxTokens  int           `json:"max_tokens"`
-	System     string        `json:"system"`
-	Messages   []claudeMsg   `json:"messages"`
-	Temperature float64      `json:"temperature,omitempty"`
+	Model       string      `json:"model"`
+	MaxTokens   int         `json:"max_tokens"`
+	System      string      `json:"system"`
+	Messages    []claudeMsg `json:"messages"`
+	Temperature float64     `json:"temperature,omitempty"`
 }
 
 type claudeMsg struct {
@@ -105,9 +112,9 @@ Full text:
 Respond with only valid JSON, no markdown or extra text.`, billID, billTitle, billText)
 
 	req := claudeRequest{
-		Model:      claudeModel,
-		MaxTokens:  2048,
-		System:     systemPrompt,
+		Model:       claudeModel,
+		MaxTokens:   2048,
+		System:      systemPrompt,
 		Temperature: 0.3,
 		Messages: []claudeMsg{
 			{Role: "user", Content: prompt},

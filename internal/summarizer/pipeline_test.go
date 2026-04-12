@@ -8,14 +8,16 @@ import (
 func TestParseSummaryResult(t *testing.T) {
 	// Create a fake JSON summary like Claude would return
 	fakeResult := SummaryResult{
-		OneSentence:   "This bill establishes new housing regulations.",
-		PlainSummary:  "This bill creates a framework for affordable housing in Canada...",
-		KeyChanges:    []string{"Increases housing tax credit", "Requires landlord transparency"},
-		WhoIsAffected: []string{"Renters", "Landlords", "Government"},
-		EstimatedCost: "$2 billion over 10 years",
-		Category:      "Housing",
-		BillID:        "45-1-C-123",
-		Model:         claudeModel,
+		OneSentence:           "This bill establishes new housing regulations.",
+		PlainSummary:          "This bill creates a framework for affordable housing in Canada...",
+		KeyChanges:            []string{"Increases housing tax credit", "Requires landlord transparency"},
+		WhoIsAffected:         []string{"Renters", "Landlords", "Government"},
+		NotableConsiderations: []string{"Citizens must give up privacy rights", "Excludes rural municipalities from some requirements"},
+		EstimatedCost:         "$2 billion over 10 years",
+		Category:              "Housing",
+		BillID:                "45-1-C-123",
+		GeneratedAt:           "2026-04-11T00:00:00Z",
+		Model:                 claudeModel,
 	}
 
 	// Marshal to JSON to test round-trip
@@ -40,6 +42,10 @@ func TestParseSummaryResult(t *testing.T) {
 
 	if parsed.Category != "Housing" {
 		t.Errorf("Category mismatch: got %q, want %q", parsed.Category, "Housing")
+	}
+
+	if len(parsed.NotableConsiderations) != 2 {
+		t.Errorf("NotableConsiderations length mismatch: got %d, want 2", len(parsed.NotableConsiderations))
 	}
 }
 
@@ -74,7 +80,7 @@ func TestParseAISummaryEmpty(t *testing.T) {
 
 	for _, test := range tests {
 		result := &SummaryResult{
-			OneSentence: "",
+			OneSentence:  "",
 			PlainSummary: "",
 		}
 		json.Unmarshal([]byte(test), result)
@@ -85,15 +91,16 @@ func TestParseAISummaryEmpty(t *testing.T) {
 func TestSummaryResultStructure(t *testing.T) {
 	// Verify the SummaryResult struct has all expected fields
 	sr := SummaryResult{
-		OneSentence:   "test",
-		PlainSummary:  "test",
-		KeyChanges:    []string{"test"},
-		WhoIsAffected: []string{"test"},
-		EstimatedCost: "test",
-		Category:      "Housing",
-		BillID:        "45-1-C-1",
-		GeneratedAt:   "2026-04-11T00:00:00Z",
-		Model:         claudeModel,
+		OneSentence:           "test",
+		PlainSummary:          "test",
+		KeyChanges:            []string{"test"},
+		WhoIsAffected:         []string{"test"},
+		NotableConsiderations: []string{"test"},
+		EstimatedCost:         "test",
+		Category:              "Housing",
+		BillID:                "45-1-C-1",
+		GeneratedAt:           "2026-04-11T00:00:00Z",
+		Model:                 claudeModel,
 	}
 
 	if sr.BillID == "" {
@@ -106,5 +113,9 @@ func TestSummaryResultStructure(t *testing.T) {
 
 	if len(sr.KeyChanges) != 1 {
 		t.Error("KeyChanges should have one item")
+	}
+
+	if len(sr.NotableConsiderations) != 1 {
+		t.Error("NotableConsiderations should have one item")
 	}
 }

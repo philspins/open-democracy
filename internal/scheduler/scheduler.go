@@ -18,20 +18,20 @@ type SummarizeFunc func(ctx context.Context, db *sql.DB) (int, error)
 
 // Config holds the functions and DB connection used by the scheduler.
 type Config struct {
-	DB                   *sql.DB
-	FullCrawlFn          CrawlFunc       // run nightly at 02:00 UTC
-	FrequentVoteCheck    CrawlFunc       // run every 4 hours
-	LoPSummaryFn         SummarizeFunc   // run nightly at 04:00 UTC (after FullCrawlFn)
-	AISummarizationFn    SummarizeFunc   // run nightly at 05:00 UTC (after LoPSummaryFn)
+	DB                *sql.DB
+	FullCrawlFn       CrawlFunc     // run nightly at 02:00 UTC
+	FrequentVoteCheck CrawlFunc     // run every 4 hours
+	LoPSummaryFn      SummarizeFunc // run nightly at 04:00 UTC (after FullCrawlFn)
+	AISummarizationFn SummarizeFunc // run nightly at 05:00 UTC (after LoPSummaryFn)
 }
 
 // CronSpec holds the cron schedule expressions used by the scheduler.
 // Exported so they can be asserted in tests.
 const (
-	NightlyCronSpec       = "0 2 * * *"
-	FrequentVoteCronSpec  = "0 */4 * * *"
-	LoPSummaryCronSpec    = "0 4 * * *"    // 04:00 UTC
-	AISummaryCronSpec     = "0 5 * * *"    // 05:00 UTC
+	NightlyCronSpec      = "0 2 * * *"
+	FrequentVoteCronSpec = "0 */4 * * *"
+	LoPSummaryCronSpec   = "0 4 * * *" // 04:00 UTC
+	AISummaryCronSpec    = "0 5 * * *" // 05:00 UTC
 )
 
 // New creates and registers all cron jobs from cfg, returning the configured
