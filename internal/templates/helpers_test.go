@@ -30,3 +30,23 @@ func TestLoadPartyTheme_NoEnvVarFallbacksSuccessfully(t *testing.T) {
 		t.Fatalf("expected ProvinceGoverningParty to be populated when PARTY_THEME_FILE is unset")
 	}
 }
+
+func TestTruncate(t *testing.T) {
+	tests := []struct {
+		input string
+		n     int
+		want  string
+	}{
+		{"Hello", 10, "Hello"},
+		{"Hello World", 5, "Hello…"},
+		{"Hello World", 11, "Hello World"},
+		{"", 5, ""},
+	}
+
+	for _, tt := range tests {
+		got := truncate(tt.input, tt.n)
+		if got != tt.want {
+			t.Errorf("truncate(%q, %d): got %q, want %q", tt.input, tt.n, got, tt.want)
+		}
+	}
+}

@@ -49,31 +49,6 @@ func TestParseSummaryResult(t *testing.T) {
 	}
 }
 
-func TestTruncate(t *testing.T) {
-	tests := []struct {
-		input string
-		n     int
-		want  string
-	}{
-		{"Hello", 10, "Hello"},
-		{"Hello World", 5, "Hello…"},
-		{"Hello World", 11, "Hello World"},
-		{"", 5, ""},
-	}
-
-	for _, tt := range tests {
-		// Note: truncate is defined in helpers.go, but we can test it conceptually
-		// This is a simple test to verify the logic would work
-		result := tt.input
-		if len(result) > tt.n {
-			result = result[:tt.n] + "…"
-		}
-		if result != tt.want {
-			t.Errorf("truncate(%q, %d): got %q, want %q", tt.input, tt.n, result, tt.want)
-		}
-	}
-}
-
 func TestParseAISummaryEmpty(t *testing.T) {
 	// ParseAISummary should handle empty strings gracefully
 	tests := []string{"", "   ", "not json"}

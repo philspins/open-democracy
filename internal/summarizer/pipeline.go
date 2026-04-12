@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/philspins/open-democracy/internal/utils"
 )
 
 const (
@@ -259,15 +260,12 @@ func SummarizeNewBills(ctx context.Context, db *sql.DB, onlyMissing bool) (int, 
 
 // fetchBillText fetches and extracts plain text from a bill's HTML document using goquery.
 func fetchBillText(ctx context.Context, url string) (string, error) {
+	client := utils.NewHTTPClient()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
 
-	// Standard user agent for politeness.
-	req.Header.Set("User-Agent", "Open Democracy/1.0 (open-democracy.ca; contact@open-democracy.ca)")
-
-	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
