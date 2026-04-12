@@ -5,6 +5,42 @@ import (
 	"testing"
 )
 
+func TestParseSummaryJSON_FencedJSON(t *testing.T) {
+	raw := "```json\n{\"one_sentence\":\"One line\",\"plain_summary\":\"Two lines\",\"key_changes\":[\"a\"],\"who_is_affected\":[\"b\"],\"notable_considerations\":[],\"estimated_cost\":\"Not specified\",\"category\":\"Other\"}\n```"
+
+	got, err := parseSummaryJSON(raw)
+	if err != nil {
+		t.Fatalf("parseSummaryJSON returned error: %v", err)
+	}
+	if got.OneSentence != "One line" {
+		t.Fatalf("unexpected one_sentence: %q", got.OneSentence)
+	}
+	if got.Category != "Other" {
+		t.Fatalf("unexpected category: %q", got.Category)
+	}
+}
+
+func TestParseSummaryJSON_MixedTextWithJSONObject(t *testing.T) {
+	raw := "Here is your result:\n{\"one_sentence\":\"One line\",\"plain_summary\":\"Two lines\",\"key_changes\":[\"a\"],\"who_is_affected\":[\"b\"],\"notable_considerations\":[\"c\"],\"estimated_cost\":\"Not specified\",\"category\":\"Housing\"}\nThanks!"
+
+	got, err := parseSummaryJSON(raw)
+	if err != nil {
+		t.Fatalf("parseSummaryJSON returned error: %v", err)
+	}
+	if got.Category != "Housing" {
+		t.Fatalf("unexpected category: %q", got.Category)
+	}
+	if len(got.NotableConsiderations) != 1 {
+		t.Fatalf("unexpected notable_considerations length: %d", len(got.NotableConsiderations))
+	}
+}
+
+func TestParseSummaryJSON_InvalidPayload(t *testing.T) {
+	if _, err := parseSummaryJSON("```\nnot json\n```"); err == nil {
+		t.Fatal("expected error for invalid summary payload")
+	}
+}
+
 func TestParseSummaryResult(t *testing.T) {
 	// Create a fake JSON summary like Claude would return
 	fakeResult := SummaryResult{

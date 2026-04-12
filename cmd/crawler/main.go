@@ -25,6 +25,7 @@ import (
 	"context"
 	"database/sql"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -100,11 +101,27 @@ func main() {
 		fn   func() error
 	}
 	var tasks []task
+	var summaryRequests chan summarizer.BillSummaryRequest
+	type summaryRunResult struct {
+		processed int
+		err       error
+	}
+	var summaryResultCh chan summaryRunResult
+
+	if *billsFlag || shouldRunAll {
+		summaryRequests = make(chan summarizer.BillSummaryRequest, 32)
+		summaryResultCh = make(chan summaryRunResult, 1)
+		go func() {
+			n, err := summarizer.SummarizeBillsFromChannel(context.Background(), conn, summaryRequests)
+			summaryResultCh <- summaryRunResult{processed: n, err: err}
+		}()
+	}
+
 	if *calendarFlag || shouldRunAll {
 		tasks = append(tasks, task{"calendar", func() error { return crawlCalendar(conn, client, delay, "") }})
 	}
 	if *billsFlag || shouldRunAll {
-		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "") }})
+		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "", summaryRequests) }})
 	}
 	if *membersFlag || shouldRunAll {
 		tasks = append(tasks, task{"members", func() error { return crawlMembers(conn, client, delay, "", "") }})
@@ -127,6 +144,15 @@ func main() {
 	}
 
 	runParallel(*parallelism, fns)
+	if summaryRequests != nil {
+		close(summaryRequests)
+		res := <-summaryResultCh
+		if res.err != nil {
+			log.Printf("[main] ai summarization channel error: %v", res.err)
+		} else {
+			log.Printf("[main] ai summaries generated: %d", res.processed)
+		}
+	}
 
 	// In one-shot mode, run summarization after bill crawling so summaries are
 	// persisted in the same execution path.
@@ -136,11 +162,6 @@ func main() {
 			log.Printf("[main] lop summary job error: %v", err)
 		} else {
 			log.Printf("[main] lop summaries updated: %d", n)
-		}
-		if n, err := summarizer.SummarizeNewBills(ctx, conn, true); err != nil {
-			log.Printf("[main] ai summarization job error: %v", err)
-		} else {
-			log.Printf("[main] ai summaries generated: %d", n)
 		}
 	}
 
@@ -245,7 +266,7 @@ func crawlCalendar(conn *sql.DB, client *http.Client, delay time.Duration, sourc
 	return nil
 }
 
-func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration, rssURL string) error {
+func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration, rssURL string, summaryRequests chan<- summarizer.BillSummaryRequest) error {
 	stubs, err := scraper.CrawlBillsRSS(rssURL, client)
 	if err != nil {
 		return err
@@ -297,6 +318,15 @@ func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration, rssURL s
 				Chamber: stage.Chamber,
 				Date:    stage.Date,
 			})
+		}
+
+		if summaryRequests != nil && strings.TrimSpace(bill.FullTextURL) != "" {
+			summaryRequests <- summarizer.BillSummaryRequest{
+				BillID:           bill.ID,
+				BillTitle:        bill.Title,
+				FullTextURL:      bill.FullTextURL,
+				LastActivityDate: bill.LastActivityDate,
+			}
 		}
 	}
 	return nil
@@ -433,14 +463,31 @@ func crawlSenate(conn *sql.DB, client *http.Client, delay time.Duration, indexUR
 // ── scheduled helpers ─────────────────────────────────────────────────────────
 
 func runAll(conn *sql.DB, client *http.Client, delay time.Duration, parallelism int) error {
+	type summaryRunResult struct {
+		processed int
+		err       error
+	}
+	summaryRequests := make(chan summarizer.BillSummaryRequest, 32)
+	summaryResultCh := make(chan summaryRunResult, 1)
+	go func() {
+		n, err := summarizer.SummarizeBillsFromChannel(context.Background(), conn, summaryRequests)
+		summaryResultCh <- summaryRunResult{processed: n, err: err}
+	}()
+
 	fns := []func(){
 		func() { crawlCalendar(conn, client, delay, "") },
-		func() { crawlBills(conn, client, delay, "") },
+		func() { crawlBills(conn, client, delay, "", summaryRequests) },
 		func() { crawlMembers(conn, client, delay, "", "") },
 		func() { crawlVotes(conn, client, delay, "") },
 		func() { crawlSenate(conn, client, delay, "") },
 	}
 	runParallel(parallelism, fns)
+	close(summaryRequests)
+	res := <-summaryResultCh
+	if res.err != nil {
+		return fmt.Errorf("summarization pipeline: %w", res.err)
+	}
+	log.Printf("[scheduler] ai summaries generated: %d", res.processed)
 	return nil
 }
 
