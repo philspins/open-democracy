@@ -119,7 +119,7 @@ func Layout(title string, ps store.ParliamentStatus) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</main><footer class=\"footer-shell\">Open Democracy — Data sourced from the Parliament of Canada Open Data portal</footer></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</main><footer class=\"footer-shell\"><p>This project is funded by everyday taxpayers who believe in government transparency. Help us keep the lights on - <a href=\"https://buymeacoffee.com/opendemocracy\">Donate here</a>.</p><p>Open Democracy — Data sourced from the Parliament of Canada Open Data portal</p></footer></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
