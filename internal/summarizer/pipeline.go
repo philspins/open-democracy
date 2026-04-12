@@ -86,9 +86,88 @@ type claudeResponse struct {
 	} `json:"error"`
 }
 
+// BillSummaryRequest carries the minimum metadata needed to summarize a bill.
+type BillSummaryRequest struct {
+	BillID            string
+	BillTitle         string
+	FullTextURL       string
+	LastActivityDate  string
+}
+
+// shouldSummarizeBill returns true when a bill needs a fresh AI summary.
+// Rules:
+//  1. If a Library of Parliament summary exists, skip AI summarization.
+//  2. If no previous AI summary exists, summarize.
+//  3. If an AI summary exists, summarize only when bill last activity is newer
+//     than the AI summary generation timestamp.
+func shouldSummarizeBill(ctx context.Context, db *sql.DB, billID, incomingLastActivityDate string) (bool, error) {
+	if db == nil {
+		return true, nil
+	}
+
+	var (
+		summaryAI         string
+		summaryLoP        string
+		lastActivityDate  string
+	)
+	err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(summary_ai,''), COALESCE(summary_lop,''), COALESCE(last_activity_date,'')
+		 FROM bills WHERE id = ?`,
+		billID,
+	).Scan(&summaryAI, &summaryLoP, &lastActivityDate)
+	if err != nil {
+		return true, fmt.Errorf("lookup bill %q: %w", billID, err)
+	}
+
+	if strings.TrimSpace(summaryLoP) != "" {
+		return false, nil
+	}
+
+	if strings.TrimSpace(summaryAI) == "" {
+		return true, nil
+	}
+
+	var previous SummaryResult
+	if err := json.Unmarshal([]byte(summaryAI), &previous); err != nil {
+		// If legacy/invalid JSON exists, regenerate a clean summary.
+		return true, nil
+	}
+	if strings.TrimSpace(previous.GeneratedAt) == "" {
+		return true, nil
+	}
+	generatedAt, err := time.Parse(time.RFC3339, previous.GeneratedAt)
+	if err != nil {
+		return true, nil
+	}
+
+	activity := strings.TrimSpace(incomingLastActivityDate)
+	if activity == "" {
+		activity = strings.TrimSpace(lastActivityDate)
+	}
+	if activity == "" {
+		// No reliable activity timestamp; keep previous summary.
+		return false, nil
+	}
+
+	billLastUpdated, err := time.Parse("2006-01-02", activity)
+	if err != nil {
+		return true, nil
+	}
+
+	return billLastUpdated.After(generatedAt.UTC()), nil
+}
+
 // SummarizeBill calls Claude API and returns a structured summary.
 // It truncates very long bills (keeping first ~120k chars + last 30k chars).
-func SummarizeBill(ctx context.Context, billID, billTitle, billText string) (*SummaryResult, error) {
+func SummarizeBill(ctx context.Context, db *sql.DB, billID, billTitle, billText, lastActivityDate string) (*SummaryResult, error) {
+	shouldSummarize, err := shouldSummarizeBill(ctx, db, billID, lastActivityDate)
+	if err != nil {
+		return nil, err
+	}
+	if !shouldSummarize {
+		return nil, nil
+	}
+
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
 		return nil, fmt.Errorf("ANTHROPIC_API_KEY not set")
@@ -177,6 +256,54 @@ Respond with only valid JSON, no markdown or extra text.`, billID, billTitle, bi
 	return &result, nil
 }
 
+// SummarizeBillsFromChannel reads bill summary requests from a channel and
+// pipes each request into SummarizeBill.
+func SummarizeBillsFromChannel(ctx context.Context, db *sql.DB, requests <-chan BillSummaryRequest) (int, error) {
+	processed := 0
+	for req := range requests {
+		if strings.TrimSpace(req.BillID) == "" || strings.TrimSpace(req.FullTextURL) == "" {
+			continue
+		}
+
+		billText, err := fetchBillText(ctx, req.FullTextURL)
+		if err != nil {
+			log.Printf("[summarizer] fetch bill text %q: %v", req.BillID, err)
+			continue
+		}
+
+		log.Printf("[summarizer] summarizing bill %q (%s)...", req.BillID, req.BillTitle)
+		summary, err := SummarizeBill(ctx, db, req.BillID, req.BillTitle, billText, req.LastActivityDate)
+		if err != nil {
+			log.Printf("[summarizer] summarize error %q: %v", req.BillID, err)
+			continue
+		}
+		if summary == nil {
+			log.Printf("[summarizer] skip unchanged bill %q", req.BillID)
+			continue
+		}
+
+		summaryJSON, _ := json.Marshal(summary)
+		_, err = db.ExecContext(ctx,
+			`UPDATE bills SET summary_ai = ?, category = ? WHERE id = ?`,
+			string(summaryJSON), summary.Category, req.BillID)
+		if err != nil {
+			log.Printf("[summarizer] store summary %q: %v", req.BillID, err)
+			continue
+		}
+
+		processed++
+		log.Printf("[summarizer] ✓ stored summary for %q", req.BillID)
+
+		select {
+		case <-time.After(1 * time.Second):
+		case <-ctx.Done():
+			return processed, ctx.Err()
+		}
+	}
+
+	return processed, nil
+}
+
 // SummarizeNewBills processes all bills that still lack summaries.
 // Priority: LoP > AI fallback.
 // This is meant to be called by a robfig/cron scheduler job.
@@ -227,10 +354,14 @@ func SummarizeNewBills(ctx context.Context, db *sql.DB, onlyMissing bool) (int, 
 
 		// Call Claude API.
 		log.Printf("[summarizer] summarizing bill %q (%s)...", number, title)
-		summary, err := SummarizeBill(ctx, billID, title, billText)
+		summary, err := SummarizeBill(ctx, db, billID, title, billText, "")
 		if err != nil {
 			log.Printf("[summarizer] summarize error %q: %v", billID, err)
 			// Don't bail — retry later.
+			continue
+		}
+		if summary == nil {
+			log.Printf("[summarizer] skip unchanged bill %q", billID)
 			continue
 		}
 
