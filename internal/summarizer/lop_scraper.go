@@ -14,11 +14,16 @@ import (
 
 const lopBase = "https://lop.parl.ca/sites/PublicWebsite/default/en_CA/ResearchPublications/LegislativeSummaries"
 
+var (
+	lopBaseURL      = lopBase
+	lopRequestDelay = 500 * time.Millisecond
+)
+
 // FetchLoPSummary fetches a single summary from the Library of Parliament for a bill.
 // Returns empty string if not found.
 func FetchLoPSummary(ctx context.Context, billNumber string) (string, error) {
 	// Format: search page expects bill number like "C-47"
-	searchURL := fmt.Sprintf("%s?keyword=%s&parliament=45&sort=DESC", lopBase, billNumber)
+	searchURL := fmt.Sprintf("%s?keyword=%s&parliament=45&sort=DESC", lopBaseURL, billNumber)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
 	if err != nil {
@@ -72,15 +77,29 @@ func DownloadLoPSummaries(ctx context.Context, db *sql.DB) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("query bills: %w", err)
 	}
-	defer rows.Close()
+
+	type billRef struct {
+		id     string
+		number string
+	}
+	var bills []billRef
+	for rows.Next() {
+		var b billRef
+		if err := rows.Scan(&b.id, &b.number); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan bills: %w", err)
+		}
+		bills = append(bills, b)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
 
 	downloaded := 0
-	for rows.Next() {
-		var billID, billNumber string
-		if err := rows.Scan(&billID, &billNumber); err != nil {
-			log.Printf("[lop-scraper] scan error: %v", err)
-			continue
-		}
+	for _, b := range bills {
+		billID, billNumber := b.id, b.number
 
 		log.Printf("[lop-scraper] fetching summary for %q...", billNumber)
 		summary, err := FetchLoPSummary(ctx, billNumber)
@@ -106,9 +125,9 @@ func DownloadLoPSummaries(ctx context.Context, db *sql.DB) (int, error) {
 		downloaded++
 		log.Printf("[lop-scraper] ✓ stored LoP summary for %q", billNumber)
 
-		// Rate limit: 0.5 second between requests to be polite to LoP servers.
-		time.Sleep(500 * time.Millisecond)
+		// Rate limit between requests to be polite to LoP servers.
+		time.Sleep(lopRequestDelay)
 	}
 
-	return downloaded, rows.Err()
+	return downloaded, nil
 }
