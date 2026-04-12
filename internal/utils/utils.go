@@ -11,7 +11,7 @@ import (
 
 // AppUserAgent is the User-Agent header sent with every request.
 // Identifies the project and provides a contact email — good scraping etiquette.
-const AppUserAgent = "Open Democracy/1.0 (civic-app.ca; contact@civic-app.ca)"
+const AppUserAgent = "Open Democracy/1.0 (open-democracy.ca; contact@open-democracy.ca)"
 
 // CacheTTL is the maximum age of cached HTTP responses.
 const CacheTTL = 6 * time.Hour

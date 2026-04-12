@@ -145,7 +145,7 @@ import (
     "github.com/philspins/open-democracy/internal/utils"
 )
 
-const userAgent = "Open Democracy/1.0 (civic-app.ca; contact@civic-app.ca)"
+const userAgent = "Open Democracy/1.0 (open-democracy.ca; contact@open-democracy.ca)"
 // ↑ Always identify yourself to government scrapers. Be polite.
 
 func crawlBillsFromRSS(database *sql.DB) error {
@@ -830,7 +830,7 @@ func SendWeeklyDigest(ctx context.Context, db *sql.DB, userID string) error {
     html := renderDigestHTML(user, groupByMP(recentVotes), time.Now())
 
     body, _ := json.Marshal(DigestEmail{
-        From:    "Open Democracy <digest@civic-app.ca>",
+        From:    "Open Democracy <digest@open-democracy.ca>",
         To:      user.Email,
         Subject: fmt.Sprintf("Your MPs voted on %d bills this week", len(recentVotes)),
         Html:    html,
@@ -938,7 +938,7 @@ function policyFormData(email, mpName, riding) {
                 this.body,
                 `\n\n---\n`,
                 this.constituencyNote ? `I am a constituent in ${riding}.\n` : "",
-                "Sent via Open Democracy (civic-app.ca)",
+                "Sent via Open Democracy (open-democracy.ca)",
             ].join("");
             return `mailto:${email}?subject=${sub}&body=${encodeURIComponent(txt)}`;
         },
