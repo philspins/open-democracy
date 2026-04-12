@@ -12,7 +12,7 @@
 # Go module cache (do not commit)
 vendor/
 
-# CivicTracker runtime files
+# Open Democracy runtime files
 civictracker.db
 civictracker_cache.sqlite
 *_cache.sqlite
@@ -24,3 +24,5 @@ civictracker_cache.sqlite
 *.swp
 *.swo
 
+*.db-shm
+*.db-wal

@@ -1,0 +1,57 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/philspins/open-democracy/internal/store"
+)
+
+templ VotesFeed(ps store.ParliamentStatus, divs []store.DivisionRow, total int, page int) {
+	@Layout("Votes", ps) {
+		<div class="space-y-6">
+			<div class="title-row">
+				<h1 class="page-title">Recorded Votes</h1>
+				<span class="text-sm text-gray-500">{ fmt.Sprint(total) } total</span>
+			</div>
+
+			<div class="table-shell overflow-x-auto bg-white rounded-lg border border-gray-200">
+				<table class="min-w-full text-sm">
+					<thead>
+						<tr class="bg-gray-50 text-left text-xs text-gray-500 border-b border-gray-200">
+							<th class="px-4 py-3">Date</th>
+							<th class="px-4 py-3">Description</th>
+							<th class="px-4 py-3">Bill</th>
+							<th class="px-4 py-3 text-right">Yeas</th>
+							<th class="px-4 py-3 text-right">Nays</th>
+							<th class="px-4 py-3">Result</th>
+							<th class="px-4 py-3">Chamber</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-gray-100">
+						for _, d := range divs {
+							<tr class="hover:bg-gray-50">
+								<td class="px-4 py-2 text-gray-500 whitespace-nowrap">{ FormatDate(d.Date) }</td>
+								<td class="px-4 py-2 max-w-sm truncate">{ d.Description }</td>
+								<td class="px-4 py-2">
+									if d.BillNumber != "" {
+										<a href={ templ.SafeURL("/bills/" + d.BillID) } class="text-blue-600 hover:underline font-mono">{ d.BillNumber }</a>
+									}
+								</td>
+								<td class="px-4 py-2 text-right text-green-600 font-medium">{ fmt.Sprint(d.Yeas) }</td>
+								<td class="px-4 py-2 text-right text-red-600 font-medium">{ fmt.Sprint(d.Nays) }</td>
+								<td class="px-4 py-2">{ d.Result }</td>
+								<td class="px-4 py-2 text-gray-500 capitalize">{ d.Chamber }</td>
+							</tr>
+						}
+						if len(divs) == 0 {
+							<tr>
+								<td colspan="7" class="px-4 py-8 text-center text-gray-500">No votes recorded yet.</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+
+			@paginationBar(NewPageInfo(page, total, 50), "/votes", "")
+		</div>
+	}
+}

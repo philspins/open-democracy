@@ -1,0 +1,174 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/philspins/open-democracy/internal/store"
+)
+
+templ Home(ps store.ParliamentStatus, bills []store.BillRow, divs []store.DivisionRow, postal string, federalRep store.MemberRow) {
+	@Layout("Home", ps) {
+		{{
+			provParty := provinceGoverningParty(federalRep.Province)
+			federalParty := federalRep.Party
+			if federalParty == "" {
+				federalParty = defaultFederalParty()
+			}
+		}}
+		<div class="space-y-6">
+			<section class="hero-panel">
+				<div class="title-row">
+					<div>
+						<span class="kicker">Open Democracy Overview</span>
+						<h1 class="page-title mt-3">Your representatives and what they are voting on</h1>
+						<p class="section-lead mt-3 max-w-2xl">
+							Follow bills and recorded divisions from the { fmt.Sprint(ps.Parliament) }{ ordinal(ps.Parliament) } Parliament, and quickly jump to your riding lookup.
+						</p>
+						if federalRep.ID != "" {
+							<p class="text-sm text-gray-600 mt-2">
+								Context: { federalRep.Riding }, { federalRep.Province } · Federal rep { federalRep.Name } ({ federalRep.Party })
+							</p>
+						} else if postal != "" {
+							<p class="text-sm text-gray-600 mt-2">
+								No riding match found for "{ postal }" yet. Colors are using national/provincial defaults.
+							</p>
+						}
+					</div>
+					<div class="flex gap-3">
+						<a href="/riding" class="btn btn-primary">Find Your Riding</a>
+						<a href="/members" class="btn btn-secondary">Federal MPs</a>
+					</div>
+				</div>
+			</section>
+
+			<section class="grid gap-0 md:grid-cols-2 rounded-2xl overflow-hidden border border-gray-200 shadow-lg bg-white/85">
+				<div class="border-r border-gray-200">
+					<div class="px-5 py-3 text-sm font-semibold" style={ partyBannerStyle(provParty) }>
+						Your current provincial rep
+					</div>
+					<div class="px-5 py-2 text-sm text-gray-700 border-b border-gray-100">
+						Provincial government: <strong>{ provParty }</strong> · Parliament is currently: <strong>{ statusPhrase(ps.Status) }</strong>
+					</div>
+					<div class="p-5 space-y-4">
+						<div class="title-row">
+							<h2 class="text-xl">Bills Category</h2>
+							<a href="/bills" class="text-sm text-blue-700 hover:underline">All bills →</a>
+						</div>
+						<div class="space-y-3">
+							for _, b := range bills {
+								<div class="surface-card p-3">
+									<div class="flex items-center justify-between gap-2">
+										<a href={ templ.SafeURL("/bills/" + b.ID) } class="font-mono font-semibold text-blue-700">{ b.Number }</a>
+										if b.Category != "" {
+											<span class="text-xs px-2 py-0.5 rounded-full text-white" style={ CategoryBadgeStyle(b.Category) }>{ b.Category }</span>
+										}
+									</div>
+									<p class="mt-2 text-sm text-gray-700 line-clamp-2">{ ShortOrFullTitle(b) }</p>
+									<p class="mt-2 text-xs text-gray-500">{ StageLabel(b.CurrentStage) } · { FormatDate(b.LastActivityDate) }</p>
+								</div>
+							}
+							if len(bills) == 0 {
+								<div class="empty-state text-sm">No bills available yet.</div>
+							}
+						</div>
+					</div>
+				</div>
+
+				<div>
+					<div class="px-5 py-3 text-sm font-semibold" style={ partyBannerStyle(federalParty) }>
+						Your current federal rep
+					</div>
+					<div class="px-5 py-2 text-sm text-gray-700 border-b border-gray-100">
+						Federal governing party color: <strong>{ federalParty }</strong> · Parliament is currently: <strong>{ statusPhrase(ps.Status) }</strong>
+					</div>
+					<div class="p-5 space-y-4">
+						<div class="title-row">
+							<h2 class="text-xl">Bills voted on by your rep</h2>
+							<a href="/votes" class="text-sm text-blue-700 hover:underline">All votes →</a>
+						</div>
+						<div class="table-shell overflow-x-auto">
+							<table class="min-w-full text-sm">
+								<thead>
+									<tr class="text-left text-xs text-gray-500 border-b border-gray-200">
+										<th class="px-4 py-3">Date</th>
+										<th class="px-4 py-3">Division</th>
+										<th class="px-4 py-3 text-right">How many voted</th>
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-gray-100">
+									for _, d := range divs {
+										<tr>
+											<td class="px-4 py-2 text-gray-500 whitespace-nowrap">{ FormatDate(d.Date) }</td>
+											<td class="px-4 py-2">
+												<p class="font-medium text-gray-800 truncate max-w-xs">{ d.Description }</p>
+												if d.BillNumber != "" {
+													<a href={ templ.SafeURL("/bills/" + d.BillID) } class="font-mono text-blue-700 text-xs hover:underline">{ d.BillNumber }</a>
+												}
+											</td>
+											<td class="px-4 py-2 text-right font-semibold text-gray-700">{ fmt.Sprint(d.Yeas + d.Nays) }</td>
+										</tr>
+									}
+									if len(divs) == 0 {
+										<tr>
+											<td colspan="3" class="px-4 py-8 text-center text-gray-500">No votes recorded yet.</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+						<p class="text-xs text-gray-500">
+							General vote consensus snapshot: { fmt.Sprint(averageTurnout(divs)) } average voters per recorded division.
+						</p>
+					</div>
+				</div>
+			</section>
+
+			<section class="surface-card p-5">
+				<h2 class="text-xl">Overall</h2>
+				<div class="metric-grid mt-4">
+					<div class="metric-card">
+						<p class="text-2xl font-bold text-gray-900">{ fmt.Sprint(len(bills)) }</p>
+						<p class="text-xs text-gray-500 mt-1">Recent bills tracked</p>
+					</div>
+					<div class="metric-card">
+						<p class="text-2xl font-bold text-gray-900">{ fmt.Sprint(len(divs)) }</p>
+						<p class="text-xs text-gray-500 mt-1">Recent divisions tracked</p>
+					</div>
+					<div class="metric-card">
+						<p class="text-2xl font-bold text-gray-900">{ fmt.Sprint(totalTurnout(divs)) }</p>
+						<p class="text-xs text-gray-500 mt-1">Total votes counted</p>
+					</div>
+					<div class="metric-card">
+						<p class="text-2xl font-bold text-gray-900">{ fmt.Sprint(ps.Parliament) }{ ordinal(ps.Parliament) }</p>
+						<p class="text-xs text-gray-500 mt-1">Current parliament</p>
+					</div>
+				</div>
+			</section>
+		</div>
+	}
+}
+
+func statusPhrase(status string) string {
+	switch status {
+	case "in_session":
+		return "in session"
+	case "on_break":
+		return "on break"
+	default:
+		return "status unavailable"
+	}
+}
+
+func totalTurnout(divs []store.DivisionRow) int {
+	total := 0
+	for _, d := range divs {
+		total += d.Yeas + d.Nays
+	}
+	return total
+}
+
+func averageTurnout(divs []store.DivisionRow) int {
+	if len(divs) == 0 {
+		return 0
+	}
+	return totalTurnout(divs) / len(divs)
+}

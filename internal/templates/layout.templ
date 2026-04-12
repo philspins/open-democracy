@@ -1,0 +1,381 @@
+package templates
+
+import "github.com/philspins/open-democracy/internal/store"
+
+templ Layout(title string, ps store.ParliamentStatus) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title } — Open Democracy</title>
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
+			<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+			<script src="https://cdn.tailwindcss.com"></script>
+			<style>
+				:root {
+					--ink-900: #1a1a1a;
+					--ink-700: #2f3e55;
+					--ink-500: #5e6b7d;
+					--paper: #f6f8fb;
+					--paper-strong: #ffffff;
+					--line: #d5dce5;
+					--accent: #26374a;
+					--accent-strong: #1a2634;
+					--signal: #c8102e;
+					--focus: #0f62fe;
+					--shadow: 0 8px 22px rgba(16, 24, 40, 0.08);
+				}
+
+				html,
+				body {
+					min-height: 100%;
+				}
+
+				body {
+					font-family: "Noto Sans", "Segoe UI", sans-serif;
+					color: var(--ink-900);
+					background: linear-gradient(180deg, #f3f6fa 0%, var(--paper) 100%);
+				}
+
+				h1,
+				h2,
+				h3,
+				h4 {
+					font-family: "Noto Sans", "Segoe UI", sans-serif;
+					letter-spacing: -0.01em;
+					font-weight: 700;
+				}
+
+				a {
+					color: var(--ink-700);
+					transition: color 160ms ease;
+				}
+
+				a:hover {
+					color: #1f4a78;
+				}
+
+				.site-nav {
+					position: sticky;
+					top: 0;
+					z-index: 20;
+					background: rgba(255, 255, 255, 0.97);
+					border-bottom: 1px solid var(--line);
+					box-shadow: 0 1px 0 rgba(16, 24, 40, 0.04);
+				}
+
+				.nav-inner {
+					max-width: 1100px;
+					display: flex;
+					justify-content: space-between;
+					align-items: center;
+					gap: 1rem;
+					height: auto;
+					padding: 0.85rem 1.1rem;
+					margin: 0 auto;
+					flex-wrap: wrap;
+				}
+
+				.nav-brand {
+					font-family: "Noto Sans", "Segoe UI", sans-serif;
+					font-size: 1.16rem;
+					font-weight: 700;
+					color: var(--ink-900);
+				}
+
+				.nav-brand::before {
+					content: "";
+					display: inline-block;
+					width: 0.58rem;
+					height: 0.58rem;
+					margin-right: 0.55rem;
+					border-radius: 2px;
+					background: linear-gradient(180deg, var(--signal), #a10d24);
+					vertical-align: middle;
+				}
+
+				.nav-links {
+					display: flex;
+					gap: 0.9rem;
+					align-items: center;
+					font-size: 0.9rem;
+					font-weight: 600;
+					color: var(--ink-500);
+					flex-wrap: wrap;
+				}
+
+				.search-form {
+					display: flex;
+					align-items: center;
+					gap: 0.55rem;
+					flex-wrap: wrap;
+				}
+
+				.input-field,
+				select,
+				input[type="text"] {
+					border: 1px solid var(--line);
+					border-radius: 6px;
+					padding: 0.56rem 0.72rem;
+					background: var(--paper-strong);
+					font-size: 0.92rem;
+					color: var(--ink-900);
+					outline: none;
+					transition: border-color 160ms ease, box-shadow 160ms ease;
+				}
+
+				.input-field:focus,
+				select:focus,
+				input[type="text"]:focus {
+					border-color: var(--focus);
+					box-shadow: 0 0 0 3px rgba(15, 98, 254, 0.18);
+				}
+
+				.btn {
+					display: inline-flex;
+					align-items: center;
+					justify-content: center;
+					gap: 0.4rem;
+					padding: 0.58rem 0.96rem;
+					font-size: 0.9rem;
+					font-weight: 700;
+					border-radius: 6px;
+					border: 1px solid transparent;
+					transition: box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease;
+					cursor: pointer;
+				}
+
+				.btn:hover {
+					transform: none;
+				}
+
+				.btn-primary {
+					background: var(--accent);
+					color: #fff;
+					border-color: #1f2d3e;
+				}
+
+				.btn-primary:hover {
+					background: var(--accent-strong);
+					color: #fff;
+				}
+
+				.btn-secondary {
+					background: #ffffff;
+					border-color: #9aa6b5;
+					color: var(--ink-700);
+				}
+
+				.session-banner {
+					text-align: center;
+					padding: 0.55rem 1rem;
+					font-size: 0.86rem;
+					font-weight: 700;
+					letter-spacing: 0.01em;
+					color: #fff;
+				}
+
+				.session-banner.in-session {
+					background: #1e7f4f;
+				}
+
+				.session-banner.on-break {
+					background: #8a6712;
+				}
+
+				.site-main {
+					max-width: 1100px;
+					margin: 1.8rem auto 0;
+					padding: 0 1.1rem 2.2rem;
+				}
+
+				.site-main > * {
+					animation: rise-in 420ms ease both;
+				}
+
+				.surface-card,
+				.bg-white.rounded-lg.border {
+					background: rgba(255, 255, 255, 0.98);
+					border: 1px solid var(--line);
+					border-radius: 8px;
+					box-shadow: var(--shadow);
+				}
+
+				.table-shell,
+				.overflow-x-auto.bg-white.rounded-lg.border {
+					border-radius: 8px;
+					border: 1px solid var(--line);
+					box-shadow: none;
+					background: rgba(255, 255, 255, 0.98);
+				}
+
+				table thead tr {
+					background: #eef3f8;
+				}
+
+				table tbody tr {
+					transition: background-color 120ms ease;
+				}
+
+				table tbody tr:hover {
+					background: #f8fbff;
+				}
+
+				.page-title {
+					font-size: clamp(1.7rem, 2vw, 2.2rem);
+					line-height: 1.1;
+					color: var(--ink-900);
+				}
+
+				.kicker {
+					display: inline-block;
+					font-size: 0.74rem;
+					letter-spacing: 0.12em;
+					font-weight: 700;
+					text-transform: uppercase;
+					color: #23456f;
+					background: #e8eef6;
+					padding: 0.3rem 0.55rem;
+					border-radius: 999px;
+				}
+
+				.hero-panel {
+					border: 1px solid var(--line);
+					border-radius: 8px;
+					padding: clamp(1.4rem, 3vw, 2.4rem);
+					background: linear-gradient(180deg, #f8fbff, #f2f6fb);
+					box-shadow: none;
+				}
+
+				.title-row {
+					display: flex;
+					justify-content: space-between;
+					align-items: end;
+					gap: 1rem;
+					flex-wrap: wrap;
+				}
+
+				.filter-shell {
+					display: flex;
+					flex-wrap: wrap;
+					gap: 0.65rem;
+					align-items: center;
+					padding: 0.95rem;
+					border-radius: 8px;
+					border: 1px solid var(--line);
+					background: rgba(255, 255, 255, 0.98);
+				}
+
+				.metric-grid {
+					display: grid;
+					grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+					gap: 0.8rem;
+				}
+
+				.metric-card {
+					padding: 0.95rem;
+					border-radius: 8px;
+					border: 1px solid var(--line);
+					background: rgba(255, 255, 255, 0.98);
+					text-align: center;
+				}
+
+				.empty-state {
+					text-align: center;
+					padding: 2.6rem 1rem;
+					border: 1px dashed #b6c3d2;
+					border-radius: 8px;
+					color: var(--ink-500);
+					background: rgba(255, 255, 255, 0.92);
+				}
+
+				.section-lead {
+					font-size: 1.02rem;
+					line-height: 1.55;
+					color: var(--ink-500);
+				}
+
+				.footer-shell {
+					max-width: 1100px;
+					margin: 2.2rem auto 0;
+					padding: 1.4rem 1.1rem 2.4rem;
+					border-top: 1px solid #c7d1dc;
+					font-size: 0.78rem;
+					color: var(--ink-500);
+					text-align: center;
+				}
+
+				@keyframes rise-in {
+					from {
+						opacity: 0.98;
+						transform: translateY(2px);
+					}
+					to {
+						opacity: 1;
+						transform: translateY(0);
+					}
+				}
+
+				@media (max-width: 760px) {
+					.hero-panel {
+						padding: 1.2rem;
+					}
+
+					.search-form {
+						width: 100%;
+					}
+
+					.search-form input[type="text"] {
+						flex: 1;
+						min-width: 180px;
+					}
+
+					.nav-links {
+						font-size: 0.87rem;
+						gap: 0.7rem;
+					}
+				}
+			</style>
+		</head>
+		<body class="min-h-screen">
+			<!-- Nav -->
+			<nav class="site-nav">
+				<div class="nav-inner">
+					<div class="flex items-center gap-5">
+						<a href="/" class="nav-brand">Open Democracy</a>
+						<div class="nav-links">
+							<a href="/bills">Bills</a>
+							<a href="/votes">Votes</a>
+							<a href="/members">MPs</a>
+							<a href="/compare">Compare</a>
+						</div>
+					</div>
+					<form method="GET" action="/" class="search-form">
+						<input type="text" name="postal" placeholder="Riding / postal code"
+							class="input-field w-44"/>
+						<button type="submit" class="btn btn-primary">Set Riding</button>
+					</form>
+				</div>
+			</nav>
+			<!-- Session banner -->
+			if ps.Status == "in_session" {
+				<div class="session-banner in-session">
+					🟢 { ps.Label } — { ps.Detail }
+				</div>
+			} else if ps.Status == "on_break" {
+				<div class="session-banner on-break">
+					🟡 { ps.Label } — { ps.Detail }
+				</div>
+			}
+			<!-- Main content -->
+			<main class="site-main">
+				{ children... }
+			</main>
+			<footer class="footer-shell">
+				Open Democracy — Data sourced from the Parliament of Canada Open Data portal
+			</footer>
+		</body>
+	</html>
+}

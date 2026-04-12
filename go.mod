@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.12.0
+	github.com/a-h/templ v0.3.1001
 	github.com/mattn/go-sqlite3 v1.14.42
 	github.com/mmcdole/gofeed v1.3.0
 	github.com/robfig/cron/v3 v3.0.1

@@ -1,0 +1,35 @@
+package templates
+
+import "github.com/philspins/open-democracy/internal/store"
+
+templ RidingLookup(ps store.ParliamentStatus, postal string, members []store.MemberRow) {
+	@Layout("Find My MP", ps) {
+		<div class="space-y-6">
+			<h1 class="text-2xl font-bold text-gray-900">Find Your Representatives</h1>
+
+			<form method="GET" action="/riding" class="flex gap-3 items-center">
+				<input type="text" name="postal" value={ postal } placeholder="Enter postal code or riding name"
+					class="border border-gray-300 rounded px-3 py-2 text-sm w-64"/>
+				<button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">Search</button>
+			</form>
+
+			if postal != "" {
+				if len(members) > 0 {
+					<div>
+						<h2 class="text-lg font-semibold text-gray-800 mb-3">Representatives for "{ postal }"</h2>
+						<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+							for _, m := range members {
+								@memberCard(m)
+							}
+						</div>
+					</div>
+				} else {
+					<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-yellow-800">
+						<p>No representatives found for "{ postal }". Try entering a riding name instead of a postal code.</p>
+						<p class="text-sm mt-1">Example: "Ottawa Centre", "Vancouver Granville"</p>
+					</div>
+				}
+			}
+		</div>
+	}
+}

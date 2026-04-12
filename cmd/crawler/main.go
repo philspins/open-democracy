@@ -1,4 +1,4 @@
-// Command crawler is the CivicTracker data-crawling CLI.
+// Command crawler is the Open Democracy data-crawling CLI.
 //
 // Usage:
 //

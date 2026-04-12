@@ -1,0 +1,137 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/philspins/open-democracy/internal/store"
+)
+
+templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.BillStageRow, divs []store.DivisionRow) {
+	@Layout(bill.Number+" — "+ShortOrFullTitle(bill), ps) {
+		<div class="space-y-6">
+			<!-- Header -->
+			<div>
+				<div class="flex items-center gap-2 mb-2">
+					<a href="/bills" class="text-sm text-blue-600 hover:underline">← Bills</a>
+				</div>
+				<div class="flex items-start gap-3">
+					<span class="font-mono font-bold text-2xl text-blue-700">{ bill.Number }</span>
+					if bill.Category != "" {
+						<span class="mt-1 text-sm px-2 py-0.5 rounded-full text-white" style={ CategoryBadgeStyle(bill.Category) }>{ bill.Category }</span>
+					}
+				</div>
+				<h1 class="text-xl font-semibold text-gray-900 mt-2">{ bill.Title }</h1>
+				if bill.ShortTitle != "" && bill.ShortTitle != bill.Title {
+					<p class="text-gray-600 italic mt-1">{ bill.ShortTitle }</p>
+				}
+			</div>
+
+			<!-- Meta grid -->
+			<div class="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-gray-50 rounded-lg p-4">
+				<div>
+					<p class="text-xs text-gray-500">Chamber</p>
+					<p class="font-medium capitalize">{ bill.Chamber }</p>
+				</div>
+				<div>
+					<p class="text-xs text-gray-500">Stage</p>
+					<p class="font-medium">{ StageLabel(bill.CurrentStage) }</p>
+				</div>
+				if bill.SponsorName != "" {
+					<div>
+						<p class="text-xs text-gray-500">Sponsor</p>
+						<p class="font-medium">
+							if bill.SponsorID != "" {
+								<a href={ templ.SafeURL("/members/" + bill.SponsorID) } class="text-blue-600 hover:underline">{ bill.SponsorName }</a>
+							} else {
+								{ bill.SponsorName }
+							}
+						</p>
+					</div>
+				}
+				<div>
+					<p class="text-xs text-gray-500">Introduced</p>
+					<p class="font-medium">{ FormatDate(bill.IntroducedDate) }</p>
+				</div>
+			</div>
+
+			<!-- Stage timeline -->
+			if len(stages) > 0 {
+				<section>
+					<h2 class="text-lg font-semibold text-gray-800 mb-3">Progress</h2>
+					<div class="space-y-2">
+						for _, s := range stages {
+							<div class="flex items-center gap-3 py-2 border-b border-gray-100">
+								<span class="w-28 text-sm font-medium text-gray-700">{ StageLabel(s.Stage) }</span>
+								<span class="text-sm text-gray-500 capitalize">{ s.Chamber }</span>
+								<span class="text-sm text-gray-500">{ FormatDate(s.Date) }</span>
+								if s.Notes != "" {
+									<span class="text-xs text-gray-400">{ s.Notes }</span>
+								}
+							</div>
+						}
+					</div>
+				</section>
+			}
+
+			<!-- Summaries -->
+			if bill.SummaryLoP != "" {
+				<section>
+					<h2 class="text-lg font-semibold text-gray-800 mb-2">Summary</h2>
+					<div class="prose prose-sm max-w-none text-gray-700 bg-blue-50 rounded-lg p-4">
+						<p>{ bill.SummaryLoP }</p>
+					</div>
+					<p class="text-xs text-gray-400 mt-1">Source: Library of Parliament</p>
+				</section>
+			} else if bill.SummaryAI != "" {
+				<section>
+					<h2 class="text-lg font-semibold text-gray-800 mb-2">Summary <span class="text-xs font-normal text-gray-400">(AI-generated)</span></h2>
+					<div class="prose prose-sm max-w-none text-gray-700 bg-yellow-50 rounded-lg p-4">
+						<p>{ bill.SummaryAI }</p>
+					</div>
+				</section>
+			}
+
+			<!-- External links -->
+			<div class="flex gap-4">
+				if bill.LegisInfoURL != "" {
+					<a href={ templ.SafeURL(bill.LegisInfoURL) } target="_blank" rel="noopener"
+					   class="text-sm text-blue-600 hover:underline">LEGISinfo →</a>
+				}
+				if bill.FullTextURL != "" {
+					<a href={ templ.SafeURL(bill.FullTextURL) } target="_blank" rel="noopener"
+					   class="text-sm text-blue-600 hover:underline">Full Text →</a>
+				}
+			</div>
+
+			<!-- Divisions -->
+			if len(divs) > 0 {
+				<section>
+					<h2 class="text-lg font-semibold text-gray-800 mb-3">Recorded Votes</h2>
+					<div class="overflow-x-auto">
+						<table class="min-w-full text-sm">
+							<thead>
+								<tr class="bg-gray-50 text-left text-xs text-gray-500">
+									<th class="px-3 py-2">Date</th>
+									<th class="px-3 py-2">Description</th>
+									<th class="px-3 py-2 text-right">Yeas</th>
+									<th class="px-3 py-2 text-right">Nays</th>
+									<th class="px-3 py-2">Result</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-gray-100">
+								for _, d := range divs {
+									<tr class="hover:bg-gray-50">
+										<td class="px-3 py-2 text-gray-500 whitespace-nowrap">{ FormatDate(d.Date) }</td>
+										<td class="px-3 py-2">{ d.Description }</td>
+										<td class="px-3 py-2 text-right text-green-600 font-medium">{ fmt.Sprint(d.Yeas) }</td>
+										<td class="px-3 py-2 text-right text-red-600 font-medium">{ fmt.Sprint(d.Nays) }</td>
+										<td class="px-3 py-2 text-gray-600">{ d.Result }</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				</section>
+			}
+		</div>
+	}
+}
