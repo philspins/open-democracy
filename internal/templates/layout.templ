@@ -352,10 +352,10 @@ templ Layout(title string, ps store.ParliamentStatus) {
 							<a href="/compare">Compare</a>
 						</div>
 					</div>
-					<form method="GET" action="/" class="search-form">
-						<input type="text" name="postal" placeholder="Riding / postal code"
-							class="input-field w-44"/>
-						<button type="submit" class="btn btn-primary">Set Riding</button>
+					<form method="GET" action="/riding" class="search-form">
+						<input type="text" name="address" placeholder="Enter your address"
+							class="input-field w-52"/>
+						<button type="submit" class="btn btn-primary">Find My MP</button>
 					</form>
 				</div>
 			</nav>

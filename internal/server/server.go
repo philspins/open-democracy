@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 
+	"github.com/philspins/open-democracy/internal/opennorth"
 	"github.com/philspins/open-democracy/internal/scraper"
 	"github.com/philspins/open-democracy/internal/store"
 	"github.com/philspins/open-democracy/internal/templates"
@@ -31,11 +32,12 @@ import (
 
 // Server holds application dependencies.
 type Server struct {
-	store       *store.Store
-	mux         *http.ServeMux
-	baseURL     string
-	emailer     verificationEmailSender
-	rateLimiter *simpleRateLimiter
+	store         *store.Store
+	mux           *http.ServeMux
+	baseURL       string
+	emailer       verificationEmailSender
+	rateLimiter   *simpleRateLimiter
+	googleMapsKey string
 }
 
 type verificationEmailSender interface {
@@ -143,7 +145,11 @@ func New(st *store.Store) *Server {
 			emailer = &sesVerificationSender{client: sesv2.NewFromConfig(cfg), fromEmail: fromEmail, baseURL: baseURL}
 		}
 	}
-	s := &Server{store: st, mux: http.NewServeMux(), baseURL: baseURL, emailer: emailer, rateLimiter: newSimpleRateLimiter()}
+	googleMapsKey := strings.TrimSpace(os.Getenv("GOOGLE_MAPS_API_KEY"))
+	if googleMapsKey == "" {
+		log.Printf("warning: GOOGLE_MAPS_API_KEY not set; address geocoding disabled")
+	}
+	s := &Server{store: st, mux: http.NewServeMux(), baseURL: baseURL, emailer: emailer, rateLimiter: newSimpleRateLimiter(), googleMapsKey: googleMapsKey}
 	s.mux.HandleFunc("GET /", s.handleHome)
 	s.mux.HandleFunc("GET /bills", s.handleBills)
 	s.mux.HandleFunc("GET /bills/{id}", s.handleBillDetail)
@@ -180,21 +186,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	ps := s.parliamentStatus()
 	bills, _ := s.store.GetRecentBills(5)
 	divs, _ := s.store.GetRecentDivisions(10)
-	postal := strings.TrimSpace(r.URL.Query().Get("postal"))
-	var federalRep store.MemberRow
-	if postal != "" {
-		members, _ := s.store.GetMembersByRiding(postal)
-		for _, m := range members {
-			if strings.EqualFold(m.Chamber, "commons") {
-				federalRep = m
-				break
-			}
-		}
-		if federalRep.ID == "" && len(members) > 0 {
-			federalRep = members[0]
-		}
-	}
-	_ = templates.Home(ps, bills, divs, postal, federalRep).Render(r.Context(), w)
+	_ = templates.Home(ps, bills, divs, "", store.MemberRow{}).Render(r.Context(), w)
 }
 
 func (s *Server) handleBills(w http.ResponseWriter, r *http.Request) {
@@ -285,13 +277,45 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRiding(w http.ResponseWriter, r *http.Request) {
-	postal := r.URL.Query().Get("postal")
+	address := strings.TrimSpace(r.URL.Query().Get("address"))
 	ps := s.parliamentStatus()
-	var members []store.MemberRow
-	if postal != "" {
-		members, _ = s.store.GetMembersByRiding(postal)
+	var (
+		reps      []opennorth.Representative
+		lookupErr string
+	)
+	if address != "" {
+		if s.googleMapsKey == "" {
+			lookupErr = "Address lookup is not configured (missing GOOGLE_MAPS_API_KEY)."
+		} else {
+			lat, lng, err := opennorth.GeocodeAddress(r.Context(), address, s.googleMapsKey)
+			if err != nil {
+				log.Printf("geocode error for %q: %v", address, err)
+				lookupErr = "Could not locate that address. Please try a more specific Canadian address."
+			} else {
+				reps, err = opennorth.GetRepresentativesByLatLng(r.Context(), lat, lng)
+				if err != nil {
+					log.Printf("open north error lat=%f lng=%f: %v", lat, lng, err)
+					lookupErr = "Could not look up representatives. Please try again."
+				} else {
+					// Attempt to match federal MPs to local DB members by riding name.
+					for i, rep := range reps {
+						if !strings.EqualFold(rep.ElectedOffice, "MP") {
+							continue
+						}
+						local, _ := s.store.GetMembersByRiding(rep.DistrictName)
+						for _, m := range local {
+							if strings.EqualFold(m.Name, rep.Name) ||
+								strings.EqualFold(m.Riding, rep.DistrictName) {
+								reps[i].LocalMemberID = m.ID
+								break
+							}
+						}
+					}
+				}
+			}
+		}
 	}
-	_ = templates.RidingLookup(ps, postal, members).Render(r.Context(), w)
+	_ = templates.RidingLookup(ps, address, reps, lookupErr).Render(r.Context(), w)
 }
 
 func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {

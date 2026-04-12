@@ -307,6 +307,15 @@ func ordinal(n int) string {
 	return "th"
 }
 
+// initial returns the first character of s, or "?" if s is empty.
+func initial(s string) string {
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return "?"
+	}
+	return string(runes[0])
+}
+
 // NewPageInfo computes PageInfo from the current page, total items, and page size.
 func NewPageInfo(page, total, perPage int) PageInfo {
 	if perPage <= 0 {
