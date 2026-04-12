@@ -6,71 +6,28 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
+	"github.com/philspins/open-democracy/internal/scraper"
+	"github.com/philspins/open-democracy/internal/utils"
 )
 
-const lopBase = "https://lop.parl.ca/sites/PublicWebsite/default/en_CA/ResearchPublications/LegislativeSummaries"
+var lopRequestDelay = 500 * time.Millisecond
 
-var (
-	lopBaseURL      = lopBase
-	lopRequestDelay = 500 * time.Millisecond
-)
-
-// FetchLoPSummary fetches a single summary from the Library of Parliament for a bill.
-// Returns empty string if not found.
-func FetchLoPSummary(ctx context.Context, billNumber string) (string, error) {
-	// Format: search page expects bill number like "C-47"
-	searchURL := fmt.Sprintf("%s?keyword=%s&parliament=45&sort=DESC", lopBaseURL, billNumber)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("User-Agent", "Open Democracy/1.0 (open-democracy.ca; contact@open-democracy.ca)")
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("http %d", resp.StatusCode)
-	}
-
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	// Look for the search results and extract the first match.
-	// The LoP page structure varies, so this is a best-effort extraction.
-	var summary string
-	doc.Find("article, .legislative-summary, [id*='summary']").Each(func(i int, s *goquery.Selection) {
-		if summary == "" {
-			text := s.Text()
-			if text != "" {
-				summary = strings.TrimSpace(text)
-			}
-		}
-	})
-
-	return summary, nil
-}
-
-// DownloadLoPSummaries fetches LoP summaries for bills lacking them.
+// DownloadLoPSummaries fetches LoP summaries for bills lacking them using the
+// existing scraper.CrawlLibraryOfParliamentSummary function.
 // This runs as a scheduled job before AI summarization.
-func DownloadLoPSummaries(ctx context.Context, db *sql.DB) (int, error) {
-	// Find bills without LoP summaries.
+// If client is nil, utils.NewHTTPClient() is used.
+func DownloadLoPSummaries(ctx context.Context, db *sql.DB, client *http.Client) (int, error) {
+	if client == nil {
+		client = utils.NewHTTPClient()
+	}
+
+	// Find bills without LoP summaries (treat empty string as missing).
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, number
 		FROM bills
-		WHERE summary_lop IS NULL
+		WHERE summary_lop IS NULL OR summary_lop = ''
 		ORDER BY introduced_date DESC
 		LIMIT 100
 	`)
@@ -101,12 +58,14 @@ func DownloadLoPSummaries(ctx context.Context, db *sql.DB) (int, error) {
 	for _, b := range bills {
 		billID, billNumber := b.id, b.number
 
-		log.Printf("[lop-scraper] fetching summary for %q...", billNumber)
-		summary, err := FetchLoPSummary(ctx, billNumber)
-		if err != nil {
-			log.Printf("[lop-scraper] fetch error for %q: %v", billNumber, err)
+		parliament, session, ok := utils.ParliamentSessionFromBillID(billID)
+		if !ok {
+			log.Printf("[lop-scraper] could not parse parliament/session from %q, skipping", billID)
 			continue
 		}
+
+		log.Printf("[lop-scraper] fetching summary for %q...", billNumber)
+		summary := scraper.CrawlLibraryOfParliamentSummary(billNumber, parliament, session, client)
 
 		if summary == "" {
 			// No LoP summary available; will fall back to AI.
@@ -126,7 +85,11 @@ func DownloadLoPSummaries(ctx context.Context, db *sql.DB) (int, error) {
 		log.Printf("[lop-scraper] ✓ stored LoP summary for %q", billNumber)
 
 		// Rate limit between requests to be polite to LoP servers.
-		time.Sleep(lopRequestDelay)
+		select {
+		case <-time.After(lopRequestDelay):
+		case <-ctx.Done():
+			return downloaded, ctx.Err()
+		}
 	}
 
 	return downloaded, nil
