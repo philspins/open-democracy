@@ -15,16 +15,17 @@ templ Layout(title string, ps store.ParliamentStatus) {
 			<script src="https://cdn.tailwindcss.com"></script>
 			<style>
 				:root {
-					--ink-900: #0f2230;
-					--ink-700: #1f3b52;
-					--ink-500: #456277;
-					--paper: #f8faf8;
+					--ink-900: #1a1a1a;
+					--ink-700: #2f3e55;
+					--ink-500: #5e6b7d;
+					--paper: #f6f8fb;
 					--paper-strong: #ffffff;
-					--line: #dbe4e1;
-					--accent: #0d6a6a;
-					--accent-strong: #095555;
-					--warm: #f4b860;
-					--shadow: 0 14px 40px rgba(15, 34, 48, 0.12);
+					--line: #d5dce5;
+					--accent: #26374a;
+					--accent-strong: #1a2634;
+					--signal: #c8102e;
+					--focus: #0f62fe;
+					--shadow: 0 8px 22px rgba(16, 24, 40, 0.08);
 				}
 
 				html,
@@ -33,20 +34,18 @@ templ Layout(title string, ps store.ParliamentStatus) {
 				}
 
 				body {
-					font-family: "Manrope", "Segoe UI", sans-serif;
+					font-family: "Noto Sans", "Segoe UI", sans-serif;
 					color: var(--ink-900);
-					background:
-						radial-gradient(circle at 10% -5%, rgba(13, 106, 106, 0.2), transparent 45%),
-						radial-gradient(circle at 90% 8%, rgba(244, 184, 96, 0.26), transparent 38%),
-						linear-gradient(180deg, #eef4f1 0%, var(--paper) 46%, #f7f8f4 100%);
+					background: linear-gradient(180deg, #f3f6fa 0%, var(--paper) 100%);
 				}
 
 				h1,
 				h2,
 				h3,
 				h4 {
-					font-family: "Fraunces", Georgia, serif;
-					letter-spacing: -0.02em;
+					font-family: "Noto Sans", "Segoe UI", sans-serif;
+					letter-spacing: -0.01em;
+					font-weight: 700;
 				}
 
 				a {
@@ -55,16 +54,16 @@ templ Layout(title string, ps store.ParliamentStatus) {
 				}
 
 				a:hover {
-					color: var(--accent-strong);
+					color: #1f4a78;
 				}
 
 				.site-nav {
 					position: sticky;
 					top: 0;
 					z-index: 20;
-					backdrop-filter: blur(10px);
-					background: rgba(248, 250, 248, 0.88);
-					border-bottom: 1px solid rgba(219, 228, 225, 0.92);
+					background: rgba(255, 255, 255, 0.97);
+					border-bottom: 1px solid var(--line);
+					box-shadow: 0 1px 0 rgba(16, 24, 40, 0.04);
 				}
 
 				.nav-inner {
@@ -80,8 +79,8 @@ templ Layout(title string, ps store.ParliamentStatus) {
 				}
 
 				.nav-brand {
-					font-family: "Fraunces", Georgia, serif;
-					font-size: 1.25rem;
+					font-family: "Noto Sans", "Segoe UI", sans-serif;
+					font-size: 1.16rem;
 					font-weight: 700;
 					color: var(--ink-900);
 				}
@@ -89,12 +88,11 @@ templ Layout(title string, ps store.ParliamentStatus) {
 				.nav-brand::before {
 					content: "";
 					display: inline-block;
-					width: 0.65rem;
-					height: 0.65rem;
+					width: 0.58rem;
+					height: 0.58rem;
 					margin-right: 0.55rem;
-					border-radius: 50%;
-					background: linear-gradient(135deg, var(--accent), var(--warm));
-					box-shadow: 0 0 0 4px rgba(13, 106, 106, 0.16);
+					border-radius: 2px;
+					background: linear-gradient(180deg, var(--signal), #a10d24);
 					vertical-align: middle;
 				}
 
@@ -102,7 +100,7 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					display: flex;
 					gap: 0.9rem;
 					align-items: center;
-					font-size: 0.92rem;
+					font-size: 0.9rem;
 					font-weight: 600;
 					color: var(--ink-500);
 					flex-wrap: wrap;
@@ -119,7 +117,7 @@ templ Layout(title string, ps store.ParliamentStatus) {
 				select,
 				input[type="text"] {
 					border: 1px solid var(--line);
-					border-radius: 10px;
+					border-radius: 6px;
 					padding: 0.56rem 0.72rem;
 					background: var(--paper-strong);
 					font-size: 0.92rem;
@@ -131,8 +129,8 @@ templ Layout(title string, ps store.ParliamentStatus) {
 				.input-field:focus,
 				select:focus,
 				input[type="text"]:focus {
-					border-color: var(--accent);
-					box-shadow: 0 0 0 3px rgba(13, 106, 106, 0.15);
+					border-color: var(--focus);
+					box-shadow: 0 0 0 3px rgba(15, 98, 254, 0.18);
 				}
 
 				.btn {
@@ -143,30 +141,30 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					padding: 0.58rem 0.96rem;
 					font-size: 0.9rem;
 					font-weight: 700;
-					border-radius: 11px;
+					border-radius: 6px;
 					border: 1px solid transparent;
-					transition: transform 120ms ease, box-shadow 160ms ease, background-color 160ms ease;
+					transition: box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease;
 					cursor: pointer;
 				}
 
 				.btn:hover {
-					transform: translateY(-1px);
+					transform: none;
 				}
 
 				.btn-primary {
-					background: linear-gradient(135deg, var(--accent), #0f7d7d);
+					background: var(--accent);
 					color: #fff;
-					box-shadow: 0 8px 22px rgba(13, 106, 106, 0.22);
+					border-color: #1f2d3e;
 				}
 
 				.btn-primary:hover {
-					background: linear-gradient(135deg, #0f7d7d, var(--accent-strong));
+					background: var(--accent-strong);
 					color: #fff;
 				}
 
 				.btn-secondary {
 					background: #ffffff;
-					border-color: var(--line);
+					border-color: #9aa6b5;
 					color: var(--ink-700);
 				}
 
@@ -180,11 +178,11 @@ templ Layout(title string, ps store.ParliamentStatus) {
 				}
 
 				.session-banner.in-session {
-					background: linear-gradient(135deg, #0f8a5f, #13916b);
+					background: #1e7f4f;
 				}
 
 				.session-banner.on-break {
-					background: linear-gradient(135deg, #cb8c2a, #dba944);
+					background: #8a6712;
 				}
 
 				.site-main {
@@ -199,22 +197,22 @@ templ Layout(title string, ps store.ParliamentStatus) {
 
 				.surface-card,
 				.bg-white.rounded-lg.border {
-					background: rgba(255, 255, 255, 0.9);
+					background: rgba(255, 255, 255, 0.98);
 					border: 1px solid var(--line);
-					border-radius: 16px;
+					border-radius: 8px;
 					box-shadow: var(--shadow);
 				}
 
 				.table-shell,
 				.overflow-x-auto.bg-white.rounded-lg.border {
-					border-radius: 16px;
+					border-radius: 8px;
 					border: 1px solid var(--line);
-					box-shadow: var(--shadow);
-					background: rgba(255, 255, 255, 0.92);
+					box-shadow: none;
+					background: rgba(255, 255, 255, 0.98);
 				}
 
 				table thead tr {
-					background: linear-gradient(180deg, #f6faf9, #f2f6f5);
+					background: #eef3f8;
 				}
 
 				table tbody tr {
@@ -222,7 +220,7 @@ templ Layout(title string, ps store.ParliamentStatus) {
 				}
 
 				table tbody tr:hover {
-					background: #f4fbf9;
+					background: #f8fbff;
 				}
 
 				.page-title {
@@ -237,20 +235,18 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					letter-spacing: 0.12em;
 					font-weight: 700;
 					text-transform: uppercase;
-					color: var(--accent-strong);
-					background: rgba(13, 106, 106, 0.1);
+					color: #23456f;
+					background: #e8eef6;
 					padding: 0.3rem 0.55rem;
 					border-radius: 999px;
 				}
 
 				.hero-panel {
 					border: 1px solid var(--line);
-					border-radius: 22px;
+					border-radius: 8px;
 					padding: clamp(1.4rem, 3vw, 2.4rem);
-					background:
-						linear-gradient(130deg, rgba(13, 106, 106, 0.13), rgba(244, 184, 96, 0.16)),
-						rgba(255, 255, 255, 0.88);
-					box-shadow: var(--shadow);
+					background: linear-gradient(180deg, #f8fbff, #f2f6fb);
+					box-shadow: none;
 				}
 
 				.title-row {
@@ -267,9 +263,9 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					gap: 0.65rem;
 					align-items: center;
 					padding: 0.95rem;
-					border-radius: 14px;
+					border-radius: 8px;
 					border: 1px solid var(--line);
-					background: rgba(255, 255, 255, 0.85);
+					background: rgba(255, 255, 255, 0.98);
 				}
 
 				.metric-grid {
@@ -280,19 +276,19 @@ templ Layout(title string, ps store.ParliamentStatus) {
 
 				.metric-card {
 					padding: 0.95rem;
-					border-radius: 14px;
+					border-radius: 8px;
 					border: 1px solid var(--line);
-					background: rgba(255, 255, 255, 0.88);
+					background: rgba(255, 255, 255, 0.98);
 					text-align: center;
 				}
 
 				.empty-state {
 					text-align: center;
 					padding: 2.6rem 1rem;
-					border: 1px dashed #bfd0cc;
-					border-radius: 14px;
+					border: 1px dashed #b6c3d2;
+					border-radius: 8px;
 					color: var(--ink-500);
-					background: rgba(255, 255, 255, 0.6);
+					background: rgba(255, 255, 255, 0.92);
 				}
 
 				.section-lead {
@@ -305,7 +301,7 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					max-width: 1100px;
 					margin: 2.2rem auto 0;
 					padding: 1.4rem 1.1rem 2.4rem;
-					border-top: 1px solid var(--line);
+					border-top: 1px solid #c7d1dc;
 					font-size: 0.78rem;
 					color: var(--ink-500);
 					text-align: center;
@@ -313,8 +309,8 @@ templ Layout(title string, ps store.ParliamentStatus) {
 
 				@keyframes rise-in {
 					from {
-						opacity: 0;
-						transform: translateY(10px);
+						opacity: 0.98;
+						transform: translateY(2px);
 					}
 					to {
 						opacity: 1;
