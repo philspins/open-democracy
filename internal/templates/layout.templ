@@ -373,8 +373,8 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					</div>
 					<div class="nav-actions">
 						<form method="GET" action="/riding" class="search-form">
-							<input type="text" name="address" placeholder="Enter your address"
-								class="input-field w-52"/>
+							<input type="text" id="nav-address-input" name="address" placeholder="Enter your address"
+								class="input-field w-52" autocomplete="off"/>
 							<button type="submit" class="btn btn-primary">Find My MP</button>
 						</form>
 						<div id="auth-actions" class="auth-actions">

@@ -16,7 +16,7 @@ func TestExtractBillID(t *testing.T) {
 		{"https://www.parl.ca/legisinfo/en/bill/45-1/c-47", "45-1-c-47"},
 		{"https://www.parl.ca/legisinfo/en/bill/45-1/s-209", "45-1-s-209"},
 		{"https://www.parl.ca/legisinfo/en/bill/45-1/C-47", "45-1-c-47"}, // normalise to lower
-		{"https://www.parl.ca/legisinfo/en/bills/rss", ""},                 // no bill path
+		{"https://www.parl.ca/legisinfo/en/bills/rss", ""},               // no bill path
 		{"", ""},
 	}
 	for _, c := range cases {

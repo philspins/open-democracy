@@ -79,8 +79,8 @@ func applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		"img-src 'self' data: https:",
 		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
 		"font-src 'self' https://fonts.gstatic.com",
-		"script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://accounts.google.com https://connect.facebook.net",
-		"connect-src 'self' https://graph.facebook.com https://www.googleapis.com https://oauth2.googleapis.com",
+		"script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://accounts.google.com https://connect.facebook.net https://maps.googleapis.com https://maps.gstatic.com",
+		"connect-src 'self' https://graph.facebook.com https://www.googleapis.com https://oauth2.googleapis.com https://maps.googleapis.com",
 	}, "; "))
 
 	if r.TLS != nil {

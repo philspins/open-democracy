@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/philspins/open-democracy/internal/opennorth"
@@ -16,6 +17,7 @@ import (
 type Service struct {
 	store         *store.Store
 	googleMapsKey string
+	placesApiKey  string
 	geocodeFn     func(ctx context.Context, address, apiKey string) (float64, float64, error)
 	repsFn        func(ctx context.Context, lat, lng float64) ([]opennorth.Representative, error)
 }
@@ -27,6 +29,7 @@ func New(st *store.Store, googleMapsKey string) *Service {
 	return &Service{
 		store:         st,
 		googleMapsKey: strings.TrimSpace(googleMapsKey),
+		placesApiKey:  strings.TrimSpace(os.Getenv("GOOGLE_PLACES_API_KEY")),
 		geocodeFn:     opennorth.GeocodeAddress,
 		repsFn:        opennorth.GetRepresentativesByLatLng,
 	}
@@ -86,5 +89,5 @@ func (s *Service) HandleLookup(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	_ = templates.RidingLookup(ps, address, reps, lookupErr).Render(r.Context(), w)
+	_ = templates.RidingLookup(ps, address, reps, lookupErr, s.placesApiKey).Render(r.Context(), w)
 }
