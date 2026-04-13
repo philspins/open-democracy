@@ -301,7 +301,8 @@ Respond with only valid JSON, no markdown or extra text.`, billID, billTitle, bi
 		httpReq.Header.Set("anthropic-version", "2023-06-01")
 		httpReq.Header.Set("content-type", "application/json")
 
-		client := &http.Client{Timeout: 60 * time.Second}
+		client := utils.NewHTTPClient()
+		client.Timeout = 60 * time.Second
 		resp, err := client.Do(httpReq)
 		if err != nil {
 			return nil, fmt.Errorf("api call: %w", err)
