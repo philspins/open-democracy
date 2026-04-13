@@ -400,3 +400,30 @@ func safeExternalURL(rawURL string) templ.SafeURL {
 	}
 	return templ.SafeURL(rawURL)
 }
+
+// safeMailtoURL validates an email address and returns a templ.SafeURL for a
+// mailto: link. Returns templ.SafeURL("#") when the email is empty, contains
+// characters that could enable RFC 2822 header injection (e.g. newlines, query
+// params introduced by '?' or '&'), or does not have the shape local@domain.tld.
+func safeMailtoURL(email string) templ.SafeURL {
+	if email == "" {
+		return templ.SafeURL("#")
+	}
+	// Reject characters that could inject extra headers or malform the URI.
+	// Intentionally stricter than RFC 5321: quoted local-parts with spaces
+	// (e.g. "john doe"@example.com) are not common in practice and the
+	// additional complexity is not worth the risk for external API input.
+	if strings.ContainsAny(email, "\r\n\t ?&<>\"'\\") {
+		return templ.SafeURL("#")
+	}
+	// Must have exactly one '@' with non-empty local and domain parts.
+	at := strings.Index(email, "@")
+	if at <= 0 || at >= len(email)-1 || strings.Contains(email[at+1:], "@") {
+		return templ.SafeURL("#")
+	}
+	// Domain must contain at least one dot.
+	if !strings.Contains(email[at+1:], ".") {
+		return templ.SafeURL("#")
+	}
+	return templ.SafeURL("mailto:" + email)
+}
