@@ -15,10 +15,33 @@ import (
 const (
 	openNorthBase = "https://represent.opennorth.ca"
 	geocodeBase   = "https://maps.googleapis.com/maps/api/geocode/json"
+	appUserAgent  = "opennorth-client"
 )
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+type userAgentTransport struct {
+	base http.RoundTripper
+}
 
+func (t userAgentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+
+	if req.Header.Get("User-Agent") != "" {
+		return base.RoundTrip(req)
+	}
+
+	cloned := req.Clone(req.Context())
+	cloned.Header = req.Header.Clone()
+	cloned.Header.Set("User-Agent", appUserAgent)
+	return base.RoundTrip(cloned)
+}
+
+var httpClient = &http.Client{
+	Timeout:   10 * time.Second,
+	Transport: userAgentTransport{base: http.DefaultTransport},
+}
 // Office holds contact information for one of a representative's offices.
 type Office struct {
 	Type   string `json:"type"`
