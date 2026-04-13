@@ -82,15 +82,59 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 					<p class="text-xs text-gray-400 mt-1">Source: Library of Parliament</p>
 				</section>
 			} else if bill.SummaryAI != "" {
-				<section>
-					<h2 class="text-lg font-semibold text-gray-800 mb-2">
+				{{ aiSummary := ParseAISummary(bill.SummaryAI) }}
+				<section class="space-y-4">
+					<h2 class="text-lg font-semibold text-gray-800">
 						Summary
 						<span class="text-xs font-normal text-gray-400">(AI-generated)</span>
 					</h2>
-					<div class="prose prose-sm max-w-none text-gray-700 bg-yellow-50 rounded-lg p-4">
-						<p>{ ParseAISummary(bill.SummaryAI).PlainSummary }</p>
-					</div>
-					<p class="text-xs text-gray-400 mt-1">Automatically generated from bill text using Claude</p>
+					if aiSummary.OneSentence != "" {
+						<div class="bg-yellow-50 border-l-4 border-yellow-400 rounded-r-lg p-4">
+							<p class="font-medium text-gray-800">{ aiSummary.OneSentence }</p>
+						</div>
+					}
+					if aiSummary.PlainSummary != "" {
+						<div class="prose prose-sm max-w-none text-gray-700">
+							<p>{ aiSummary.PlainSummary }</p>
+						</div>
+					}
+					if len(aiSummary.KeyChanges) > 0 {
+						<div>
+							<h3 class="text-sm font-semibold text-gray-700 mb-1">Key Changes</h3>
+							<ul class="list-disc list-inside space-y-1">
+								for _, item := range aiSummary.KeyChanges {
+									<li class="text-sm text-gray-700">{ item }</li>
+								}
+							</ul>
+						</div>
+					}
+					if len(aiSummary.WhoIsAffected) > 0 {
+						<div>
+							<h3 class="text-sm font-semibold text-gray-700 mb-1">Who&#39;s Affected</h3>
+							<ul class="list-disc list-inside space-y-1">
+								for _, item := range aiSummary.WhoIsAffected {
+									<li class="text-sm text-gray-700">{ item }</li>
+								}
+							</ul>
+						</div>
+					}
+					if len(aiSummary.NotableConsiderations) > 0 {
+						<div>
+							<h3 class="text-sm font-semibold text-gray-700 mb-1">Notable Considerations</h3>
+							<ul class="list-disc list-inside space-y-1">
+								for _, item := range aiSummary.NotableConsiderations {
+									<li class="text-sm text-gray-700">{ item }</li>
+								}
+							</ul>
+						</div>
+					}
+					if aiSummary.EstimatedCost != "" {
+						<div>
+							<h3 class="text-sm font-semibold text-gray-700 mb-1">Estimated Cost</h3>
+							<p class="text-sm text-gray-700">{ aiSummary.EstimatedCost }</p>
+						</div>
+					}
+					<p class="text-xs text-gray-400">Automatically generated from bill text using Claude</p>
 				</section>
 			}
 
