@@ -5,11 +5,11 @@ package templates
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
+import "github.com/a-h/templ"
+import templruntime "github.com/a-h/templ/runtime"
+
 import (
 	"fmt"
-
-	"github.com/a-h/templ"
-	templruntime "github.com/a-h/templ/runtime"
 	"github.com/philspins/open-democracy/internal/store"
 )
 
@@ -631,7 +631,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "\"> <input type=\"email\" name=\"email\" class=\"input-field\" placeholder=\"Your email\" required> <select name=\"reaction\" class=\"input-field\" required><option value=\"support\">Support</option> <option value=\"oppose\">Oppose</option> <option value=\"neutral\">Neutral</option></select> <input type=\"text\" name=\"note\" class=\"input-field sm:col-span-2\" placeholder=\"Optional note\"> <button type=\"submit\" class=\"btn btn-primary sm:col-span-2\">Submit Reaction</button></form></section><!-- Divisions -->")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "\"> <input type=\"email\" name=\"email\" class=\"input-field\" placeholder=\"Your email\" required> <select name=\"reaction\" class=\"input-field\" required><option value=\"support\">Support</option> <option value=\"oppose\">Oppose</option> <option value=\"neutral\">Neutral</option></select> <input type=\"text\" name=\"note\" class=\"input-field sm:col-span-2\" placeholder=\"Optional note\"> <button type=\"submit\" class=\"btn btn-primary sm:col-span-2\">Submit Reaction</button></form></section><!-- Divisions -->")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -648,7 +648,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					var templ_7745c5c3_Var35 string
 					templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(FormatDate(d.Date))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 159, Col: 84}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 203, Col: 84}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 					if templ_7745c5c3_Err != nil {
@@ -661,7 +661,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					var templ_7745c5c3_Var36 string
 					templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(d.Description)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 160, Col: 47}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 204, Col: 47}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 					if templ_7745c5c3_Err != nil {
@@ -674,7 +674,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					var templ_7745c5c3_Var37 string
 					templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(d.Yeas))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 161, Col: 90}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 205, Col: 90}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 					if templ_7745c5c3_Err != nil {
@@ -687,7 +687,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					var templ_7745c5c3_Var38 string
 					templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(d.Nays))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 162, Col: 88}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 206, Col: 88}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 					if templ_7745c5c3_Err != nil {
@@ -700,7 +700,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					var templ_7745c5c3_Var39 string
 					templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(d.Result)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 163, Col: 56}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 207, Col: 56}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 					if templ_7745c5c3_Err != nil {
