@@ -25,6 +25,7 @@ func TestMigrate_CreatesAllTables(t *testing.T) {
 		"members", "bills", "divisions",
 		"member_votes", "bill_stages", "sitting_calendar",
 		"users", "user_follows", "bill_reactions", "policy_submissions", "bill_reaction_counts",
+		"email_verification_tokens", "oauth_identities", "user_sessions",
 	}
 	for _, tbl := range tables {
 		var name string
@@ -48,6 +49,8 @@ func TestMigrate_CreatesIndices(t *testing.T) {
 		"idx_bill_stages_bill",
 		"idx_user_follows_member",
 		"idx_bill_reactions_bill",
+		"idx_email_tokens_user",
+		"idx_sessions_user",
 	}
 	for _, idx := range indices {
 		var name string
@@ -152,6 +155,27 @@ func TestUpsertBill_PreservesSummaries(t *testing.T) {
 	d.QueryRow(`SELECT summary_lop FROM bills WHERE id='45-1-c-47'`).Scan(&summary)
 	if summary != "A bill." {
 		t.Errorf("expected summary_lop preserved, got %q", summary)
+	}
+}
+
+func TestUpsertBill_PreservesChamberAndCategory(t *testing.T) {
+	d := tempDB(t)
+
+	// Insert with chamber and category set
+	b := db.Bill{ID: "45-1-c-47", Title: "Housing Bill", Chamber: "commons", Category: "Housing", LastScraped: "2024-04-03"}
+	db.UpsertBill(d, b)
+
+	// Re-crawl without chamber/category — they should be preserved
+	b2 := db.Bill{ID: "45-1-c-47", Title: "Housing Bill (amended)", Chamber: "", Category: "", LastScraped: "2024-04-04"}
+	db.UpsertBill(d, b2)
+
+	var chamber, category string
+	d.QueryRow(`SELECT chamber, category FROM bills WHERE id='45-1-c-47'`).Scan(&chamber, &category)
+	if chamber != "commons" {
+		t.Errorf("expected chamber=commons preserved, got %q", chamber)
+	}
+	if category != "Housing" {
+		t.Errorf("expected category=Housing preserved, got %q", category)
 	}
 }
 

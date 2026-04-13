@@ -9,9 +9,14 @@ import (
 	"github.com/philspins/open-democracy/internal/db"
 	"github.com/philspins/open-democracy/internal/server"
 	"github.com/philspins/open-democracy/internal/store"
+	"github.com/philspins/open-democracy/internal/utils"
 )
 
 func main() {
+	if err := utils.LoadDotEnv(".env"); err != nil {
+		log.Printf("warning: could not load .env: %v", err)
+	}
+
 	addr := flag.String("addr", ":8080", "HTTP listen address")
 	dbPath := flag.String("db", db.DefaultPath, "SQLite database path")
 	flag.Parse()

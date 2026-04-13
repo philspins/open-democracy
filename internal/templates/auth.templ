@@ -1,0 +1,132 @@
+package templates
+
+import (
+	"strings"
+
+	"github.com/philspins/open-democracy/internal/store"
+)
+
+templ AuthPage(ps store.ParliamentStatus, mode string, googleClientID string, facebookAppID string) {
+	@Layout(modeTitle(mode), ps) {
+		<section class="surface-card p-6 md:p-8 max-w-3xl mx-auto mt-6 space-y-6">
+			<div class="space-y-2">
+				<p class="kicker">Account Access</p>
+				<h1 class="page-title">{ modeHeading(mode) }</h1>
+				<p class="section-lead">Use your Google or Facebook account to { modeVerb(mode) } Open Democracy.</p>
+			</div>
+
+			<div class="grid gap-4 md:grid-cols-2">
+				<div class="surface-card p-4 space-y-3">
+					<h2 class="text-lg font-semibold">Google</h2>
+					if googleClientID != "" {
+						<div id="google-signin-widget" class="min-h-[44px]" data-google-client-id={ googleClientID } data-google-text={ googleWidgetText(mode) }></div>
+						<p class="text-xs text-gray-500">If the widget does not load, use the fallback button below.</p>
+					} else {
+						<p class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">Google login is not configured.</p>
+					}
+					<a href="/auth/google/login" class="btn btn-secondary w-full justify-center">Continue with Google</a>
+				</div>
+
+				<div class="surface-card p-4 space-y-3">
+					<h2 class="text-lg font-semibold">Facebook</h2>
+					if facebookAppID != "" {
+						<div id="fb-root"></div>
+						<fb:login-button scope="public_profile,email" onlogin="odFacebookWidgetLogin();" size="large"></fb:login-button>
+						<p class="text-xs text-gray-500">If the widget does not load, use the fallback button below.</p>
+					} else {
+						<p class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">Facebook login is not configured.</p>
+					}
+					<a href="/auth/facebook/login" class="btn btn-secondary w-full justify-center">Continue with Facebook</a>
+				</div>
+			</div>
+
+			<p class="text-sm text-gray-600">By continuing, you agree to use this service for civic participation and policy engagement.</p>
+		</section>
+
+		if googleClientID != "" {
+			<script src="https://accounts.google.com/gsi/client" async defer></script>
+			<script>
+				(() => {
+					const el = document.getElementById("google-signin-widget");
+					if (!el || !window.google || !window.google.accounts || !window.google.accounts.id) {
+						return;
+					}
+					const clientID = el.dataset.googleClientId || "";
+					if (!clientID) {
+						return;
+					}
+					window.google.accounts.id.initialize({
+						client_id: clientID,
+						callback: () => {
+							window.location.href = "/auth/google/login";
+						},
+					});
+					window.google.accounts.id.renderButton(el, {
+						theme: "outline",
+						size: "large",
+						shape: "pill",
+						text: el.dataset.googleText || "signin_with",
+						width: 280,
+					});
+				})();
+			</script>
+		}
+
+		if facebookAppID != "" {
+			<script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
+			<script id="facebook-widget-config" data-facebook-app-id={ facebookAppID }>
+				window.fbAsyncInit = function() {
+					const cfg = document.getElementById("facebook-widget-config");
+					const appId = cfg ? cfg.dataset.facebookAppId : "";
+					if (!appId) {
+						return;
+					}
+					FB.init({
+						appId: appId,
+						cookie: true,
+						xfbml: true,
+						version: "v19.0",
+					});
+				};
+				window.odFacebookWidgetLogin = function() {
+					if (!window.FB) {
+						return;
+					}
+					FB.getLoginStatus(function(response) {
+						if (response && response.status === "connected") {
+							window.location.href = "/auth/facebook/login";
+						}
+					});
+				};
+			</script>
+		}
+	}
+}
+
+func modeTitle(mode string) string {
+	if strings.EqualFold(mode, "signup") {
+		return "Sign Up"
+	}
+	return "Login"
+}
+
+func modeHeading(mode string) string {
+	if strings.EqualFold(mode, "signup") {
+		return "Create Your Account"
+	}
+	return "Welcome Back"
+}
+
+func modeVerb(mode string) string {
+	if strings.EqualFold(mode, "signup") {
+		return "create"
+	}
+	return "access"
+}
+
+func googleWidgetText(mode string) string {
+	if strings.EqualFold(mode, "signup") {
+		return "signup_with"
+	}
+	return "signin_with"
+}

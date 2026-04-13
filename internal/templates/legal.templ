@@ -1,0 +1,136 @@
+package templates
+
+import "github.com/philspins/open-democracy/internal/store"
+
+templ PrivacyPolicyPage(ps store.ParliamentStatus) {
+	@Layout("Privacy Policy", ps) {
+		<section class="surface-card p-6 space-y-6">
+			<div>
+				<span class="kicker">Legal</span>
+				<h1 class="page-title mt-3">Privacy Policy</h1>
+				<p class="section-lead mt-3">Last updated: April 12, 2026</p>
+			</div>
+
+			<div class="space-y-4 text-sm text-gray-700 leading-6">
+				<p>
+					Open Democracy ("we", "our", "us") collects and processes personal information to operate this service,
+					including account authentication, session management, and user-submitted activity.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">Information We Collect</h2>
+				<p>
+					We may collect your email address, OAuth provider identifiers, postal code if supplied, and technical
+					information required for security and fraud prevention.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">How We Use Information</h2>
+				<p>
+					We use information to authenticate users, provide core functionality, maintain security, comply with legal
+					obligations, and improve the service.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">Sharing</h2>
+				<p>
+					We do not sell personal information. We may share information with service providers that support hosting,
+					authentication, and operations, or when required by law.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">Retention</h2>
+				<p>
+					We retain information only as long as necessary for operational, security, and legal purposes.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">Your Rights</h2>
+				<p>
+					You may request access, correction, or deletion of your data, subject to legal and operational constraints.
+					For Meta/Facebook-connected accounts, data deletion requests can be initiated through the platform and are
+					handled via our deletion callback endpoint.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">Contact</h2>
+				<p>
+					For privacy inquiries, contact: <a class="text-blue-700 hover:underline" href="mailto:contact@open-democracy.ca">contact@open-democracy.ca</a>
+				</p>
+			</div>
+		</section>
+	}
+}
+
+templ TermsOfServicePage(ps store.ParliamentStatus) {
+	@Layout("Terms of Service", ps) {
+		<section class="surface-card p-6 space-y-6">
+			<div>
+				<span class="kicker">Legal</span>
+				<h1 class="page-title mt-3">Terms of Service</h1>
+				<p class="section-lead mt-3">Last updated: April 12, 2026</p>
+			</div>
+
+			<div class="space-y-4 text-sm text-gray-700 leading-6">
+				<p>
+					By accessing or using Open Democracy, you agree to these Terms of Service. If you do not agree, do not use
+					the service.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">Use of Service</h2>
+				<p>
+					You agree to use the service lawfully and not to interfere with its operation, security, or availability.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">Accounts and Authentication</h2>
+				<p>
+					You are responsible for the activity associated with your account and for maintaining control of your
+					authentication methods.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">Content and Conduct</h2>
+				<p>
+					You must not submit unlawful, abusive, or malicious content. We may moderate, restrict, or remove content
+					that violates these terms or applicable law.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">Disclaimer</h2>
+				<p>
+					The service is provided "as is" without warranties of any kind, to the extent permitted by law.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">Limitation of Liability</h2>
+				<p>
+					To the extent permitted by law, we are not liable for indirect, incidental, or consequential damages arising
+					from use of the service.
+				</p>
+
+				<h2 class="text-lg font-semibold text-gray-900">Changes</h2>
+				<p>
+					We may update these terms from time to time. Continued use of the service after updates constitutes
+					acceptance of the revised terms.
+				</p>
+			</div>
+		</section>
+	}
+}
+
+templ DataDeletionPage(ps store.ParliamentStatus, confirmationCode string) {
+	@Layout("Data Deletion", ps) {
+		<section class="surface-card p-6 space-y-5">
+			<div>
+				<span class="kicker">Legal</span>
+				<h1 class="page-title mt-3">Data Deletion</h1>
+				<p class="section-lead mt-3">Meta/Facebook data deletion callback endpoint</p>
+			</div>
+
+			<div class="space-y-3 text-sm text-gray-700 leading-6">
+				<p>
+					This URL supports POST requests from Meta containing a signed request for account data deletion handling.
+				</p>
+				if confirmationCode != "" {
+					<p>
+						Deletion request received. Confirmation code: <strong>{ confirmationCode }</strong>
+					</p>
+				}
+				<p>
+					For support, contact <a class="text-blue-700 hover:underline" href="mailto:contact@open-democracy.ca">contact@open-democracy.ca</a>.
+				</p>
+			</div>
+		</section>
+	}
+}

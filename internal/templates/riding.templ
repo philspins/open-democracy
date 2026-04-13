@@ -1,35 +1,87 @@
 package templates
 
-import "github.com/philspins/open-democracy/internal/store"
+import (
+	"github.com/philspins/open-democracy/internal/opennorth"
+	"github.com/philspins/open-democracy/internal/store"
+)
 
-templ RidingLookup(ps store.ParliamentStatus, postal string, members []store.MemberRow) {
-	@Layout("Find My MP", ps) {
+templ RidingLookup(ps store.ParliamentStatus, address string, reps []opennorth.Representative, lookupErr string, placesApiKey string) {
+	@Layout("Find My Representatives", ps) {
 		<div class="space-y-6">
 			<h1 class="text-2xl font-bold text-gray-900">Find Your Representatives</h1>
+			<p class="section-lead max-w-2xl">Enter your address to find your federal MP, provincial MLA/MPP/MNA, and local representatives.</p>
 
-			<form method="GET" action="/riding" class="flex gap-3 items-center">
-				<input type="text" name="postal" value={ postal } placeholder="Enter postal code or riding name"
-					class="border border-gray-300 rounded px-3 py-2 text-sm w-64"/>
-				<button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">Search</button>
+			<form method="GET" action="/riding" class="flex flex-wrap gap-3 items-center">
+				<input type="text" id="riding-address-input" name="address" value={ address }
+					placeholder="e.g. 123 Main St, Toronto, ON"
+					class="border border-gray-300 rounded px-3 py-2 text-sm w-96 max-w-full"
+					autocomplete="off"/>
+				<button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">Find My Representatives</button>
 			</form>
 
-			if postal != "" {
-				if len(members) > 0 {
+			if lookupErr != "" {
+				<div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
+					<p>{ lookupErr }</p>
+				</div>
+			}
+
+			if address != "" && lookupErr == "" {
+				if len(reps) > 0 {
 					<div>
-						<h2 class="text-lg font-semibold text-gray-800 mb-3">Representatives for "{ postal }"</h2>
+						<h2 class="text-lg font-semibold text-gray-800 mb-3">Representatives for "{ address }"</h2>
 						<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-							for _, m := range members {
-								@memberCard(m)
+							for _, rep := range reps {
+								@openNorthRepCard(rep)
 							}
 						</div>
 					</div>
 				} else {
 					<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-yellow-800">
-						<p>No representatives found for "{ postal }". Try entering a riding name instead of a postal code.</p>
-						<p class="text-sm mt-1">Example: "Ottawa Centre", "Vancouver Granville"</p>
+						<p>No representatives found for "{ address }".</p>
+						<p class="text-sm mt-1">Make sure the address is in Canada and includes a city or province.</p>
 					</div>
 				}
 			}
 		</div>
+		@AddressAutocompleteScript(placesApiKey)
 	}
+}
+
+templ openNorthRepCard(rep opennorth.Representative) {
+	<div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+		<div class="flex items-start gap-3">
+			if rep.PhotoURL != "" {
+				<img src={ rep.PhotoURL } alt={ rep.Name } class="w-12 h-12 rounded-full object-cover flex-shrink-0"/>
+			} else {
+				<div class="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-gray-500 font-bold text-lg">
+					{ initial(rep.Name) }
+				</div>
+			}
+			<div class="min-w-0 flex-1">
+				if rep.LocalMemberID != "" {
+					<a href={ templ.SafeURL("/members/" + rep.LocalMemberID) } class="font-medium text-blue-600 hover:underline block truncate">{ rep.Name }</a>
+				} else {
+					<p class="font-medium text-gray-900 truncate">{ rep.Name }</p>
+				}
+				<p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-0.5">{ rep.ElectedOffice }</p>
+				if rep.PartyName != "" {
+					<p class={ "text-sm mt-0.5", PartyClass(rep.PartyName) }>{ rep.PartyName }</p>
+				}
+				<p class="text-xs text-gray-500 truncate mt-0.5">{ rep.DistrictName }</p>
+				<div class="flex flex-wrap gap-3 mt-2">
+					if rep.Email != "" {
+						<a href={ safeMailtoURL(rep.Email) } class="text-xs text-blue-600 hover:underline">Email</a>
+					}
+					if rep.URL != "" {
+						<a href={ safeExternalURL(rep.URL) } target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">Profile</a>
+					}
+					for _, office := range rep.Offices {
+						if office.Tel != "" {
+							<span class="text-xs text-gray-500">{ office.Type }: { office.Tel }</span>
+						}
+					}
+				</div>
+			</div>
+		</div>
+	</div>
 }

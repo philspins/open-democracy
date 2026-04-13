@@ -16,8 +16,8 @@ import (
 // ── constants ─────────────────────────────────────────────────────────────────
 
 const (
-	SenateVotesURL  = "https://sencanada.ca/en/in-the-chamber/votes"
-	SenateSiteBase  = "https://sencanada.ca"
+	SenateVotesURL = "https://sencanada.ca/en/in-the-chamber/votes"
+	SenateSiteBase = "https://sencanada.ca"
 )
 
 // ── Senate votes index ────────────────────────────────────────────────────────

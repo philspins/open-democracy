@@ -1,0 +1,42 @@
+package templates
+
+templ AddressAutocompleteScript(placesApiKey string) {
+	if placesApiKey != "" {
+		<script>
+			function initAddressAutocomplete() {
+				["riding-address-input", "nav-address-input", "profile-address-input"].forEach(function(id) {
+					var input = document.getElementById(id);
+					if (!input) {
+						return;
+					}
+					var autocomplete = new google.maps.places.Autocomplete(input, {
+						componentRestrictions: { country: "ca" },
+						types: ["geocode"],
+						fields: ["formatted_address"],
+					});
+					autocomplete.addListener("place_changed", function() {
+						var place = autocomplete.getPlace();
+						if (place && place.formatted_address) {
+							input.value = place.formatted_address;
+						}
+					});
+				});
+			}
+		</script>
+		<script id="places-api-loader" data-places-key={ placesApiKey }></script>
+		<script>
+			(function() {
+				var loader = document.getElementById("places-api-loader");
+				var key = loader ? loader.dataset.placesKey : "";
+				if (!key) {
+					return;
+				}
+				var script = document.createElement("script");
+				script.src = "https://maps.googleapis.com/maps/api/js?key=" + encodeURIComponent(key) + "&libraries=places&callback=initAddressAutocomplete&loading=async";
+				script.async = true;
+				script.defer = true;
+				document.head.appendChild(script);
+			})();
+		</script>
+	}
+}

@@ -27,3 +27,7 @@ vendor/
 *.db-wal
 *.db-shm
 .env
+/open-democracy-crawler
+/open-democracy-server
+/open-democracy-crawler.exe
+/open-democracy-server.exe

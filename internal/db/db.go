@@ -107,6 +107,8 @@ func Migrate(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS users (
 			id                   TEXT PRIMARY KEY,
 			email                TEXT UNIQUE,
+			email_verified       INTEGER DEFAULT 0,
+			address              TEXT,
 			postal_code          TEXT,
 			federal_riding_id    TEXT,
 			provincial_riding_id TEXT,
@@ -144,6 +146,30 @@ func Migrate(db *sql.DB) error {
 			total_reactions  INTEGER DEFAULT 0,
 			refreshed_at     TEXT
 		)`,
+		`CREATE TABLE IF NOT EXISTS email_verification_tokens (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id    TEXT REFERENCES users(id) ON DELETE CASCADE,
+			email      TEXT,
+			token      TEXT UNIQUE,
+			code       TEXT,
+			expires_at TEXT,
+			used_at    TEXT,
+			created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS oauth_identities (
+			provider         TEXT,
+			provider_user_id TEXT,
+			user_id          TEXT REFERENCES users(id) ON DELETE CASCADE,
+			email            TEXT,
+			created_at       TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+			PRIMARY KEY (provider, provider_user_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS user_sessions (
+			id         TEXT PRIMARY KEY,
+			user_id    TEXT REFERENCES users(id) ON DELETE CASCADE,
+			expires_at TEXT,
+			created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_divisions_bill      ON divisions(bill_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_member_votes_member ON member_votes(member_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_bills_stage         ON bills(current_stage)`,
@@ -151,12 +177,19 @@ func Migrate(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_bill_stages_bill    ON bill_stages(bill_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_follows_member ON user_follows(member_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_bill_reactions_bill ON bill_reactions(bill_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_email_tokens_user   ON email_verification_tokens(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_user        ON user_sessions(user_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
 			return fmt.Errorf("migrate: %w", err)
 		}
 	}
+
+	// Forward-compatible migration for older DBs created before email_verified existed.
+	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0`)
+	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN address TEXT`)
+
 	return nil
 }
 
@@ -260,11 +293,11 @@ func UpsertBill(db *sql.DB, b Bill) error {
 			title              = excluded.title,
 			short_title        = excluded.short_title,
 			bill_type          = excluded.bill_type,
-			chamber            = excluded.chamber,
+			chamber            = COALESCE(NULLIF(excluded.chamber,''), bills.chamber),
 			sponsor_id         = excluded.sponsor_id,
 			current_stage      = excluded.current_stage,
 			current_status     = excluded.current_status,
-			category           = excluded.category,
+			category           = COALESCE(NULLIF(excluded.category,''), bills.category),
 			summary_ai         = COALESCE(NULLIF(excluded.summary_ai,''), bills.summary_ai),
 			summary_lop        = COALESCE(NULLIF(excluded.summary_lop,''), bills.summary_lop),
 			full_text_url      = excluded.full_text_url,

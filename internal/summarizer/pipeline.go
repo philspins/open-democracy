@@ -11,7 +11,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -20,9 +23,86 @@ import (
 )
 
 const (
-	claudeModel = "claude-3-5-sonnet-20241022"
+	claudeModel = "claude-sonnet-4-6"
 	claudeURL   = "https://api.anthropic.com/v1/messages"
 )
+
+func selectedClaudeModels() []string {
+	models := make([]string, 0, 5)
+	seen := map[string]struct{}{}
+	add := func(m string) {
+		m = strings.TrimSpace(m)
+		if m == "" {
+			return
+		}
+		if _, ok := seen[m]; ok {
+			return
+		}
+		seen[m] = struct{}{}
+		models = append(models, m)
+	}
+
+	// User override first.
+	add(os.Getenv("ANTHROPIC_MODEL"))
+
+	// Fallback candidates to tolerate model deprecations/availability changes.
+	add(claudeModel)
+
+	return models
+}
+
+func isModelNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not_found_error") || strings.Contains(msg, "model:")
+}
+
+func parseSummaryJSON(raw string) (SummaryResult, error) {
+	text := strings.TrimSpace(raw)
+
+	// Claude may occasionally wrap JSON in fenced blocks despite instructions.
+	if strings.HasPrefix(text, "```") {
+		text = strings.TrimPrefix(text, "```")
+		if nl := strings.Index(text, "\n"); nl >= 0 {
+			text = text[nl+1:]
+		}
+		if end := strings.LastIndex(text, "```"); end >= 0 {
+			text = text[:end]
+		}
+		text = strings.TrimSpace(text)
+	}
+
+	var result SummaryResult
+	if err := json.Unmarshal([]byte(text), &result); err == nil {
+		return result, nil
+	}
+
+	// Fallback: extract the first JSON object from mixed/plaintext output.
+	start := strings.Index(text, "{")
+	end := strings.LastIndex(text, "}")
+	if start >= 0 && end > start {
+		candidate := text[start : end+1]
+		if err := json.Unmarshal([]byte(candidate), &result); err == nil {
+			return result, nil
+		}
+	}
+
+	return SummaryResult{}, fmt.Errorf("invalid summary payload")
+}
+
+func summarizerParallelism() int {
+	v := strings.TrimSpace(os.Getenv("SUMMARIZER_PARALLELISM"))
+	if v == "" {
+		return 1
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
+}
 
 var systemPrompt = `You are a non-partisan Canadian civic education assistant.
 Your job is to summarize bills from the Parliament of Canada in plain English.
@@ -42,7 +122,7 @@ Provide your response as valid JSON only (no markdown or extra text):
   "who_is_affected": ["List of groups, industries, or people most affected"],
   "notable_considerations": ["List of 0–5 potential caveats, non-obvious trade-offs, or implementation considerations in neutral language"],
   "estimated_cost": "Fiscal impact if mentioned in the bill, or 'Not specified'",
-  "category": "One of: Housing, Health, Environment, Defence, Indigenous, Finance, Justice, Agriculture, Transport, Labour, Education, Foreign Affairs, Digital/Tech, Other"
+  "category": "One of: Budget, Criminal Justice, Environment, Health, Housing, Immigration, Indigenous, Infrastructure, Justice, Labour, National Security, Social Policy, Trade, Veterans"
 }`
 
 // SummaryResult holds the structured fields returned by Claude.
@@ -86,9 +166,88 @@ type claudeResponse struct {
 	} `json:"error"`
 }
 
+// BillSummaryRequest carries the minimum metadata needed to summarize a bill.
+type BillSummaryRequest struct {
+	BillID           string
+	BillTitle        string
+	FullTextURL      string
+	LastActivityDate string
+}
+
+// shouldSummarizeBill returns true when a bill needs a fresh AI summary.
+// Rules:
+//  1. If a Library of Parliament summary exists, skip AI summarization.
+//  2. If no previous AI summary exists, summarize.
+//  3. If an AI summary exists, summarize only when bill last activity is newer
+//     than the AI summary generation timestamp.
+func shouldSummarizeBill(ctx context.Context, db *sql.DB, billID, incomingLastActivityDate string) (bool, error) {
+	if db == nil {
+		return true, nil
+	}
+
+	var (
+		summaryAI        string
+		summaryLoP       string
+		lastActivityDate string
+	)
+	err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(summary_ai,''), COALESCE(summary_lop,''), COALESCE(last_activity_date,'')
+		 FROM bills WHERE id = ?`,
+		billID,
+	).Scan(&summaryAI, &summaryLoP, &lastActivityDate)
+	if err != nil {
+		return true, fmt.Errorf("lookup bill %q: %w", billID, err)
+	}
+
+	if strings.TrimSpace(summaryLoP) != "" {
+		return false, nil
+	}
+
+	if strings.TrimSpace(summaryAI) == "" {
+		return true, nil
+	}
+
+	var previous SummaryResult
+	if err := json.Unmarshal([]byte(summaryAI), &previous); err != nil {
+		// If legacy/invalid JSON exists, regenerate a clean summary.
+		return true, nil
+	}
+	if strings.TrimSpace(previous.GeneratedAt) == "" {
+		return true, nil
+	}
+	generatedAt, err := time.Parse(time.RFC3339, previous.GeneratedAt)
+	if err != nil {
+		return true, nil
+	}
+
+	activity := strings.TrimSpace(incomingLastActivityDate)
+	if activity == "" {
+		activity = strings.TrimSpace(lastActivityDate)
+	}
+	if activity == "" {
+		// No reliable activity timestamp; keep previous summary.
+		return false, nil
+	}
+
+	billLastUpdated, err := time.Parse("2006-01-02", activity)
+	if err != nil {
+		return true, nil
+	}
+
+	return billLastUpdated.After(generatedAt.UTC()), nil
+}
+
 // SummarizeBill calls Claude API and returns a structured summary.
 // It truncates very long bills (keeping first ~120k chars + last 30k chars).
-func SummarizeBill(ctx context.Context, billID, billTitle, billText string) (*SummaryResult, error) {
+func SummarizeBill(ctx context.Context, db *sql.DB, billID, billTitle, billText, lastActivityDate string) (*SummaryResult, error) {
+	shouldSummarize, err := shouldSummarizeBill(ctx, db, billID, lastActivityDate)
+	if err != nil {
+		return nil, err
+	}
+	if !shouldSummarize {
+		return nil, nil
+	}
+
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
 		return nil, fmt.Errorf("ANTHROPIC_API_KEY not set")
@@ -111,8 +270,13 @@ Full text:
 
 Respond with only valid JSON, no markdown or extra text.`, billID, billTitle, billText)
 
+	models := selectedClaudeModels()
+	if len(models) == 0 {
+		return nil, fmt.Errorf("no anthropic model configured")
+	}
+	model := models[0]
 	req := claudeRequest{
-		Model:       claudeModel,
+		Model:       model,
 		MaxTokens:   2048,
 		System:      systemPrompt,
 		Temperature: 0.3,
@@ -121,39 +285,69 @@ Respond with only valid JSON, no markdown or extra text.`, billID, billTitle, bi
 		},
 	}
 
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+	callClaude := func(model string) (*claudeResponse, error) {
+		req.Model = model
+		body, err := json.Marshal(req)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request: %w", err)
+		}
+
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, claudeURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+
+		httpReq.Header.Set("x-api-key", apiKey)
+		httpReq.Header.Set("anthropic-version", "2023-06-01")
+		httpReq.Header.Set("content-type", "application/json")
+
+		client := utils.NewHTTPClient()
+		client.Timeout = 60 * time.Second
+		resp, err := client.Do(httpReq)
+		if err != nil {
+			return nil, fmt.Errorf("api call: %w", err)
+		}
+		defer resp.Body.Close()
+
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read response: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			var apiErr claudeResponse
+			if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error != nil {
+				return nil, fmt.Errorf("api returned %d (%s): %s", resp.StatusCode, apiErr.Error.Type, apiErr.Error.Message)
+			}
+			return nil, fmt.Errorf("api returned %d: %s", resp.StatusCode, string(respBody))
+		}
+
+		var apiResp claudeResponse
+		if err := json.Unmarshal(respBody, &apiResp); err != nil {
+			return nil, fmt.Errorf("unmarshal response: %w", err)
+		}
+		return &apiResp, nil
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, claudeURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+	var (
+		apiResp *claudeResponse
+		lastErr error
+	)
+	for i, candidate := range models {
+		apiResp, lastErr = callClaude(candidate)
+		if lastErr == nil {
+			model = candidate
+			break
+		}
+		if !isModelNotFoundError(lastErr) {
+			return nil, lastErr
+		}
+		if i < len(models)-1 {
+			log.Printf("[summarizer] model %q unavailable; retrying with %q", candidate, models[i+1])
+		}
 	}
-
-	httpReq.Header.Set("x-api-key", apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
-	httpReq.Header.Set("content-type", "application/json")
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("api call: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("api returned %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var apiResp claudeResponse
-	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		return nil, fmt.Errorf("unmarshal response: %w", err)
+	if lastErr != nil {
+		return nil, fmt.Errorf("all configured models unavailable (%s): %w", strings.Join(models, ", "), lastErr)
 	}
 
 	if apiResp.Error != nil {
@@ -165,16 +359,103 @@ Respond with only valid JSON, no markdown or extra text.`, billID, billTitle, bi
 	}
 
 	// Parse the JSON response from Claude.
-	var result SummaryResult
-	if err := json.Unmarshal([]byte(apiResp.Content[0].Text), &result); err != nil {
+	result, err := parseSummaryJSON(apiResp.Content[0].Text)
+	if err != nil {
 		return nil, fmt.Errorf("parse summary JSON: %w", err)
 	}
 
 	result.BillID = billID
 	result.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
-	result.Model = claudeModel
+	result.Model = model
 
 	return &result, nil
+}
+
+// SummarizeBillsFromChannel reads bill summary requests from a channel and
+// pipes each request into SummarizeBill.
+func SummarizeBillsFromChannel(ctx context.Context, db *sql.DB, requests <-chan BillSummaryRequest) (int, error) {
+	workers := summarizerParallelism()
+	if workers > 1 {
+		log.Printf("[summarizer] parallel workers: %d", workers)
+	}
+
+	var processed int64
+	var wg sync.WaitGroup
+
+	worker := func() {
+		defer wg.Done()
+		for req := range requests {
+			if ctx.Err() != nil {
+				return
+			}
+			if strings.TrimSpace(req.BillID) == "" || strings.TrimSpace(req.FullTextURL) == "" {
+				continue
+			}
+
+			// Check whether summarization is actually needed before downloading
+			// the (potentially large) bill text, and bail out early if the API
+			// key isn't configured.
+			if os.Getenv("ANTHROPIC_API_KEY") == "" {
+				log.Printf("[summarizer] ANTHROPIC_API_KEY not set; skipping %q", req.BillID)
+				continue
+			}
+			needed, err := shouldSummarizeBill(ctx, db, req.BillID, req.LastActivityDate)
+			if err != nil {
+				log.Printf("[summarizer] check bill %q: %v", req.BillID, err)
+				continue
+			}
+			if !needed {
+				log.Printf("[summarizer] skip unchanged bill %q", req.BillID)
+				continue
+			}
+
+			billText, err := fetchBillText(ctx, req.FullTextURL)
+			if err != nil {
+				log.Printf("[summarizer] fetch bill text %q: %v", req.BillID, err)
+				continue
+			}
+
+			log.Printf("[summarizer] summarizing bill %q (%s)...", req.BillID, req.BillTitle)
+			summary, err := SummarizeBill(ctx, db, req.BillID, req.BillTitle, billText, req.LastActivityDate)
+			if err != nil {
+				log.Printf("[summarizer] summarize error %q: %v", req.BillID, err)
+				continue
+			}
+			if summary == nil {
+				log.Printf("[summarizer] skip unchanged bill %q", req.BillID)
+				continue
+			}
+
+			summaryJSON, _ := json.Marshal(summary)
+			_, err = db.ExecContext(ctx,
+				`UPDATE bills SET summary_ai = ?, category = ? WHERE id = ?`,
+				string(summaryJSON), summary.Category, req.BillID)
+			if err != nil {
+				log.Printf("[summarizer] store summary %q: %v", req.BillID, err)
+				continue
+			}
+
+			atomic.AddInt64(&processed, 1)
+			log.Printf("[summarizer] ✓ stored summary for %q", req.BillID)
+
+			select {
+			case <-time.After(1 * time.Second):
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go worker()
+	}
+
+	wg.Wait()
+	if ctx.Err() != nil {
+		return int(atomic.LoadInt64(&processed)), ctx.Err()
+	}
+	return int(atomic.LoadInt64(&processed)), nil
 }
 
 // SummarizeNewBills processes all bills that still lack summaries.
@@ -205,57 +486,42 @@ func SummarizeNewBills(ctx context.Context, db *sql.DB, onlyMissing bool) (int, 
 	}
 	defer rows.Close()
 
-	processed := 0
-	for rows.Next() {
-		var billID, number, title, fullTextURL string
-		if err := rows.Scan(&billID, &number, &title, &fullTextURL); err != nil {
-			log.Printf("[summarizer] scan error: %v", err)
-			continue
-		}
+	requests := make(chan BillSummaryRequest, 64)
+	go func() {
+		defer close(requests)
+		for rows.Next() {
+			var billID, number, title, fullTextURL string
+			if err := rows.Scan(&billID, &number, &title, &fullTextURL); err != nil {
+				log.Printf("[summarizer] scan error: %v", err)
+				continue
+			}
 
-		// Skip if no full text URL.
-		if fullTextURL == "" {
-			continue
-		}
+			// Skip if no full text URL.
+			if strings.TrimSpace(fullTextURL) == "" {
+				continue
+			}
 
-		// Fetch bill text.
-		billText, err := fetchBillText(ctx, fullTextURL)
-		if err != nil {
-			log.Printf("[summarizer] fetch bill text %q: %v", billID, err)
-			continue
+			select {
+			case requests <- BillSummaryRequest{
+				BillID:      billID,
+				BillTitle:   title,
+				FullTextURL: fullTextURL,
+			}:
+			case <-ctx.Done():
+				log.Printf("[summarizer] producer shutting down: %v", ctx.Err())
+				return
+			}
 		}
+	}()
 
-		// Call Claude API.
-		log.Printf("[summarizer] summarizing bill %q (%s)...", number, title)
-		summary, err := SummarizeBill(ctx, billID, title, billText)
-		if err != nil {
-			log.Printf("[summarizer] summarize error %q: %v", billID, err)
-			// Don't bail — retry later.
-			continue
-		}
-
-		// Store in database.
-		summaryJSON, _ := json.Marshal(summary)
-		_, err = db.ExecContext(ctx,
-			`UPDATE bills SET summary_ai = ?, category = ? WHERE id = ?`,
-			string(summaryJSON), summary.Category, billID)
-		if err != nil {
-			log.Printf("[summarizer] store summary %q: %v", billID, err)
-			continue
-		}
-
-		processed++
-		log.Printf("[summarizer] ✓ stored summary for %q", number)
-
-		select {
-		case <-time.After(1 * time.Second):
-		case <-ctx.Done():
-			return processed, ctx.Err()
-		}
-		time.Sleep(1 * time.Second)
+	processed, err := SummarizeBillsFromChannel(ctx, db, requests)
+	if err != nil {
+		return processed, err
 	}
-
-	return processed, rows.Err()
+	if err := rows.Err(); err != nil {
+		return processed, err
+	}
+	return processed, nil
 }
 
 // fetchBillText fetches and extracts plain text from a bill's HTML document using goquery.
@@ -273,7 +539,22 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("http %d", resp.StatusCode)
+		preview, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		snippet := strings.TrimSpace(collapseWhitespace(string(preview)))
+		if len(snippet) > 220 {
+			snippet = snippet[:220] + "..."
+		}
+		if snippet == "" {
+			snippet = "<empty body>"
+		}
+		return "", fmt.Errorf(
+			"GET %s: http %d %s (content-type=%q, body=%q)",
+			url,
+			resp.StatusCode,
+			http.StatusText(resp.StatusCode),
+			resp.Header.Get("Content-Type"),
+			snippet,
+		)
 	}
 
 	// Use goquery to parse HTML and extract text.

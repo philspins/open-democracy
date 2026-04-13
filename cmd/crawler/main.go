@@ -24,10 +24,12 @@ import (
 	"context"
 	"database/sql"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +41,10 @@ import (
 )
 
 func main() {
+	if err := utils.LoadDotEnv(".env"); err != nil {
+		log.Printf("warning: could not load .env: %v", err)
+	}
+
 	billsFlag := flag.Bool("bills", false, "Crawl bills only")
 	votesFlag := flag.Bool("votes", false, "Crawl Commons votes only")
 	senateFlag := flag.Bool("senate", false, "Crawl Senate votes only")
@@ -88,6 +94,37 @@ func main() {
 	// ── One-shot mode ────────────────────────────────────────────────────────
 	shouldRunAll := !(*billsFlag || *votesFlag || *senateFlag || *membersFlag || *calendarFlag)
 
+	// Run LoP batch download first so shouldSummarizeBill correctly skips
+	// bills that already have a Library of Parliament summary before the AI
+	// worker starts consuming from the channel.
+	if *billsFlag || shouldRunAll {
+		ctx := context.Background()
+		if n, err := summarizer.DownloadLoPSummaries(ctx, conn, nil); err != nil {
+			log.Printf("[main] lop summary job error: %v", err)
+		} else {
+			log.Printf("[main] lop summaries updated: %d", n)
+		}
+	}
+
+	// Wire up the same channel-based summarization pipeline used by runAll.
+	// The producer (crawlBills) emits requests while crawling; the consumer
+	// goroutine calls Claude concurrently.  The channel is only created when
+	// bills are included in this run; other crawlers are not affected.
+	type summaryRunResult struct {
+		processed int
+		err       error
+	}
+	var summaryRequests chan summarizer.BillSummaryRequest
+	var summaryResultCh chan summaryRunResult
+	if *billsFlag || shouldRunAll {
+		summaryRequests = make(chan summarizer.BillSummaryRequest, 32)
+		summaryResultCh = make(chan summaryRunResult, 1)
+		go func() {
+			n, err := summarizer.SummarizeBillsFromChannel(context.Background(), conn, summaryRequests)
+			summaryResultCh <- summaryRunResult{processed: n, err: err}
+		}()
+	}
+
 	// Build the set of crawl tasks the user selected (or all if none specified).
 	type task struct {
 		name string
@@ -98,7 +135,7 @@ func main() {
 		tasks = append(tasks, task{"calendar", func() error { return crawlCalendar(conn, client, delay, "") }})
 	}
 	if *billsFlag || shouldRunAll {
-		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "") }})
+		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "", summaryRequests) }})
 	}
 	if *membersFlag || shouldRunAll {
 		tasks = append(tasks, task{"members", func() error { return crawlMembers(conn, client, delay, "", "") }})
@@ -121,6 +158,19 @@ func main() {
 	}
 
 	runParallel(*parallelism, fns)
+
+	// Signal the summarizer worker that all bills have been submitted, then
+	// wait for it to finish and log the result.
+	if summaryRequests != nil {
+		close(summaryRequests)
+		res := <-summaryResultCh
+		if res.err != nil {
+			log.Printf("[main] ai summarization pipeline error: %v", res.err)
+		} else {
+			log.Printf("[main] ai summaries generated: %d", res.processed)
+		}
+	}
+
 	log.Println("[main] done")
 }
 
@@ -180,7 +230,7 @@ func crawlCalendar(conn *sql.DB, client *http.Client, delay time.Duration, sourc
 	return nil
 }
 
-func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration, rssURL string) error {
+func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration, rssURL string, summaryRequests chan<- summarizer.BillSummaryRequest) error {
 	stubs, err := scraper.CrawlBillsRSS(rssURL, client)
 	if err != nil {
 		return err
@@ -207,6 +257,7 @@ func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration, rssURL s
 			Session:          sess,
 			Number:           utils.BillNumberFromID(stub.ID),
 			Title:            stub.Title,
+			Chamber:          utils.BillChamber(utils.BillNumberFromID(stub.ID)),
 			LegisInfoURL:     stub.LegisInfoURL,
 			LastActivityDate: stub.LastActivityDate,
 			CurrentStage:     detail.CurrentStage,
@@ -232,6 +283,15 @@ func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration, rssURL s
 				Chamber: stage.Chamber,
 				Date:    stage.Date,
 			})
+		}
+
+		if summaryRequests != nil && strings.TrimSpace(bill.FullTextURL) != "" {
+			summaryRequests <- summarizer.BillSummaryRequest{
+				BillID:           bill.ID,
+				BillTitle:        bill.Title,
+				FullTextURL:      bill.FullTextURL,
+				LastActivityDate: bill.LastActivityDate,
+			}
 		}
 	}
 	return nil
@@ -368,14 +428,31 @@ func crawlSenate(conn *sql.DB, client *http.Client, delay time.Duration, indexUR
 // ── scheduled helpers ─────────────────────────────────────────────────────────
 
 func runAll(conn *sql.DB, client *http.Client, delay time.Duration, parallelism int) error {
+	type summaryRunResult struct {
+		processed int
+		err       error
+	}
+	summaryRequests := make(chan summarizer.BillSummaryRequest, 32)
+	summaryResultCh := make(chan summaryRunResult, 1)
+	go func() {
+		n, err := summarizer.SummarizeBillsFromChannel(context.Background(), conn, summaryRequests)
+		summaryResultCh <- summaryRunResult{processed: n, err: err}
+	}()
+
 	fns := []func(){
 		func() { crawlCalendar(conn, client, delay, "") },
-		func() { crawlBills(conn, client, delay, "") },
+		func() { crawlBills(conn, client, delay, "", summaryRequests) },
 		func() { crawlMembers(conn, client, delay, "", "") },
 		func() { crawlVotes(conn, client, delay, "") },
 		func() { crawlSenate(conn, client, delay, "") },
 	}
 	runParallel(parallelism, fns)
+	close(summaryRequests)
+	res := <-summaryResultCh
+	if res.err != nil {
+		return fmt.Errorf("summarization pipeline: %w", res.err)
+	}
+	log.Printf("[scheduler] ai summaries generated: %d", res.processed)
 	return nil
 }
 

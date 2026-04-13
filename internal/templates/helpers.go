@@ -3,11 +3,13 @@ package templates
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/a-h/templ"
 	"github.com/philspins/open-democracy/internal/store"
 )
 
@@ -307,6 +309,15 @@ func ordinal(n int) string {
 	return "th"
 }
 
+// initial returns the first character of s, or "?" if s is empty.
+func initial(s string) string {
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return "?"
+	}
+	return string(runes[0])
+}
+
 // NewPageInfo computes PageInfo from the current page, total items, and page size.
 func NewPageInfo(page, total, perPage int) PageInfo {
 	if perPage <= 0 {
@@ -370,4 +381,49 @@ func ReactionPercent(count, total int) int {
 		return 0
 	}
 	return (count * 100) / total
+}
+
+// safeExternalURL validates that rawURL has an http or https scheme and returns
+// templ.SafeURL(rawURL). If the scheme is not http/https (e.g. "javascript:"),
+// it returns templ.SafeURL("#") to prevent XSS via unsafe URL schemes.
+func safeExternalURL(rawURL string) templ.SafeURL {
+	if rawURL == "" {
+		return templ.SafeURL("#")
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return templ.SafeURL("#")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return templ.SafeURL("#")
+	}
+	return templ.SafeURL(rawURL)
+}
+
+// safeMailtoURL validates an email address and returns a templ.SafeURL for a
+// mailto: link. Returns templ.SafeURL("#") when the email is empty, contains
+// characters that could enable RFC 2822 header injection (e.g. newlines, query
+// params introduced by '?' or '&'), or does not have the shape local@domain.tld.
+func safeMailtoURL(email string) templ.SafeURL {
+	if email == "" {
+		return templ.SafeURL("#")
+	}
+	// Reject characters that could inject extra headers or malform the URI.
+	// Intentionally stricter than RFC 5321: quoted local-parts with spaces
+	// (e.g. "john doe"@example.com) are not common in practice and the
+	// additional complexity is not worth the risk for external API input.
+	if strings.ContainsAny(email, "\r\n\t ?&<>\"'\\") {
+		return templ.SafeURL("#")
+	}
+	// Must have exactly one '@' with non-empty local and domain parts.
+	at := strings.Index(email, "@")
+	if at <= 0 || at >= len(email)-1 || strings.Contains(email[at+1:], "@") {
+		return templ.SafeURL("#")
+	}
+	// Domain must contain at least one dot.
+	if !strings.Contains(email[at+1:], ".") {
+		return templ.SafeURL("#")
+	}
+	return templ.SafeURL("mailto:" + email)
 }

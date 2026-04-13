@@ -2,51 +2,50 @@ package templates
 
 import (
 	"fmt"
+	"strings"
+	"github.com/philspins/open-democracy/internal/opennorth"
 	"github.com/philspins/open-democracy/internal/store"
 )
 
-templ Home(ps store.ParliamentStatus, bills []store.BillRow, divs []store.DivisionRow, postal string, federalRep store.MemberRow) {
+templ Home(ps store.ParliamentStatus, bills []store.BillRow, divs []store.DivisionRow, savedAddress string, federalRep opennorth.Representative, provincialRep opennorth.Representative) {
 	@Layout("Home", ps) {
 		{{
-			provParty := provinceGoverningParty(federalRep.Province)
-			federalParty := federalRep.Party
+			provParty := provincialRep.PartyName
+			if provParty == "" {
+				provParty = provinceGoverningParty("")
+			}
+			federalParty := federalRep.PartyName
 			if federalParty == "" {
 				federalParty = defaultFederalParty()
 			}
+			hasSavedRiding := strings.TrimSpace(savedAddress) != ""
 		}}
 		<div class="space-y-6">
-			<section class="hero-panel">
-				<div class="title-row">
-					<div>
-						<span class="kicker">Open Democracy Overview</span>
-						<h1 class="page-title mt-3">Your representatives and what they are voting on</h1>
-						<p class="section-lead mt-3 max-w-2xl">
-							Follow bills and recorded divisions from the { fmt.Sprint(ps.Parliament) }{ ordinal(ps.Parliament) } Parliament, and quickly jump to your riding lookup.
-						</p>
-						if federalRep.ID != "" {
-							<p class="text-sm text-gray-600 mt-2">
-								Context: { federalRep.Riding }, { federalRep.Province } · Federal rep { federalRep.Name } ({ federalRep.Party })
+			if !hasSavedRiding {
+				<section class="hero-panel">
+					<div class="title-row">
+						<div>
+							<span class="kicker">Open Democracy Overview</span>
+							<h1 class="page-title mt-3">Your representatives and what they are voting on</h1>
+							<p class="section-lead mt-3 max-w-2xl">
+								Follow bills and recorded divisions from the { fmt.Sprint(ps.Parliament) }{ ordinal(ps.Parliament) } Parliament, and quickly jump to your riding lookup.
 							</p>
-						} else if postal != "" {
-							<p class="text-sm text-gray-600 mt-2">
-								No riding match found for "{ postal }" yet. Colors are using national/provincial defaults.
-							</p>
-						}
+						</div>
+						<div class="flex gap-3">
+							<a href="/riding" class="btn btn-primary">Find Your Riding</a>
+							<a href="/members" class="btn btn-secondary">Federal MPs</a>
+						</div>
 					</div>
-					<div class="flex gap-3">
-						<a href="/riding" class="btn btn-primary">Find Your Riding</a>
-						<a href="/members" class="btn btn-secondary">Federal MPs</a>
-					</div>
-				</div>
-			</section>
+				</section>
+			}
 
 			<section class="grid gap-0 md:grid-cols-2 rounded-2xl overflow-hidden border border-gray-200 shadow-lg bg-white/85">
 				<div class="border-r border-gray-200">
 					<div class="px-5 py-3 text-sm font-semibold" style={ partyBannerStyle(provParty) }>
-						Your current provincial rep
+						{ homeRepresentativeHeading(provincialRep, "Your current provincial representative") }
 					</div>
 					<div class="px-5 py-2 text-sm text-gray-700 border-b border-gray-100">
-						Provincial government: <strong>{ provParty }</strong> · Parliament is currently: <strong>{ statusPhrase(ps.Status) }</strong>
+						{ homeRepresentativeSummary(provincialRep, provParty, "Provincial representative") } · Parliament is currently: <strong>{ statusPhrase(ps.Status) }</strong>
 					</div>
 					<div class="p-5 space-y-4">
 						<div class="title-row">
@@ -75,10 +74,10 @@ templ Home(ps store.ParliamentStatus, bills []store.BillRow, divs []store.Divisi
 
 				<div>
 					<div class="px-5 py-3 text-sm font-semibold" style={ partyBannerStyle(federalParty) }>
-						Your current federal rep
+						{ homeRepresentativeHeading(federalRep, "Your current federal representative") }
 					</div>
 					<div class="px-5 py-2 text-sm text-gray-700 border-b border-gray-100">
-						Federal governing party color: <strong>{ federalParty }</strong> · Parliament is currently: <strong>{ statusPhrase(ps.Status) }</strong>
+						{ homeRepresentativeSummary(federalRep, federalParty, "Federal representative") } · Parliament is currently: <strong>{ statusPhrase(ps.Status) }</strong>
 					</div>
 					<div class="p-5 space-y-4">
 						<div class="title-row">
@@ -145,6 +144,28 @@ templ Home(ps store.ParliamentStatus, bills []store.BillRow, divs []store.Divisi
 			</section>
 		</div>
 	}
+}
+
+func homeRepresentativeHeading(rep opennorth.Representative, fallback string) string {
+	if strings.TrimSpace(rep.Name) != "" {
+		return rep.Name
+	}
+	return fallback
+}
+
+func homeRepresentativeSummary(rep opennorth.Representative, party string, fallbackRole string) string {
+	role := strings.TrimSpace(rep.ElectedOffice)
+	if role == "" {
+		role = fallbackRole
+	}
+	parts := []string{role}
+	if strings.TrimSpace(rep.DistrictName) != "" {
+		parts = append(parts, "for "+rep.DistrictName)
+	}
+	if strings.TrimSpace(party) != "" {
+		parts = append(parts, "("+party+")")
+	}
+	return strings.Join(parts, " ")
 }
 
 func statusPhrase(status string) string {

@@ -22,9 +22,9 @@ import (
 // ── constants ─────────────────────────────────────────────────────────────────
 
 const (
-	RSSUrl          = "https://www.parl.ca/legisinfo/en/bills/rss"
-	LegisInfoBase   = "https://www.parl.ca/legisinfo/en/bill"
-	DocumentViewer  = "https://www.parl.ca/DocumentViewer/en/%d-%d/bill/%s/first-reading"
+	RSSUrl         = "https://www.parl.ca/legisinfo/en/bills/rss"
+	LegisInfoBase  = "https://www.parl.ca/legisinfo/en/bill"
+	DocumentViewer = "https://www.parl.ca/DocumentViewer/en/%d-%d/bill/%s/first-reading"
 	// LibraryOfParliamentBase is the base URL for professional researcher summaries.
 	// Use these instead of AI-generated summaries where available.
 	LibraryOfParliamentBase = "https://lop.parl.ca/sites/PublicWebsite/default/en_CA/ResearchPublications/LegislativeSummaries"

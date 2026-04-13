@@ -23,7 +23,7 @@ const DefaultRequestDelay = 500 * time.Millisecond
 // injected via a transport wrapper.
 func NewHTTPClient() *http.Client {
 	return &http.Client{
-		Timeout: 15 * time.Second,
+		Timeout:   15 * time.Second,
 		Transport: &uaTransport{base: http.DefaultTransport},
 	}
 }
@@ -42,8 +42,8 @@ func (t *uaTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // ── URL / ID extraction helpers ───────────────────────────────────────────────
 
 var (
-	legisinfoRe  = regexp.MustCompile(`(?i)/legisinfo/en/bill/(\d+)-(\d+)/([A-Za-z]+-?\d+)`)
-	memberRe     = regexp.MustCompile(`(?i)/Members/en/(\d+)`)
+	legisinfoRe = regexp.MustCompile(`(?i)/legisinfo/en/bill/(\d+)-(\d+)/([A-Za-z]+-?\d+)`)
+	memberRe    = regexp.MustCompile(`(?i)/Members/en/(\d+)`)
 )
 
 // ExtractBillID parses a canonical bill ID from a LEGISinfo URL.
@@ -111,10 +111,10 @@ func BillChamber(billNumber string) string {
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
 var dateFormats = []string{
-	"2006-01-02",          // ISO
-	"January 2, 2006",     // e.g. "April 3, 2024"
-	"2 January 2006",      // e.g. "3 April 2024"
-	"Jan 2, 2006",         // e.g. "Apr 3, 2024"
+	"2006-01-02",      // ISO
+	"January 2, 2006", // e.g. "April 3, 2024"
+	"2 January 2006",  // e.g. "3 April 2024"
+	"Jan 2, 2006",     // e.g. "Apr 3, 2024"
 	"2006/01/02",
 }
 

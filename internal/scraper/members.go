@@ -16,10 +16,10 @@ import (
 // ── constants ─────────────────────────────────────────────────────────────────
 
 const (
-	MembersListURL     = "https://www.ourcommons.ca/Members/en/search"
-	MemberProfileBase  = "https://www.ourcommons.ca/Members/en/%s"
-	MemberVotesBase    = "https://www.ourcommons.ca/Members/en/%s?tab=votes"
-	OurCommonsBase     = "https://www.ourcommons.ca"
+	MembersListURL    = "https://www.ourcommons.ca/Members/en/search"
+	MemberProfileBase = "https://www.ourcommons.ca/Members/en/%s"
+	MemberVotesBase   = "https://www.ourcommons.ca/Members/en/%s?tab=votes"
+	OurCommonsBase    = "https://www.ourcommons.ca"
 )
 
 // ── types ─────────────────────────────────────────────────────────────────────

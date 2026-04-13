@@ -62,6 +62,40 @@ func TestListBills_Filter(t *testing.T) {
 	}
 }
 
+func TestListBills_ChamberFilter(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, err := conn.Exec(`INSERT INTO bills (id, parliament, session, number, title, category, current_stage, chamber)
+		VALUES ('b1', 45, 1, 'C-1', 'Commons Bill', 'Housing', '1st_reading', 'commons'),
+		       ('b2', 45, 1, 'S-1', 'Senate Bill', 'Health', '1st_reading', 'senate')`)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	bills, total, err := st.ListBills(store.BillFilter{Chamber: "commons", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListBills: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("want total=1 for commons filter, got %d", total)
+	}
+	if len(bills) != 1 || bills[0].ID != "b1" {
+		t.Errorf("wrong bill returned for commons filter: %+v", bills)
+	}
+
+	bills, total, err = st.ListBills(store.BillFilter{Chamber: "senate", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListBills senate: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("want total=1 for senate filter, got %d", total)
+	}
+	if len(bills) != 1 || bills[0].ID != "b2" {
+		t.Errorf("wrong bill returned for senate filter: %+v", bills)
+	}
+}
+
 func TestGetBill_NotFound(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)
@@ -232,7 +266,7 @@ func TestUpsertUserAndFollowMember(t *testing.T) {
 		t.Fatalf("insert member: %v", err)
 	}
 
-	u, err := st.UpsertUser("person@example.com", "K1A0B1")
+	u, err := st.UpsertUser("person@example.com")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
@@ -240,7 +274,7 @@ func TestUpsertUserAndFollowMember(t *testing.T) {
 		t.Fatalf("unexpected user: %+v", u)
 	}
 
-	if err := st.FollowMember("person@example.com", "K1A0B1", "m1"); err != nil {
+	if err := st.FollowMember("person@example.com", "m1"); err != nil {
 		t.Fatalf("FollowMember: %v", err)
 	}
 
@@ -263,13 +297,13 @@ func TestReactToBillAndCounts(t *testing.T) {
 		t.Fatalf("insert bill: %v", err)
 	}
 
-	if err := st.ReactToBill("a@example.com", "", "b1", "support", "Looks good"); err != nil {
+	if err := st.ReactToBill("a@example.com", "b1", "support", "Looks good"); err != nil {
 		t.Fatalf("ReactToBill support: %v", err)
 	}
-	if err := st.ReactToBill("b@example.com", "", "b1", "oppose", "Concerned"); err != nil {
+	if err := st.ReactToBill("b@example.com", "b1", "oppose", "Concerned"); err != nil {
 		t.Fatalf("ReactToBill oppose: %v", err)
 	}
-	if err := st.ReactToBill("a@example.com", "", "b1", "neutral", "Updating vote"); err != nil {
+	if err := st.ReactToBill("a@example.com", "b1", "neutral", "Updating vote"); err != nil {
 		t.Fatalf("ReactToBill update: %v", err)
 	}
 
@@ -291,7 +325,7 @@ func TestLogPolicySubmission(t *testing.T) {
 		t.Fatalf("insert member: %v", err)
 	}
 
-	err = st.LogPolicySubmission("person@example.com", "K1A0B1", "m1", "Housing support", "Please support this bill", "Housing")
+	err = st.LogPolicySubmission("person@example.com", "m1", "Housing support", "Please support this bill", "Housing")
 	if err != nil {
 		t.Fatalf("LogPolicySubmission: %v", err)
 	}
@@ -303,5 +337,176 @@ func TestLogPolicySubmission(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected 1 submission row, got %d", count)
+	}
+}
+
+func TestEmailVerificationFlow(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	token, _, err := st.CreateEmailVerification("verify@example.com", time.Hour)
+	if err != nil {
+		t.Fatalf("CreateEmailVerification: %v", err)
+	}
+
+	var storedToken string
+	if err := conn.QueryRow(`SELECT token FROM email_verification_tokens WHERE email='verify@example.com' ORDER BY id DESC LIMIT 1`).Scan(&storedToken); err != nil {
+		t.Fatalf("query stored token: %v", err)
+	}
+	if storedToken == token {
+		t.Fatalf("expected token to be hashed at rest")
+	}
+	if len(storedToken) != 64 {
+		t.Fatalf("expected sha256 hex token length 64, got %d", len(storedToken))
+	}
+
+	var storedCode string
+	if err := conn.QueryRow(`SELECT code FROM email_verification_tokens WHERE email='verify@example.com' ORDER BY id DESC LIMIT 1`).Scan(&storedCode); err != nil {
+		t.Fatalf("query stored code: %v", err)
+	}
+	if len(storedCode) != 64 {
+		t.Fatalf("expected hashed code length 64, got %d", len(storedCode))
+	}
+
+	u, err := st.GetUserByEmail("verify@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail: %v", err)
+	}
+	if u.EmailVerified {
+		t.Fatalf("expected user to be unverified before token verification")
+	}
+
+	u, err = st.VerifyEmailToken(token)
+	if err != nil {
+		t.Fatalf("VerifyEmailToken: %v", err)
+	}
+	if !u.EmailVerified {
+		t.Fatalf("expected user to be verified after token verification")
+	}
+
+	if _, err := st.VerifyEmailToken(token); err == nil {
+		t.Fatalf("expected second token use to fail")
+	}
+}
+
+func TestEmailVerificationByCode(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, code, err := st.CreateEmailVerification("code@example.com", time.Hour)
+	if err != nil {
+		t.Fatalf("CreateEmailVerification: %v", err)
+	}
+
+	u, err := st.VerifyEmailCode("code@example.com", code)
+	if err != nil {
+		t.Fatalf("VerifyEmailCode: %v", err)
+	}
+	if !u.EmailVerified {
+		t.Fatalf("expected code-verified user to be verified")
+	}
+}
+
+func TestEmailVerificationCooldown(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	if _, _, err := st.CreateEmailVerification("cooldown@example.com", time.Hour); err != nil {
+		t.Fatalf("first CreateEmailVerification: %v", err)
+	}
+	if _, _, err := st.CreateEmailVerification("cooldown@example.com", time.Hour); err == nil {
+		t.Fatalf("expected cooldown error on rapid second verification request")
+	}
+}
+
+func TestSessionLifecycle(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	u, err := st.UpsertUser("session@example.com")
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+
+	sid, err := st.CreateSession(u.ID, time.Hour)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	var storedSessionID string
+	if err := conn.QueryRow(`SELECT id FROM user_sessions WHERE user_id = ?`, u.ID).Scan(&storedSessionID); err != nil {
+		t.Fatalf("query stored session id: %v", err)
+	}
+	if storedSessionID == sid {
+		t.Fatalf("expected session id to be hashed at rest")
+	}
+	if len(storedSessionID) != 64 {
+		t.Fatalf("expected sha256 hex session id length 64, got %d", len(storedSessionID))
+	}
+
+	got, err := st.GetUserBySession(sid)
+	if err != nil {
+		t.Fatalf("GetUserBySession: %v", err)
+	}
+	if got.Email != "session@example.com" {
+		t.Fatalf("unexpected session user: %+v", got)
+	}
+
+	if err := st.DeleteSession(sid); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	if _, err := st.GetUserBySession(sid); err == nil {
+		t.Fatalf("expected deleted session lookup to fail")
+	}
+}
+
+func TestAuthenticateOAuthMarksVerified(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	u, err := st.AuthenticateOAuth("google", "provider-123", "oauth@example.com", true)
+	if err != nil {
+		t.Fatalf("AuthenticateOAuth: %v", err)
+	}
+	if !u.EmailVerified {
+		t.Fatalf("expected oauth-authenticated user to be verified")
+	}
+
+	// Re-auth on same provider identity should remain idempotent.
+	u2, err := st.AuthenticateOAuth("google", "provider-123", "oauth@example.com", true)
+	if err != nil {
+		t.Fatalf("AuthenticateOAuth repeat: %v", err)
+	}
+	if u.ID != u2.ID {
+		t.Fatalf("expected same user id on repeated oauth auth, got %q and %q", u.ID, u2.ID)
+	}
+}
+
+func TestUpdateUserLocationPersistsAddressAndRidings(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	u, err := st.UpsertUser("profile@example.com")
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+
+	updated, err := st.UpdateUserLocation(u.ID, "123 Main St, Ottawa, ON", "Ottawa Centre", "Ottawa South")
+	if err != nil {
+		t.Fatalf("UpdateUserLocation: %v", err)
+	}
+	if updated.Address != "123 Main St, Ottawa, ON" {
+		t.Fatalf("Address=%q want %q", updated.Address, "123 Main St, Ottawa, ON")
+	}
+	if updated.FederalRidingID != "Ottawa Centre" || updated.ProvincialRidingID != "Ottawa South" {
+		t.Fatalf("unexpected riding ids: %+v", updated)
+	}
+
+	reloaded, err := st.GetUserByEmail("profile@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail: %v", err)
+	}
+	if reloaded.Address != updated.Address || reloaded.FederalRidingID != updated.FederalRidingID || reloaded.ProvincialRidingID != updated.ProvincialRidingID {
+		t.Fatalf("reloaded user mismatch: %+v vs %+v", reloaded, updated)
 	}
 }

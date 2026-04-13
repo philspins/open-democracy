@@ -18,6 +18,7 @@ import (
 
 	"github.com/philspins/open-democracy/internal/db"
 	"github.com/philspins/open-democracy/internal/scraper"
+	"github.com/philspins/open-democracy/internal/summarizer"
 )
 
 // ── shared test helpers ───────────────────────────────────────────────────────
@@ -118,7 +119,7 @@ func TestCrawlBills_PersistsBill(t *testing.T) {
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlBills(conn, srv.Client(), noDelay, srv.URL+"/rss"); err != nil {
+	if err := crawlBills(conn, srv.Client(), noDelay, srv.URL+"/rss", nil); err != nil {
 		t.Fatalf("crawlBills: %v", err)
 	}
 
@@ -132,9 +133,41 @@ func TestCrawlBills_PersistsBill(t *testing.T) {
 
 func TestCrawlBills_ReturnsErrorOnBadRSS(t *testing.T) {
 	conn := newDB(t)
-	err := crawlBills(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
+	err := crawlBills(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server", nil)
 	if err == nil {
 		t.Error("expected error for unreachable RSS feed")
+	}
+}
+
+func TestCrawlBills_EmitsSummaryRequest(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rss", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		w.Write([]byte(billsRSSBody))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(billDetailBody))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	conn := newDB(t)
+	ch := make(chan summarizer.BillSummaryRequest, 4)
+	if err := crawlBills(conn, srv.Client(), noDelay, srv.URL+"/rss", ch); err != nil {
+		t.Fatalf("crawlBills: %v", err)
+	}
+
+	select {
+	case req := <-ch:
+		if req.BillID != "45-1-c-47" {
+			t.Fatalf("unexpected bill id: %s", req.BillID)
+		}
+		if req.FullTextURL == "" {
+			t.Fatal("expected non-empty FullTextURL in summary request")
+		}
+	default:
+		t.Fatal("expected a summary request to be emitted")
 	}
 }
 
