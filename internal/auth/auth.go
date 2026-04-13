@@ -82,7 +82,7 @@ func New(st *store.Store, baseURL string) *Service {
 		baseURL:     baseURL,
 		emailer:     emailer,
 		rateLimiter: newSimpleRateLimiter(),
-		httpClient:  http.DefaultClient,
+		httpClient:  &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
