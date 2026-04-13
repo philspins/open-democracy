@@ -215,7 +215,7 @@ func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "member_id required", http.StatusBadRequest)
 		return
 	}
-	if err := s.store.FollowMember(u.Email, u.PostalCode, memberID); err != nil {
+	if err := s.store.FollowMember(u.Email, memberID); err != nil {
 		http.Error(w, "failed to follow", http.StatusInternalServerError)
 		return
 	}
@@ -238,7 +238,7 @@ func (s *Server) handleReact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bill_id required", http.StatusBadRequest)
 		return
 	}
-	if err := s.store.ReactToBill(u.Email, u.PostalCode, billID, reaction, note); err != nil {
+	if err := s.store.ReactToBill(u.Email, billID, reaction, note); err != nil {
 		http.Error(w, "failed to save reaction", http.StatusBadRequest)
 		return
 	}
@@ -280,7 +280,6 @@ func (s *Server) handleLogSubmission(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.store.LogPolicySubmission(
 		u.Email,
-		u.PostalCode,
 		payload.MemberID,
 		payload.Subject,
 		payload.Body,

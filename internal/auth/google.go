@@ -61,7 +61,7 @@ func (s *Service) HandleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid userinfo", http.StatusBadGateway)
 		return
 	}
-	u, err := s.store.AuthenticateOAuth("google", uinfo.Sub, uinfo.Email, "", true)
+	u, err := s.store.AuthenticateOAuth("google", uinfo.Sub, uinfo.Email, true)
 	if err != nil {
 		http.Error(w, "failed oauth login", http.StatusInternalServerError)
 		return

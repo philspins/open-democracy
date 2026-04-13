@@ -108,7 +108,7 @@ func (s *Service) attachLocalMemberIDs(reps []opennorth.Representative) []openno
 		}
 		local, _ := s.store.GetMembersByRiding(rep.DistrictName)
 		for _, member := range local {
-			if strings.EqualFold(member.Name, rep.Name) || strings.EqualFold(member.Riding, rep.DistrictName) {
+			if strings.EqualFold(member.Name, rep.Name) {
 				out[i].LocalMemberID = member.ID
 				break
 			}

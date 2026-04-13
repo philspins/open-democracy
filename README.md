@@ -22,7 +22,7 @@ Built with the **GOAT Stack**: Go · Templ · Alpine.js · Tailwind CSS.
 | `CRAWLER_PARALLELISM` | No | crawler | Caps concurrent domain crawlers (same effect as `--parallelism`) |
 | `SUMMARIZER_PARALLELISM` | No | summarizer | Number of concurrent AI summarization workers (default: `1`) |
 | `ANTHROPIC_API_KEY` | Only for AI summaries | summarizer | Enables Claude API fallback summaries (`summary_ai`) |
-| `ANTHROPIC_MODEL` | No | summarizer | Claude model ID/alias override (default first try: `claude-3-7-sonnet-latest`) |
+| `ANTHROPIC_MODEL` | No | summarizer | Claude model ID/alias override (default first try: `claude-sonnet-4-6`) |
 | `PARTY_THEME_FILE` | No | frontend templates | Override path for party/province style config (default `config/party-theme.json`) |
 | `OAUTH_BASE_URL` | Recommended for auth/OAuth | server | Public app base URL used to build verification and OAuth callback URLs (e.g. `https://open-democracy.ca`) |
 | `SES_FROM_EMAIL` | Yes for verification email delivery | server | Verified SES sender address used for outgoing verification emails (e.g. `contact@open-democracy.ca`) |
@@ -39,7 +39,7 @@ Notes:
 
 - The service runs without `ANTHROPIC_API_KEY`; only AI summarization is disabled.
 - Set `SUMMARIZER_PARALLELISM` > 1 to summarize multiple bills concurrently.
-- If `ANTHROPIC_MODEL` is unset, summarization first tries `claude-3-7-sonnet-latest` and automatically falls back to compatible Sonnet/Haiku model IDs.
+- If `ANTHROPIC_MODEL` is unset, summarization first tries `claude-sonnet-4-6` and automatically falls back to compatible Sonnet/Haiku model IDs.
 - LoP summary scraping still runs without an API key.
 - If `SES_FROM_EMAIL` is unset, verification requests are accepted but emails are not sent.
 - OAuth login routes require provider credentials to be set (`GOOGLE_*` and/or `FACEBOOK_*`).
@@ -60,7 +60,7 @@ AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 
 # Optional Anthropic model override
-ANTHROPIC_MODEL=claude-3-7-sonnet-latest
+ANTHROPIC_MODEL=claude-sonnet-4-6
 
 # Optional summarization worker count
 SUMMARIZER_PARALLELISM=4

@@ -12,10 +12,7 @@ import (
 )
 
 func preferredLookupAddress(user store.UserRow) string {
-	if strings.TrimSpace(user.Address) != "" {
-		return strings.TrimSpace(user.Address)
-	}
-	return strings.TrimSpace(user.PostalCode)
+	return strings.TrimSpace(user.Address)
 }
 
 func (s *Server) loadRepresentativeContext(r *http.Request, user store.UserRow) (string, riding.LookupResult) {

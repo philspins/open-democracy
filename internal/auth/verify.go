@@ -20,13 +20,9 @@ func (s *Service) HandleRequestVerification(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	email := strings.TrimSpace(r.FormValue("email"))
-	postal := strings.TrimSpace(r.FormValue("postal_code"))
 	if email == "" {
 		if u, ok := s.SessionUser(r); ok {
 			email = u.Email
-			if postal == "" {
-				postal = u.PostalCode
-			}
 		}
 	}
 	if email == "" {
@@ -37,7 +33,7 @@ func (s *Service) HandleRequestVerification(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
-	_, code, err := s.store.CreateEmailVerification(email, postal, 30*time.Minute)
+	_, code, err := s.store.CreateEmailVerification(email, 30*time.Minute)
 	if err == nil && s.emailer != nil {
 		verifyURL := s.baseURL + "/auth/verify"
 		if sendErr := s.emailer.SendVerificationEmail(r.Context(), email, verifyURL, code); sendErr != nil {

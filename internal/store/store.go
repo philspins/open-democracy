@@ -627,7 +627,6 @@ func scanUserRow(scanner interface{ Scan(...interface{}) error }) (UserRow, erro
 		&u.Email,
 		&u.EmailVerified,
 		&u.Address,
-		&u.PostalCode,
 		&u.FederalRidingID,
 		&u.ProvincialRidingID,
 		&u.CreatedAt,
@@ -641,26 +640,24 @@ func scanUserRow(scanner interface{ Scan(...interface{}) error }) (UserRow, erro
 
 func (s *Store) getUserByID(id string) (UserRow, error) {
 	return scanUserRow(s.db.QueryRow(`
-		SELECT id, COALESCE(email,''), COALESCE(email_verified,0), COALESCE(address,''), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
+		SELECT id, COALESCE(email,''), COALESCE(email_verified,0), COALESCE(address,''), COALESCE(federal_riding_id,''),
 		       COALESCE(provincial_riding_id,''), COALESCE(created_at,''), COALESCE(email_digest,'weekly')
 		FROM users WHERE id = ?`, id))
 }
 
-func (s *Store) UpsertUser(email, postalCode string) (UserRow, error) {
+func (s *Store) UpsertUser(email string) (UserRow, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
 		return UserRow{}, fmt.Errorf("email required")
 	}
 	id := userIDFromEmail(email)
-	postalCode = strings.TrimSpace(postalCode)
 
 	_, err := s.db.Exec(`
-		INSERT INTO users (id, email, postal_code)
-		VALUES (?, ?, ?)
+		INSERT INTO users (id, email)
+		VALUES (?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-			email = excluded.email,
-			postal_code = CASE WHEN excluded.postal_code != '' THEN excluded.postal_code ELSE users.postal_code END`,
-		id, email, postalCode)
+			email = excluded.email`,
+		id, email)
 	if err != nil {
 		return UserRow{}, err
 	}
@@ -726,8 +723,8 @@ func (s *Store) UpdateUserLocation(userID, address, federalRidingID, provincialR
 	return s.getUserByID(userID)
 }
 
-func (s *Store) CreateEmailVerification(email, postalCode string, ttl time.Duration) (token string, code string, err error) {
-	u, err := s.UpsertUser(email, postalCode)
+func (s *Store) CreateEmailVerification(email string, ttl time.Duration) (token string, code string, err error) {
+	u, err := s.UpsertUser(email)
 	if err != nil {
 		return "", "", err
 	}
@@ -900,8 +897,8 @@ func (s *Store) GetUserBySession(sessionID string) (UserRow, error) {
 	return s.getUserByID(userID)
 }
 
-func (s *Store) AuthenticateOAuth(provider, providerUserID, email, postalCode string, markEmailVerified bool) (UserRow, error) {
-	u, err := s.UpsertUser(email, postalCode)
+func (s *Store) AuthenticateOAuth(provider, providerUserID, email string, markEmailVerified bool) (UserRow, error) {
+	u, err := s.UpsertUser(email)
 	if err != nil {
 		return UserRow{}, err
 	}
@@ -923,8 +920,8 @@ func (s *Store) AuthenticateOAuth(provider, providerUserID, email, postalCode st
 	return s.GetUserByEmail(email)
 }
 
-func (s *Store) FollowMember(email, postalCode, memberID string) error {
-	u, err := s.UpsertUser(email, postalCode)
+func (s *Store) FollowMember(email, memberID string) error {
+	u, err := s.UpsertUser(email)
 	if err != nil {
 		return err
 	}
@@ -935,12 +932,12 @@ func (s *Store) FollowMember(email, postalCode, memberID string) error {
 	return err
 }
 
-func (s *Store) ReactToBill(email, postalCode, billID, reaction, note string) error {
+func (s *Store) ReactToBill(email, billID, reaction, note string) error {
 	reaction = strings.ToLower(strings.TrimSpace(reaction))
 	if reaction != "support" && reaction != "oppose" && reaction != "neutral" {
 		return fmt.Errorf("invalid reaction")
 	}
-	u, err := s.UpsertUser(email, postalCode)
+	u, err := s.UpsertUser(email)
 	if err != nil {
 		return err
 	}
@@ -999,8 +996,8 @@ func (s *Store) GetBillReactionCounts(billID string) (BillReactionCounts, error)
 	return c, err
 }
 
-func (s *Store) LogPolicySubmission(email, postalCode, memberID, subject, body, category string) error {
-	u, err := s.UpsertUser(email, postalCode)
+func (s *Store) LogPolicySubmission(email, memberID, subject, body, category string) error {
+	u, err := s.UpsertUser(email)
 	if err != nil {
 		return err
 	}

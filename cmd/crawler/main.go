@@ -21,7 +21,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"database/sql"
 	"flag"
@@ -42,7 +41,7 @@ import (
 )
 
 func main() {
-	if err := loadDotEnv(".env"); err != nil {
+	if err := utils.LoadDotEnv(".env"); err != nil {
 		log.Printf("warning: could not load .env: %v", err)
 	}
 
@@ -178,48 +177,6 @@ func defaultParallelism() int {
 		}
 	}
 	return 5
-}
-
-// loadDotEnv reads KEY=VALUE pairs from a .env-style file if present.
-// Existing process environment variables are not overwritten.
-func loadDotEnv(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, val, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-		val = strings.TrimSpace(val)
-		if len(val) >= 2 {
-			if (val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'') {
-				val = val[1 : len(val)-1]
-			}
-		}
-		if _, exists := os.LookupEnv(key); exists {
-			continue
-		}
-		if err := os.Setenv(key, val); err != nil {
-			return err
-		}
-	}
-	return scanner.Err()
 }
 
 // runParallel runs each function in fns in its own goroutine, allowing at most

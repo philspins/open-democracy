@@ -65,7 +65,7 @@ func TestHandleLoginPage_RendersLoginVariant(t *testing.T) {
 
 func TestHandleSignupPage_AuthenticatedUserRedirectsHome(t *testing.T) {
 	svc, st := newTestService(t)
-	u, err := st.UpsertUser("signed-in-signup@example.com", "")
+	u, err := st.UpsertUser("signed-in-signup@example.com")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestHandleSignupPage_AuthenticatedUserRedirectsHome(t *testing.T) {
 
 func TestHandleLoginPage_AuthenticatedUserRedirectsHome(t *testing.T) {
 	svc, st := newTestService(t)
-	u, err := st.UpsertUser("signed-in-login@example.com", "")
+	u, err := st.UpsertUser("signed-in-login@example.com")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestHandleGoogleLogin_SetsStateCookieAndRedirect(t *testing.T) {
 
 func TestHandleLogout_DeletesSessionAndClearsCookie(t *testing.T) {
 	svc, st := newTestService(t)
-	u, err := st.UpsertUser("logout@example.com", "")
+	u, err := st.UpsertUser("logout@example.com")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestHandleLogout_DeletesSessionAndClearsCookie(t *testing.T) {
 func TestHandleVerifyEmail_ByCode_SetsSession(t *testing.T) {
 	svc, st := newTestService(t)
 	email := "verify-code-auth@example.com"
-	_, code, err := st.CreateEmailVerification(email, "", time.Hour)
+	_, code, err := st.CreateEmailVerification(email, time.Hour)
 	if err != nil {
 		t.Fatalf("CreateEmailVerification: %v", err)
 	}

@@ -317,14 +317,14 @@ func MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []st
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\"> <input type=\"email\" name=\"email\" class=\"input-field\" placeholder=\"Your email\" required> <input type=\"text\" name=\"postal_code\" class=\"input-field\" placeholder=\"Postal code (optional)\"> <button type=\"submit\" class=\"btn btn-primary\">Follow ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\"> <input type=\"email\" name=\"email\" class=\"input-field\" placeholder=\"Your email\" required> <button type=\"submit\" class=\"btn btn-primary\">Follow ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var21 string
 			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(member.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 72, Col: 71}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 71, Col: 71}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 			if templ_7745c5c3_Err != nil {
@@ -337,13 +337,13 @@ func MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []st
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(member.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 76, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 75, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "\"> <input type=\"email\" name=\"email\" class=\"input-field\" placeholder=\"Your email\" required> <input type=\"text\" name=\"postal_code\" class=\"input-field\" placeholder=\"Postal code (optional)\"> <input type=\"text\" name=\"category\" class=\"input-field\" placeholder=\"Category (e.g. Housing)\"> <input type=\"text\" name=\"subject\" class=\"input-field sm:col-span-2\" placeholder=\"Policy idea subject\"> <textarea name=\"body\" class=\"input-field sm:col-span-2\" rows=\"5\" placeholder=\"Describe your policy idea\"></textarea> <button type=\"submit\" class=\"btn btn-secondary sm:col-span-2\">Log Policy Submission</button></form></section><!-- Vote history --><section><h2 class=\"text-lg font-semibold text-gray-800 mb-3\">Recent Votes</h2><div class=\"overflow-x-auto bg-white rounded-lg border border-gray-200\"><table class=\"min-w-full text-sm\"><thead><tr class=\"bg-gray-50 text-left text-xs text-gray-500 border-b\"><th class=\"px-4 py-2\">Date</th><th class=\"px-4 py-2\">Vote</th><th class=\"px-4 py-2\">Bill</th><th class=\"px-4 py-2\">Description</th><th class=\"px-4 py-2\">Result</th><th class=\"px-4 py-2\">Party</th></tr></thead> <tbody class=\"divide-y divide-gray-100\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "\"> <input type=\"email\" name=\"email\" class=\"input-field\" placeholder=\"Your email\" required> <input type=\"text\" name=\"category\" class=\"input-field\" placeholder=\"Category (e.g. Housing)\"> <input type=\"text\" name=\"subject\" class=\"input-field sm:col-span-2\" placeholder=\"Policy idea subject\"> <textarea name=\"body\" class=\"input-field sm:col-span-2\" rows=\"5\" placeholder=\"Describe your policy idea\"></textarea> <button type=\"submit\" class=\"btn btn-secondary sm:col-span-2\">Log Policy Submission</button></form></section><!-- Vote history --><section><h2 class=\"text-lg font-semibold text-gray-800 mb-3\">Recent Votes</h2><div class=\"overflow-x-auto bg-white rounded-lg border border-gray-200\"><table class=\"min-w-full text-sm\"><thead><tr class=\"bg-gray-50 text-left text-xs text-gray-500 border-b\"><th class=\"px-4 py-2\">Date</th><th class=\"px-4 py-2\">Vote</th><th class=\"px-4 py-2\">Bill</th><th class=\"px-4 py-2\">Description</th><th class=\"px-4 py-2\">Result</th><th class=\"px-4 py-2\">Party</th></tr></thead> <tbody class=\"divide-y divide-gray-100\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -355,7 +355,7 @@ func MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []st
 				var templ_7745c5c3_Var23 string
 				templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(FormatDate(v.Date))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 104, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 102, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 				if templ_7745c5c3_Err != nil {
@@ -390,7 +390,7 @@ func MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []st
 				var templ_7745c5c3_Var26 string
 				templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(v.Vote)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 105, Col: 67}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 103, Col: 67}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 				if templ_7745c5c3_Err != nil {
@@ -408,7 +408,7 @@ func MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []st
 					var templ_7745c5c3_Var27 templ.SafeURL
 					templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/bills/" + v.BillID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 108, Col: 56}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 106, Col: 56}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 					if templ_7745c5c3_Err != nil {
@@ -421,7 +421,7 @@ func MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []st
 					var templ_7745c5c3_Var28 string
 					templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(v.BillNumber)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 108, Col: 121}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 106, Col: 121}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 					if templ_7745c5c3_Err != nil {
@@ -439,7 +439,7 @@ func MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []st
 				var templ_7745c5c3_Var29 string
 				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(v.Description)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 111, Col: 78}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 109, Col: 78}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 				if templ_7745c5c3_Err != nil {
@@ -452,7 +452,7 @@ func MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []st
 				var templ_7745c5c3_Var30 string
 				templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(v.Result)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 112, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/member_profile.templ`, Line: 110, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 				if templ_7745c5c3_Err != nil {

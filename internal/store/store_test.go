@@ -266,7 +266,7 @@ func TestUpsertUserAndFollowMember(t *testing.T) {
 		t.Fatalf("insert member: %v", err)
 	}
 
-	u, err := st.UpsertUser("person@example.com", "K1A0B1")
+	u, err := st.UpsertUser("person@example.com")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestUpsertUserAndFollowMember(t *testing.T) {
 		t.Fatalf("unexpected user: %+v", u)
 	}
 
-	if err := st.FollowMember("person@example.com", "K1A0B1", "m1"); err != nil {
+	if err := st.FollowMember("person@example.com", "m1"); err != nil {
 		t.Fatalf("FollowMember: %v", err)
 	}
 
@@ -297,13 +297,13 @@ func TestReactToBillAndCounts(t *testing.T) {
 		t.Fatalf("insert bill: %v", err)
 	}
 
-	if err := st.ReactToBill("a@example.com", "", "b1", "support", "Looks good"); err != nil {
+	if err := st.ReactToBill("a@example.com", "b1", "support", "Looks good"); err != nil {
 		t.Fatalf("ReactToBill support: %v", err)
 	}
-	if err := st.ReactToBill("b@example.com", "", "b1", "oppose", "Concerned"); err != nil {
+	if err := st.ReactToBill("b@example.com", "b1", "oppose", "Concerned"); err != nil {
 		t.Fatalf("ReactToBill oppose: %v", err)
 	}
-	if err := st.ReactToBill("a@example.com", "", "b1", "neutral", "Updating vote"); err != nil {
+	if err := st.ReactToBill("a@example.com", "b1", "neutral", "Updating vote"); err != nil {
 		t.Fatalf("ReactToBill update: %v", err)
 	}
 
@@ -325,7 +325,7 @@ func TestLogPolicySubmission(t *testing.T) {
 		t.Fatalf("insert member: %v", err)
 	}
 
-	err = st.LogPolicySubmission("person@example.com", "K1A0B1", "m1", "Housing support", "Please support this bill", "Housing")
+	err = st.LogPolicySubmission("person@example.com", "m1", "Housing support", "Please support this bill", "Housing")
 	if err != nil {
 		t.Fatalf("LogPolicySubmission: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestEmailVerificationFlow(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)
 
-	token, _, err := st.CreateEmailVerification("verify@example.com", "K1A0B1", time.Hour)
+	token, _, err := st.CreateEmailVerification("verify@example.com", time.Hour)
 	if err != nil {
 		t.Fatalf("CreateEmailVerification: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestEmailVerificationByCode(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)
 
-	_, code, err := st.CreateEmailVerification("code@example.com", "", time.Hour)
+	_, code, err := st.CreateEmailVerification("code@example.com", time.Hour)
 	if err != nil {
 		t.Fatalf("CreateEmailVerification: %v", err)
 	}
@@ -411,10 +411,10 @@ func TestEmailVerificationCooldown(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)
 
-	if _, _, err := st.CreateEmailVerification("cooldown@example.com", "", time.Hour); err != nil {
+	if _, _, err := st.CreateEmailVerification("cooldown@example.com", time.Hour); err != nil {
 		t.Fatalf("first CreateEmailVerification: %v", err)
 	}
-	if _, _, err := st.CreateEmailVerification("cooldown@example.com", "", time.Hour); err == nil {
+	if _, _, err := st.CreateEmailVerification("cooldown@example.com", time.Hour); err == nil {
 		t.Fatalf("expected cooldown error on rapid second verification request")
 	}
 }
@@ -423,7 +423,7 @@ func TestSessionLifecycle(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)
 
-	u, err := st.UpsertUser("session@example.com", "")
+	u, err := st.UpsertUser("session@example.com")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
@@ -464,7 +464,7 @@ func TestAuthenticateOAuthMarksVerified(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)
 
-	u, err := st.AuthenticateOAuth("google", "provider-123", "oauth@example.com", "", true)
+	u, err := st.AuthenticateOAuth("google", "provider-123", "oauth@example.com", true)
 	if err != nil {
 		t.Fatalf("AuthenticateOAuth: %v", err)
 	}
@@ -473,7 +473,7 @@ func TestAuthenticateOAuthMarksVerified(t *testing.T) {
 	}
 
 	// Re-auth on same provider identity should remain idempotent.
-	u2, err := st.AuthenticateOAuth("google", "provider-123", "oauth@example.com", "", true)
+	u2, err := st.AuthenticateOAuth("google", "provider-123", "oauth@example.com", true)
 	if err != nil {
 		t.Fatalf("AuthenticateOAuth repeat: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestUpdateUserLocationPersistsAddressAndRidings(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)
 
-	u, err := st.UpsertUser("profile@example.com", "")
+	u, err := st.UpsertUser("profile@example.com")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}

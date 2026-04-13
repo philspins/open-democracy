@@ -57,7 +57,7 @@ func (s *Service) HandleFacebookCallback(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "invalid userinfo (facebook email may be unavailable)", http.StatusBadGateway)
 		return
 	}
-	u, err := s.store.AuthenticateOAuth("facebook", uinfo.ID, uinfo.Email, "", false)
+	u, err := s.store.AuthenticateOAuth("facebook", uinfo.ID, uinfo.Email, false)
 	if err != nil {
 		http.Error(w, "failed oauth login", http.StatusInternalServerError)
 		return

@@ -63,7 +63,7 @@ func TestHandleVerifyEmail_ByCode_SetsSessionAndVerifies(t *testing.T) {
 	srv, st := newTestServer(t)
 
 	email := "verify-code@example.com"
-	_, code, err := st.CreateEmailVerification(email, "", time.Hour)
+	_, code, err := st.CreateEmailVerification(email, time.Hour)
 	if err != nil {
 		t.Fatalf("CreateEmailVerification: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestHandleVerifyEmail_ByToken_SetsSessionAndVerifies(t *testing.T) {
 	srv, st := newTestServer(t)
 
 	email := "verify-token@example.com"
-	token, _, err := st.CreateEmailVerification(email, "", time.Hour)
+	token, _, err := st.CreateEmailVerification(email, time.Hour)
 	if err != nil {
 		t.Fatalf("CreateEmailVerification: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestDeleteDataCallback_RejectsInvalidRequest(t *testing.T) {
 
 func TestHandleRiding_PersistsLookupForSessionUser(t *testing.T) {
 	srv, st := newTestServer(t)
-	u, err := st.UpsertUser("lookup@example.com", "")
+	u, err := st.UpsertUser("lookup@example.com")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestHandleRiding_PersistsLookupForSessionUser(t *testing.T) {
 
 func TestHandleProfile_PostSavesAddress(t *testing.T) {
 	srv, st := newTestServer(t)
-	u, err := st.UpsertUser("profile-save@example.com", "")
+	u, err := st.UpsertUser("profile-save@example.com")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestHandleProfile_PostSavesAddress(t *testing.T) {
 
 func TestHandleHome_UsesSavedRepresentativesAndHidesLookupHero(t *testing.T) {
 	srv, st := newTestServer(t)
-	u, err := st.UpsertUser("home@example.com", "")
+	u, err := st.UpsertUser("home@example.com")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}

@@ -128,7 +128,6 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 				<form method="POST" action="/api/react" class="grid sm:grid-cols-2 gap-3 pt-2 border-t border-gray-100">
 					<input type="hidden" name="bill_id" value={ bill.ID }/>
 					<input type="email" name="email" class="input-field" placeholder="Your email" required/>
-					<input type="text" name="postal_code" class="input-field" placeholder="Postal code (optional)"/>
 					<select name="reaction" class="input-field" required>
 						<option value="support">Support</option>
 						<option value="oppose">Oppose</option>
