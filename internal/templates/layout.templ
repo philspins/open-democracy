@@ -402,6 +402,42 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					gap: 0.8rem;
 				}
 
+				/* Two-column representative grid — defined here so it works without Tailwind CDN */
+				.rep-grid {
+					display: grid;
+					grid-template-columns: 1fr 1fr;
+					gap: 0;
+					border-radius: 1rem;
+					overflow: hidden;
+					border: 1px solid var(--line);
+					box-shadow: 0 4px 16px rgba(16, 24, 40, 0.1);
+					background: rgba(255, 255, 255, 0.85);
+				}
+
+				.rep-grid > div:first-child {
+					border-right: 1px solid var(--line);
+				}
+
+				html.dark .rep-grid {
+					background: var(--paper-strong);
+					box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+				}
+
+				html.dark .rep-grid > div:first-child {
+					border-right-color: var(--line);
+				}
+
+				@media (max-width: 768px) {
+					.rep-grid {
+						grid-template-columns: 1fr;
+					}
+
+					.rep-grid > div:first-child {
+						border-right: none;
+						border-bottom: 1px solid var(--line);
+					}
+				}
+
 				.metric-card {
 					padding: 0.95rem;
 					border-radius: 8px;
