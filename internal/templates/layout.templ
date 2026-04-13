@@ -484,6 +484,19 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					border-top-color: var(--line);
 				}
 
+				/* Dark mode overrides for Tailwind color utilities used across templates */
+				html.dark .text-gray-900 { color: var(--ink-900); }
+				html.dark .text-gray-800 { color: var(--ink-700); }
+				html.dark .text-gray-700 { color: var(--ink-700); }
+				html.dark .text-gray-600 { color: var(--ink-500); }
+				html.dark .text-gray-500 { color: var(--ink-500); }
+				html.dark .text-blue-700 { color: var(--focus); }
+				html.dark .border-gray-100 { border-color: var(--line); }
+				html.dark .border-gray-200 { border-color: var(--line); }
+				html.dark .divide-gray-100 > * + * { border-color: var(--line); }
+				html.dark .divide-gray-200 > * + * { border-color: var(--line); }
+				html.dark .text-blue-700:hover { color: var(--accent); }
+
 				@keyframes rise-in {
 					from {
 						opacity: 0.98;
