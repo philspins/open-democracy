@@ -26,3 +26,4 @@ vendor/
 /open-democracy-server
 /open-democracy-crawler.exe
 /open-democracy-server.exe
+*.pem
