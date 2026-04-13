@@ -24,6 +24,11 @@ type Service struct {
 	emailer     verificationEmailSender
 	rateLimiter *simpleRateLimiter
 	httpClient  *http.Client
+	// trustProxy enables reading client IP from X-Forwarded-For / X-Real-IP.
+	// Only set this when the service is guaranteed to sit behind a trusted
+	// reverse proxy that strips and re-sets those headers — otherwise clients
+	// can spoof their IP to bypass rate limits. Controlled by TRUST_PROXY=true.
+	trustProxy bool
 }
 
 type verificationEmailSender interface {
@@ -82,7 +87,8 @@ func New(st *store.Store, baseURL string) *Service {
 		baseURL:     baseURL,
 		emailer:     emailer,
 		rateLimiter: newSimpleRateLimiter(),
-		httpClient:  http.DefaultClient,
+		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		trustProxy:  strings.ToLower(strings.TrimSpace(os.Getenv("TRUST_PROXY"))) == "true",
 	}
 }
 
@@ -109,15 +115,24 @@ func (s *Service) SetHTTPClient(client *http.Client) {
 	}
 }
 
+// SetTrustProxy enables or disables forwarded-header IP extraction.
+// Enable only when the server is guaranteed to run behind a trusted reverse
+// proxy that strips and re-sets X-Forwarded-For / X-Real-IP.
+func (s *Service) SetTrustProxy(trust bool) {
+	s.trustProxy = trust
+}
+
 func (s *Service) clientIP(r *http.Request) string {
-	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+	if s.trustProxy {
+		if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+			parts := strings.Split(xff, ",")
+			if len(parts) > 0 {
+				return strings.TrimSpace(parts[0])
+			}
 		}
-	}
-	if xrip := strings.TrimSpace(r.Header.Get("X-Real-IP")); xrip != "" {
-		return xrip
+		if xrip := strings.TrimSpace(r.Header.Get("X-Real-IP")); xrip != "" {
+			return xrip
+		}
 	}
 	hostPort := strings.TrimSpace(r.RemoteAddr)
 	if i := strings.LastIndex(hostPort, ":"); i > 0 {

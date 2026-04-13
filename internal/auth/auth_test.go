@@ -126,6 +126,62 @@ func newTestService(t *testing.T) (*Service, *store.Store) {
 	return svc, st
 }
 
+func TestClientIP_TrustProxyFalse_IgnoresForwardedHeaders(t *testing.T) {
+	svc, _ := newTestService(t)
+	// trustProxy defaults to false; forwarded headers must be ignored.
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "203.0.113.5:12345"
+	req.Header.Set("X-Forwarded-For", "1.2.3.4")
+	req.Header.Set("X-Real-IP", "5.6.7.8")
+
+	got := svc.clientIP(req)
+	if got != "203.0.113.5" {
+		t.Errorf("clientIP with trustProxy=false: got %q, want %q (203.0.113.5)", got, "203.0.113.5")
+	}
+}
+
+func TestClientIP_TrustProxyTrue_ReadsXForwardedFor(t *testing.T) {
+	svc, _ := newTestService(t)
+	svc.SetTrustProxy(true)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:9000" // internal proxy IP
+	req.Header.Set("X-Forwarded-For", "1.2.3.4, 10.0.0.1")
+
+	got := svc.clientIP(req)
+	if got != "1.2.3.4" {
+		t.Errorf("clientIP with trustProxy=true: got %q, want %q (1.2.3.4)", got, "1.2.3.4")
+	}
+}
+
+func TestClientIP_TrustProxyTrue_FallsBackToXRealIP(t *testing.T) {
+	svc, _ := newTestService(t)
+	svc.SetTrustProxy(true)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:9000"
+	req.Header.Set("X-Real-IP", "9.8.7.6")
+
+	got := svc.clientIP(req)
+	if got != "9.8.7.6" {
+		t.Errorf("clientIP with X-Real-IP: got %q, want %q (9.8.7.6)", got, "9.8.7.6")
+	}
+}
+
+func TestClientIP_TrustProxyTrue_FallsBackToRemoteAddr(t *testing.T) {
+	svc, _ := newTestService(t)
+	svc.SetTrustProxy(true)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "192.0.2.99:54321"
+
+	got := svc.clientIP(req)
+	if got != "192.0.2.99" {
+		t.Errorf("clientIP fallback to RemoteAddr: got %q, want %q (192.0.2.99)", got, "192.0.2.99")
+	}
+}
+
 func TestHandleGoogleLogin_SetsStateCookieAndRedirect(t *testing.T) {
 	svc, _ := newTestService(t)
 	t.Setenv("GOOGLE_CLIENT_ID", "google-client")
