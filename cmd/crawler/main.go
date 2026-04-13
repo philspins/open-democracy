@@ -94,42 +94,31 @@ func main() {
 	// ── One-shot mode ────────────────────────────────────────────────────────
 	shouldRunAll := !(*billsFlag || *votesFlag || *senateFlag || *membersFlag || *calendarFlag)
 
-	// Build the set of crawl tasks the user selected (or all if none specified).
-	type task struct {
-		name string
-		fn   func() error
-	}
-	var tasks []task
-	var summaryRequests chan summarizer.BillSummaryRequest
-	type summaryRunResult struct {
-		processed int
-		err       error
-	}
-	var summaryResultCh chan summaryRunResult
-
+	// Run LoP batch download before the crawl to pre-populate summaries for
+	// bills already in the database.  New bills discovered during crawlBills
+	// will have their LoP summary scraped inline, so the AI step that follows
+	// will correctly skip any bill that already has a LoP summary.
 	if *billsFlag || shouldRunAll {
-		// Run LoP download first so shouldSummarizeBill correctly skips bills
-		// with a Library of Parliament summary before the AI worker processes them.
 		ctx := context.Background()
 		if n, err := summarizer.DownloadLoPSummaries(ctx, conn, nil); err != nil {
 			log.Printf("[main] lop summary job error: %v", err)
 		} else {
 			log.Printf("[main] lop summaries updated: %d", n)
 		}
-
-		summaryRequests = make(chan summarizer.BillSummaryRequest, 32)
-		summaryResultCh = make(chan summaryRunResult, 1)
-		go func() {
-			n, err := summarizer.SummarizeBillsFromChannel(context.Background(), conn, summaryRequests)
-			summaryResultCh <- summaryRunResult{processed: n, err: err}
-		}()
 	}
+
+	// Build the set of crawl tasks the user selected (or all if none specified).
+	type task struct {
+		name string
+		fn   func() error
+	}
+	var tasks []task
 
 	if *calendarFlag || shouldRunAll {
 		tasks = append(tasks, task{"calendar", func() error { return crawlCalendar(conn, client, delay, "") }})
 	}
 	if *billsFlag || shouldRunAll {
-		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "", summaryRequests) }})
+		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "", nil) }})
 	}
 	if *membersFlag || shouldRunAll {
 		tasks = append(tasks, task{"members", func() error { return crawlMembers(conn, client, delay, "", "") }})
@@ -152,13 +141,17 @@ func main() {
 	}
 
 	runParallel(*parallelism, fns)
-	if summaryRequests != nil {
-		close(summaryRequests)
-		res := <-summaryResultCh
-		if res.err != nil {
-			log.Printf("[main] ai summarization channel error: %v", res.err)
+
+	// Run AI summarization after all crawlers have finished (including the
+	// inline per-bill LoP scraping inside crawlBills).  This guarantees that
+	// shouldSummarizeBill sees up-to-date LoP data and avoids wasting API
+	// calls on bills that already have a Library of Parliament summary.
+	if *billsFlag || shouldRunAll {
+		ctx := context.Background()
+		if n, err := summarizer.SummarizeNewBills(ctx, conn, true); err != nil {
+			log.Printf("[main] ai summarization error: %v", err)
 		} else {
-			log.Printf("[main] ai summaries generated: %d", res.processed)
+			log.Printf("[main] ai summaries generated: %d", n)
 		}
 	}
 
