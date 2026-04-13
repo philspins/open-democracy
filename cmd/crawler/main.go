@@ -293,6 +293,7 @@ func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration, rssURL s
 			Session:          sess,
 			Number:           utils.BillNumberFromID(stub.ID),
 			Title:            stub.Title,
+			Chamber:          utils.BillChamber(utils.BillNumberFromID(stub.ID)),
 			LegisInfoURL:     stub.LegisInfoURL,
 			LastActivityDate: stub.LastActivityDate,
 			CurrentStage:     detail.CurrentStage,

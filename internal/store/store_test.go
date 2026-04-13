@@ -62,6 +62,41 @@ func TestListBills_Filter(t *testing.T) {
 	}
 }
 
+func TestListBills_ChamberFilter(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, err := conn.Exec(`INSERT INTO bills (id, parliament, session, number, title, category, current_stage, chamber)
+		VALUES ('b1', 45, 1, 'C-1', 'Commons Bill', 'Housing', '1st_reading', 'commons'),
+		       ('b2', 45, 1, 'S-1', 'Senate Bill', 'Health', '1st_reading', 'senate')`)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	bills, total, err := st.ListBills(store.BillFilter{Chamber: "commons", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListBills: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("want total=1 for commons filter, got %d", total)
+	}
+	if len(bills) != 1 || bills[0].ID != "b1" {
+		t.Errorf("wrong bill returned for commons filter: %+v", bills)
+	}
+
+	bills, total, err = st.ListBills(store.BillFilter{Chamber: "senate", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListBills senate: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("want total=1 for senate filter, got %d", total)
+	}
+	if len(bills) != 1 || bills[0].ID != "b2" {
+		t.Errorf("wrong bill returned for senate filter: %+v", bills)
+	}
+}
+
+
 func TestGetBill_NotFound(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)

@@ -122,7 +122,7 @@ Provide your response as valid JSON only (no markdown or extra text):
   "who_is_affected": ["List of groups, industries, or people most affected"],
   "notable_considerations": ["List of 0–5 potential caveats, non-obvious trade-offs, or implementation considerations in neutral language"],
   "estimated_cost": "Fiscal impact if mentioned in the bill, or 'Not specified'",
-  "category": "One of: Housing, Health, Environment, Defence, Indigenous, Finance, Justice, Agriculture, Transport, Labour, Education, Foreign Affairs, Digital/Tech, Other"
+  "category": "One of: Budget, Criminal Justice, Environment, Health, Housing, Immigration, Indigenous, Infrastructure, Justice, Labour, National Security, Social Policy, Trade, Veterans"
 }`
 
 // SummaryResult holds the structured fields returned by Claude.
