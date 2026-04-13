@@ -1,0 +1,99 @@
+%%{init: {'theme': 'base', 'flowchart': {'curve': 'stepAfter', 'nodeSpacing': 96, 'rankSpacing': 168}, 'themeVariables': { 'background': '#3B4252', 'lineColor': '#E5E9F0', 'primaryTextColor': '#ECEFF4' }, 'themeCSS': '.edgePath .path{stroke-width:2.8px !important;stroke-linecap:round !important;stroke-linejoin:round !important;filter:drop-shadow(0 0 2px #2E3440);} .edgeLabel rect{fill:#2E3440 !important;opacity:0.98 !important;} .edgeLabel p{background-color:#2E3440 !important;color:#ECEFF4 !important;} .edgeLabel span{color:#ECEFF4 !important;} .labelBkg{background-color:transparent !important;} .cluster rect{stroke-width:1.1px !important;stroke-opacity:0.72 !important;}' }}%%
+flowchart LR
+    classDef entry        fill:#5E81AC,stroke:#88C0D0,color:#ECEFF4,font-weight:bold
+    classDef webLayer     fill:#3B4252,stroke:#88C0D0,color:#D8DEE9
+    classDef crawlerLayer fill:#3B4252,stroke:#A3BE8C,color:#D8DEE9
+    classDef infra        fill:#3B4252,stroke:#EBCB8B,color:#D8DEE9
+    classDef datastore    fill:#2E3440,stroke:#BF616A,color:#ECEFF4,font-weight:bold
+    classDef external     fill:#2E3440,stroke:#81A1C1,color:#D8DEE9,stroke-dasharray:5 3
+
+    subgraph CMDS["Entry Points"]
+        SERVER["cmd/server/main.go\nHTTP entrypoint\ndb.Open → store.New → server.New"]
+        CRAWLER["cmd/crawler/main.go\nCrawler CLI entrypoint\n--schedule / --bills / --votes / --members"]
+    end
+
+    subgraph WEB["Web Runtime (internal/)"]
+        direction TB
+        SRV["server/{server.go,user_pages.go}\nRoute handling + security headers"]
+        AUTH["auth/{auth.go,oauth.go,google.go,facebook.go,verify.go,session.go}\nOAuth, verification, session + rate-limit"]
+        RIDING["riding/riding.go\nAddress lookup + representative context"]
+        TMPL["templates/*.templ + *_templ.go\nPage rendering layer"]
+    end
+
+    subgraph CRAWL["Crawler Pipeline (internal/)"]
+        direction TB
+        SCHED["scheduler/scheduler.go\n02:00 full crawl\n04:00 LoP\n05:00 AI summary\n4h vote check"]
+        SCRAPER["scraper/{bills.go,members.go,votes.go,senate.go}\nGovernment data ingestion"]
+        SUMM["summarizer/{lop_scraper.go,pipeline.go}\nLoP + AI summarization"]
+    end
+
+    subgraph SHARED["Shared Libraries (internal/)"]
+        direction TB
+        STORE["store/{store.go,models.go}\nRead/query API over database"]
+        ON["opennorth/client.go\nRepresent API + geocoding adapter"]
+        UTILS["utils/{utils.go,env.go}\nHTTP client + parsers + env loading"]
+        DBPKG["db/db.go\nSQLite open + schema migrations + upserts"]
+    end
+
+    subgraph DATA["Data Store"]
+        SQLITE[("open-democracy.db\nmembers · bills · divisions\nmember_votes · users · sessions\nfollows · reactions · email_verifications")]
+    end
+
+    subgraph EXT["External Data Sources / APIs"]
+        direction TB
+        IDP["Identity APIs\nGoogle OAuth + userinfo\nFacebook OAuth + Graph"]
+        MAIL["AWS SES v2\nVerification emails"]
+        GEO["Geospatial APIs\nGoogle Maps + Places\nOpenNorth Represent"]
+        AI["Anthropic Claude API\nBill summarization"]
+        PARL["Parliament data\nLEGISinfo RSS + bill pages\nourcommons MP/votes\nSenate votes\nLibrary of Parliament"]
+    end
+
+    style CMDS fill:#4C566A,stroke:#88C0D0,stroke-width:1.35px,color:#ECEFF4
+    style WEB fill:#4C566A,stroke:#88C0D0,stroke-width:1.35px,color:#ECEFF4
+    style CRAWL fill:#4C566A,stroke:#A3BE8C,stroke-width:1.35px,color:#ECEFF4
+    style SHARED fill:#4C566A,stroke:#EBCB8B,stroke-width:1.35px,color:#ECEFF4
+    style DATA fill:#4C566A,stroke:#BF616A,stroke-width:1.35px,color:#ECEFF4
+    style EXT fill:#4C566A,stroke:#81A1C1,stroke-width:1.35px,color:#ECEFF4
+
+    SERVER -->|"db.Open"| DBPKG
+    SERVER -->|"store.New"| STORE
+    SERVER -->|"server.New"| SRV
+
+    CRAWLER -->|"db.Open"| DBPKG
+    CRAWLER -->|"scheduler.Start"| SCHED
+    CRAWLER -->|"crawl* orchestration"| SCRAPER
+    CRAWLER -->|"summary pipeline"| SUMM
+
+    SRV -->|"query bills/votes/members"| STORE
+    SRV -->|"auth service"| AUTH
+    SRV -->|"riding service"| RIDING
+    SRV -->|"render views"| TMPL
+
+    AUTH -->|"session, users, follows"| STORE
+    AUTH -->|"http client"| UTILS
+    AUTH -->|"oauth + userinfo"| IDP
+    AUTH -->|"verification email"| MAIL
+
+    RIDING -->|"parliament + member queries"| STORE
+    RIDING -->|"geocode + representatives"| ON
+    RIDING -->|"render riding pages"| TMPL
+
+    SCHED -->|"nightly + frequent jobs"| SCRAPER
+    SCHED -->|"LoP + AI tasks"| SUMM
+    SCRAPER -->|"http + parsing helpers"| UTILS
+    SUMM -->|"reuse scraper LoP logic"| SCRAPER
+    SUMM -->|"http client"| UTILS
+
+    SCRAPER -->|"crawl source pages/feeds"| PARL
+    SUMM -->|"AI summaries"| AI
+    ON -->|"represent + maps"| GEO
+
+    DBPKG -->|"migrate/upsert"| SQLITE
+    STORE -->|"select queries"| SQLITE
+
+    class SERVER,CRAWLER entry
+    class SRV,AUTH,RIDING,TMPL webLayer
+    class SCHED,SCRAPER,SUMM crawlerLayer
+    class DBPKG,STORE,UTILS,ON infra
+    class SQLITE datastore
+    class PARL,IDP,GEO,AI,MAIL external
