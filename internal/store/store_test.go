@@ -96,7 +96,6 @@ func TestListBills_ChamberFilter(t *testing.T) {
 	}
 }
 
-
 func TestGetBill_NotFound(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)

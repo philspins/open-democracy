@@ -372,7 +372,7 @@ templ Layout(title string, ps store.ParliamentStatus) {
 						</div>
 					</div>
 					<div class="nav-actions">
-						<form method="GET" action="/riding" class="search-form">
+						<form id="nav-search-form" method="GET" action="/riding" class="search-form">
 							<input type="text" id="nav-address-input" name="address" placeholder="Enter your address"
 								class="input-field w-52" autocomplete="off"/>
 							<button type="submit" class="btn btn-primary">Find My MP</button>
@@ -405,6 +405,7 @@ templ Layout(title string, ps store.ParliamentStatus) {
 			<script>
 				(() => {
 					const authActions = document.getElementById("auth-actions");
+					const searchForm = document.getElementById("nav-search-form");
 					if (!authActions) {
 						return;
 					}
@@ -419,7 +420,13 @@ templ Layout(title string, ps store.ParliamentStatus) {
 						if (!resp.ok) {
 							return;
 						}
+						return resp.json();
+					}).then((user) => {
+						if (!user) return;
 						authActions.innerHTML = "<a href=\"/profile\" class=\"btn btn-secondary\">Profile</a><form method=\"POST\" action=\"/auth/logout\"><button type=\"submit\" class=\"btn btn-secondary\">Sign Out</button></form>";
+						if (searchForm && user.Address) {
+							searchForm.style.display = "none";
+						}
 					}).catch(() => {
 						// Keep default sign up / login buttons when auth check fails.
 					});
