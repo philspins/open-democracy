@@ -100,6 +100,7 @@ type UserRow struct {
 	ID                 string
 	Email              string
 	EmailVerified      bool
+	Address            string
 	PostalCode         string
 	FederalRidingID    string
 	ProvincialRidingID string

@@ -447,3 +447,32 @@ func TestAuthenticateOAuthMarksVerified(t *testing.T) {
 		t.Fatalf("expected same user id on repeated oauth auth, got %q and %q", u.ID, u2.ID)
 	}
 }
+
+func TestUpdateUserLocationPersistsAddressAndRidings(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	u, err := st.UpsertUser("profile@example.com", "")
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+
+	updated, err := st.UpdateUserLocation(u.ID, "123 Main St, Ottawa, ON", "Ottawa Centre", "Ottawa South")
+	if err != nil {
+		t.Fatalf("UpdateUserLocation: %v", err)
+	}
+	if updated.Address != "123 Main St, Ottawa, ON" {
+		t.Fatalf("Address=%q want %q", updated.Address, "123 Main St, Ottawa, ON")
+	}
+	if updated.FederalRidingID != "Ottawa Centre" || updated.ProvincialRidingID != "Ottawa South" {
+		t.Fatalf("unexpected riding ids: %+v", updated)
+	}
+
+	reloaded, err := st.GetUserByEmail("profile@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail: %v", err)
+	}
+	if reloaded.Address != updated.Address || reloaded.FederalRidingID != updated.FederalRidingID || reloaded.ProvincialRidingID != updated.ProvincialRidingID {
+		t.Fatalf("reloaded user mismatch: %+v vs %+v", reloaded, updated)
+	}
+}

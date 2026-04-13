@@ -620,6 +620,32 @@ func userIDFromEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
+func scanUserRow(scanner interface{ Scan(...interface{}) error }) (UserRow, error) {
+	var u UserRow
+	err := scanner.Scan(
+		&u.ID,
+		&u.Email,
+		&u.EmailVerified,
+		&u.Address,
+		&u.PostalCode,
+		&u.FederalRidingID,
+		&u.ProvincialRidingID,
+		&u.CreatedAt,
+		&u.EmailDigest,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return UserRow{}, fmt.Errorf("user not found")
+	}
+	return u, err
+}
+
+func (s *Store) getUserByID(id string) (UserRow, error) {
+	return scanUserRow(s.db.QueryRow(`
+		SELECT id, COALESCE(email,''), COALESCE(email_verified,0), COALESCE(address,''), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
+		       COALESCE(provincial_riding_id,''), COALESCE(created_at,''), COALESCE(email_digest,'weekly')
+		FROM users WHERE id = ?`, id))
+}
+
 func (s *Store) UpsertUser(email, postalCode string) (UserRow, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
@@ -639,14 +665,7 @@ func (s *Store) UpsertUser(email, postalCode string) (UserRow, error) {
 		return UserRow{}, err
 	}
 
-	var u UserRow
-	err = s.db.QueryRow(`
-		SELECT id, COALESCE(email,''), COALESCE(email_verified,0), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
-		       COALESCE(provincial_riding_id,''), COALESCE(created_at,''), COALESCE(email_digest,'weekly')
-		FROM users WHERE id = ?`, id).Scan(
-		&u.ID, &u.Email, &u.EmailVerified, &u.PostalCode, &u.FederalRidingID, &u.ProvincialRidingID, &u.CreatedAt, &u.EmailDigest,
-	)
-	return u, err
+	return s.getUserByID(id)
 }
 
 func randomToken(nBytes int) (string, error) {
@@ -680,17 +699,31 @@ func randomCode6() (string, error) {
 
 func (s *Store) GetUserByEmail(email string) (UserRow, error) {
 	id := userIDFromEmail(email)
-	var u UserRow
-	err := s.db.QueryRow(`
-		SELECT id, COALESCE(email,''), COALESCE(email_verified,0), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
-		       COALESCE(provincial_riding_id,''), COALESCE(created_at,''), COALESCE(email_digest,'weekly')
-		FROM users WHERE id = ?`, id).Scan(
-		&u.ID, &u.Email, &u.EmailVerified, &u.PostalCode, &u.FederalRidingID, &u.ProvincialRidingID, &u.CreatedAt, &u.EmailDigest,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return UserRow{}, fmt.Errorf("user not found")
+	return s.getUserByID(id)
+}
+
+func (s *Store) UpdateUserLocation(userID, address, federalRidingID, provincialRidingID string) (UserRow, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return UserRow{}, fmt.Errorf("user id required")
 	}
-	return u, err
+
+	_, err := s.db.Exec(`
+		UPDATE users
+		SET address = ?,
+		    federal_riding_id = ?,
+		    provincial_riding_id = ?
+		WHERE id = ?`,
+		strings.TrimSpace(address),
+		strings.TrimSpace(federalRidingID),
+		strings.TrimSpace(provincialRidingID),
+		userID,
+	)
+	if err != nil {
+		return UserRow{}, err
+	}
+
+	return s.getUserByID(userID)
 }
 
 func (s *Store) CreateEmailVerification(email, postalCode string, ttl time.Duration) (token string, code string, err error) {
@@ -780,14 +813,7 @@ func (s *Store) VerifyEmailToken(token string) (UserRow, error) {
 		return UserRow{}, err
 	}
 
-	var u UserRow
-	err = s.db.QueryRow(`
-		SELECT id, COALESCE(email,''), COALESCE(email_verified,0), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
-		       COALESCE(provincial_riding_id,''), COALESCE(created_at,''), COALESCE(email_digest,'weekly')
-		FROM users WHERE id = ?`, userID).Scan(
-		&u.ID, &u.Email, &u.EmailVerified, &u.PostalCode, &u.FederalRidingID, &u.ProvincialRidingID, &u.CreatedAt, &u.EmailDigest,
-	)
-	return u, err
+	return s.getUserByID(userID)
 }
 
 func (s *Store) VerifyEmailCode(email, code string) (UserRow, error) {
@@ -871,14 +897,7 @@ func (s *Store) GetUserBySession(sessionID string) (UserRow, error) {
 		return UserRow{}, fmt.Errorf("session expired")
 	}
 
-	var u UserRow
-	err = s.db.QueryRow(`
-		SELECT id, COALESCE(email,''), COALESCE(email_verified,0), COALESCE(postal_code,''), COALESCE(federal_riding_id,''),
-		       COALESCE(provincial_riding_id,''), COALESCE(created_at,''), COALESCE(email_digest,'weekly')
-		FROM users WHERE id = ?`, userID).Scan(
-		&u.ID, &u.Email, &u.EmailVerified, &u.PostalCode, &u.FederalRidingID, &u.ProvincialRidingID, &u.CreatedAt, &u.EmailDigest,
-	)
-	return u, err
+	return s.getUserByID(userID)
 }
 
 func (s *Store) AuthenticateOAuth(provider, providerUserID, email, postalCode string, markEmailVerified bool) (UserRow, error) {

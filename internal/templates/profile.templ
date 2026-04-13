@@ -1,0 +1,74 @@
+package templates
+
+import (
+	"github.com/philspins/open-democracy/internal/opennorth"
+	"github.com/philspins/open-democracy/internal/store"
+)
+
+templ ProfilePage(ps store.ParliamentStatus, user store.UserRow, address string, reps []opennorth.Representative, federalRep opennorth.Representative, provincialRep opennorth.Representative, lookupErr string, updated bool, placesApiKey string) {
+	@Layout("Profile", ps) {
+		<div class="space-y-6">
+			<section class="surface-card p-6 space-y-4">
+				<div class="title-row">
+					<div>
+						<span class="kicker">Account</span>
+						<h1 class="page-title mt-3">Profile</h1>
+						<p class="section-lead mt-2">Save your address so Open Democracy can remember your federal and provincial representatives.</p>
+					</div>
+					<div class="text-sm text-gray-500">
+						Signed in as <strong>{ user.Email }</strong>
+					</div>
+				</div>
+
+				if updated {
+					<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+						Your saved address and riding have been updated.
+					</div>
+				}
+				if lookupErr != "" {
+					<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+						{ lookupErr }
+					</div>
+				}
+
+				<form method="POST" action="/profile" class="filter-shell">
+					<input type="text" id="profile-address-input" name="address" value={ address } placeholder="Save your full Canadian address"
+						class="input-field w-full max-w-2xl" autocomplete="off"/>
+					<button type="submit" class="btn btn-primary">Save Address</button>
+					<a href="/profile" class="text-sm text-gray-500 hover:underline">Reset</a>
+				</form>
+			</section>
+
+			if len(profileRepresentativeCards(reps, federalRep, provincialRep)) > 0 {
+				<section class="surface-card p-6 space-y-4">
+					<div class="title-row">
+						<h2 class="text-xl">Current representatives</h2>
+						if address != "" {
+							<p class="text-sm text-gray-500">Saved address: { address }</p>
+						}
+					</div>
+					<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+						for _, rep := range profileRepresentativeCards(reps, federalRep, provincialRep) {
+							@openNorthRepCard(rep)
+						}
+					</div>
+				</section>
+			}
+		</div>
+		@AddressAutocompleteScript(placesApiKey)
+	}
+}
+
+func profileRepresentativeCards(reps []opennorth.Representative, federalRep opennorth.Representative, provincialRep opennorth.Representative) []opennorth.Representative {
+	if len(reps) > 0 {
+		return reps
+	}
+	out := make([]opennorth.Representative, 0, 2)
+	if federalRep.Name != "" || federalRep.DistrictName != "" {
+		out = append(out, federalRep)
+	}
+	if provincialRep.Name != "" || provincialRep.DistrictName != "" {
+		out = append(out, provincialRep)
+	}
+	return out
+}

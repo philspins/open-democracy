@@ -2,6 +2,7 @@ package riding
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +13,14 @@ import (
 	"github.com/philspins/open-democracy/internal/store"
 	"github.com/philspins/open-democracy/internal/templates"
 )
+
+type LookupResult struct {
+	Representatives          []opennorth.Representative
+	FederalRepresentative    opennorth.Representative
+	ProvincialRepresentative opennorth.Representative
+	FederalRidingID          string
+	ProvincialRidingID       string
+}
 
 // Service owns riding lookup behavior and rendering.
 type Service struct {
@@ -52,6 +61,71 @@ func (s *Service) parliamentStatus() store.ParliamentStatus {
 	return ps
 }
 
+func (s *Service) PlacesAPIKey() string {
+	return s.placesApiKey
+}
+
+func (s *Service) Lookup(ctx context.Context, address string) (LookupResult, error) {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return LookupResult{}, nil
+	}
+	if s.googleMapsKey == "" {
+		return LookupResult{}, fmt.Errorf("address lookup is not configured (missing GOOGLE_MAPS_API_KEY)")
+	}
+
+	lat, lng, err := s.geocodeFn(ctx, address, s.googleMapsKey)
+	if err != nil {
+		return LookupResult{}, fmt.Errorf("geocode: %w", err)
+	}
+	reps, err := s.repsFn(ctx, lat, lng)
+	if err != nil {
+		return LookupResult{}, fmt.Errorf("representatives: %w", err)
+	}
+
+	result := LookupResult{Representatives: s.attachLocalMemberIDs(reps)}
+	for _, rep := range result.Representatives {
+		if result.FederalRidingID == "" && strings.EqualFold(rep.ElectedOffice, "MP") {
+			result.FederalRepresentative = rep
+			result.FederalRidingID = rep.DistrictName
+			continue
+		}
+		if result.ProvincialRidingID == "" && isProvincialOffice(rep.ElectedOffice) {
+			result.ProvincialRepresentative = rep
+			result.ProvincialRidingID = rep.DistrictName
+		}
+	}
+
+	return result, nil
+}
+
+func (s *Service) attachLocalMemberIDs(reps []opennorth.Representative) []opennorth.Representative {
+	out := make([]opennorth.Representative, len(reps))
+	copy(out, reps)
+	for i, rep := range out {
+		if !strings.EqualFold(rep.ElectedOffice, "MP") {
+			continue
+		}
+		local, _ := s.store.GetMembersByRiding(rep.DistrictName)
+		for _, member := range local {
+			if strings.EqualFold(member.Name, rep.Name) || strings.EqualFold(member.Riding, rep.DistrictName) {
+				out[i].LocalMemberID = member.ID
+				break
+			}
+		}
+	}
+	return out
+}
+
+func isProvincialOffice(office string) bool {
+	office = strings.ToLower(strings.TrimSpace(office))
+	switch office {
+	case "mla", "mpp", "mna", "mha", "mha (nl)", "member of the legislative assembly", "member of provincial parliament", "member of the national assembly", "member of the house of assembly":
+		return true
+	}
+	return strings.Contains(office, "legislative assembly") || strings.Contains(office, "national assembly") || strings.Contains(office, "provincial parliament") || strings.Contains(office, "house of assembly")
+}
+
 func (s *Service) HandleLookup(w http.ResponseWriter, r *http.Request) {
 	address := strings.TrimSpace(r.URL.Query().Get("address"))
 	ps := s.parliamentStatus()
@@ -60,33 +134,18 @@ func (s *Service) HandleLookup(w http.ResponseWriter, r *http.Request) {
 		lookupErr string
 	)
 	if address != "" {
-		if s.googleMapsKey == "" {
-			lookupErr = "Address lookup is not configured (missing GOOGLE_MAPS_API_KEY)."
-		} else {
-			lat, lng, err := s.geocodeFn(r.Context(), address, s.googleMapsKey)
-			if err != nil {
-				log.Printf("geocode error for %q: %v", address, err)
-				lookupErr = "Could not locate that address. Please try a more specific Canadian address."
+		result, err := s.Lookup(r.Context(), address)
+		if err != nil {
+			log.Printf("riding lookup error for %q: %v", address, err)
+			if strings.Contains(err.Error(), "missing GOOGLE_MAPS_API_KEY") {
+				lookupErr = "Address lookup is not configured (missing GOOGLE_MAPS_API_KEY)."
+			} else if strings.HasPrefix(err.Error(), "representatives:") {
+				lookupErr = "Could not look up representatives. Please try again."
 			} else {
-				reps, err = s.repsFn(r.Context(), lat, lng)
-				if err != nil {
-					log.Printf("open north error lat=%f lng=%f: %v", lat, lng, err)
-					lookupErr = "Could not look up representatives. Please try again."
-				} else {
-					for i, rep := range reps {
-						if !strings.EqualFold(rep.ElectedOffice, "MP") {
-							continue
-						}
-						local, _ := s.store.GetMembersByRiding(rep.DistrictName)
-						for _, m := range local {
-							if strings.EqualFold(m.Name, rep.Name) || strings.EqualFold(m.Riding, rep.DistrictName) {
-								reps[i].LocalMemberID = m.ID
-								break
-							}
-						}
-					}
-				}
+				lookupErr = "Could not locate that address. Please try a more specific Canadian address."
 			}
+		} else {
+			reps = result.Representatives
 		}
 	}
 	_ = templates.RidingLookup(ps, address, reps, lookupErr, s.placesApiKey).Render(r.Context(), w)

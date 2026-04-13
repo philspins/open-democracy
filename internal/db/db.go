@@ -108,6 +108,7 @@ func Migrate(db *sql.DB) error {
 			id                   TEXT PRIMARY KEY,
 			email                TEXT UNIQUE,
 			email_verified       INTEGER DEFAULT 0,
+			address              TEXT,
 			postal_code          TEXT,
 			federal_riding_id    TEXT,
 			provincial_riding_id TEXT,
@@ -187,6 +188,7 @@ func Migrate(db *sql.DB) error {
 
 	// Forward-compatible migration for older DBs created before email_verified existed.
 	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0`)
+	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN address TEXT`)
 
 	return nil
 }

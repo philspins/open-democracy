@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/philspins/open-democracy/internal/auth"
+	"github.com/philspins/open-democracy/internal/opennorth"
 	"github.com/philspins/open-democracy/internal/riding"
 	"github.com/philspins/open-democracy/internal/scraper"
 	"github.com/philspins/open-democracy/internal/store"
@@ -45,11 +46,13 @@ func New(st *store.Store) *Server {
 	s.mux.HandleFunc("GET /members", s.handleMembers)
 	s.mux.HandleFunc("GET /members/{id}", s.handleMemberProfile)
 	s.mux.HandleFunc("GET /compare", s.handleCompare)
+	s.mux.HandleFunc("GET /profile", s.handleProfile)
+	s.mux.HandleFunc("POST /profile", s.handleProfile)
 	s.mux.HandleFunc("GET /privacy", s.handlePrivacy)
 	s.mux.HandleFunc("GET /tos", s.handleTerms)
 	s.mux.HandleFunc("GET /delete-data", s.handleDeleteDataPage)
 	s.mux.HandleFunc("POST /delete-data", s.handleDeleteDataCallback)
-	s.mux.HandleFunc("GET /riding", s.riding.HandleLookup)
+	s.mux.HandleFunc("GET /riding", s.handleRiding)
 	s.mux.HandleFunc("POST /api/follow", s.handleFollow)
 	s.mux.HandleFunc("POST /api/react", s.handleReact)
 	s.mux.HandleFunc("POST /api/log-submission", s.handleLogSubmission)
@@ -97,7 +100,18 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	ps := s.parliamentStatus()
 	bills, _ := s.store.GetRecentBills(5)
 	divs, _ := s.store.GetRecentDivisions(10)
-	_ = templates.Home(ps, bills, divs, "", store.MemberRow{}).Render(r.Context(), w)
+	var (
+		savedAddress  string
+		federalRep    opennorth.Representative
+		provincialRep opennorth.Representative
+	)
+	if user, ok := s.auth.SessionUser(r); ok {
+		savedAddr, result := s.loadRepresentativeContext(r, user)
+		savedAddress = savedAddr
+		federalRep = result.FederalRepresentative
+		provincialRep = result.ProvincialRepresentative
+	}
+	_ = templates.Home(ps, bills, divs, savedAddress, federalRep, provincialRep).Render(r.Context(), w)
 }
 
 func (s *Server) handleBills(w http.ResponseWriter, r *http.Request) {

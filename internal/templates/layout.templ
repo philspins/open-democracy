@@ -419,7 +419,7 @@ templ Layout(title string, ps store.ParliamentStatus) {
 						if (!resp.ok) {
 							return;
 						}
-						authActions.innerHTML = "<form method=\"POST\" action=\"/auth/logout\"><button type=\"submit\" class=\"btn btn-secondary\">Sign Out</button></form>";
+						authActions.innerHTML = "<a href=\"/profile\" class=\"btn btn-secondary\">Profile</a><form method=\"POST\" action=\"/auth/logout\"><button type=\"submit\" class=\"btn btn-secondary\">Sign Out</button></form>";
 					}).catch(() => {
 						// Keep default sign up / login buttons when auth check fails.
 					});
