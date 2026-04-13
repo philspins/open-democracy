@@ -39,8 +39,18 @@ func LoadDotEnv(path string) error {
 			continue
 		}
 		val = strings.TrimSpace(val)
+		// Strip inline comments (e.g. KEY=value # comment) for unquoted values.
+		// A space before '#' is required so values containing '#' naturally
+		// (e.g. URLs with fragments) are not accidentally truncated.
+		// For quoted values the comment must appear after the closing quote.
+		if len(val) > 0 && val[0] != '"' && val[0] != '\'' {
+			if i := strings.Index(val, " #"); i >= 0 {
+				val = strings.TrimSpace(val[:i])
+			}
+		}
 		if len(val) >= 2 {
-			if (val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'') {
+			q := val[0]
+			if (q == '"' || q == '\'') && val[len(val)-1] == q {
 				val = val[1 : len(val)-1]
 			}
 		}

@@ -392,6 +392,23 @@ func SummarizeBillsFromChannel(ctx context.Context, db *sql.DB, requests <-chan 
 				continue
 			}
 
+			// Check whether summarization is actually needed before downloading
+			// the (potentially large) bill text, and bail out early if the API
+			// key isn't configured.
+			if os.Getenv("ANTHROPIC_API_KEY") == "" {
+				log.Printf("[summarizer] ANTHROPIC_API_KEY not set; skipping %q", req.BillID)
+				continue
+			}
+			needed, err := shouldSummarizeBill(ctx, db, req.BillID, req.LastActivityDate)
+			if err != nil {
+				log.Printf("[summarizer] check bill %q: %v", req.BillID, err)
+				continue
+			}
+			if !needed {
+				log.Printf("[summarizer] skip unchanged bill %q", req.BillID)
+				continue
+			}
+
 			billText, err := fetchBillText(ctx, req.FullTextURL)
 			if err != nil {
 				log.Printf("[summarizer] fetch bill text %q: %v", req.BillID, err)
@@ -484,10 +501,15 @@ func SummarizeNewBills(ctx context.Context, db *sql.DB, onlyMissing bool) (int, 
 				continue
 			}
 
-			requests <- BillSummaryRequest{
+			select {
+			case requests <- BillSummaryRequest{
 				BillID:      billID,
 				BillTitle:   title,
 				FullTextURL: fullTextURL,
+			}:
+			case <-ctx.Done():
+				log.Printf("[summarizer] producer shutting down: %v", ctx.Err())
+				return
 			}
 		}
 	}()
