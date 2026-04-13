@@ -109,6 +109,15 @@ func main() {
 	var summaryResultCh chan summaryRunResult
 
 	if *billsFlag || shouldRunAll {
+		// Run LoP download first so shouldSummarizeBill correctly skips bills
+		// with a Library of Parliament summary before the AI worker processes them.
+		ctx := context.Background()
+		if n, err := summarizer.DownloadLoPSummaries(ctx, conn, nil); err != nil {
+			log.Printf("[main] lop summary job error: %v", err)
+		} else {
+			log.Printf("[main] lop summaries updated: %d", n)
+		}
+
 		summaryRequests = make(chan summarizer.BillSummaryRequest, 32)
 		summaryResultCh = make(chan summaryRunResult, 1)
 		go func() {
@@ -151,17 +160,6 @@ func main() {
 			log.Printf("[main] ai summarization channel error: %v", res.err)
 		} else {
 			log.Printf("[main] ai summaries generated: %d", res.processed)
-		}
-	}
-
-	// In one-shot mode, run summarization after bill crawling so summaries are
-	// persisted in the same execution path.
-	if *billsFlag || shouldRunAll {
-		ctx := context.Background()
-		if n, err := summarizer.DownloadLoPSummaries(ctx, conn, nil); err != nil {
-			log.Printf("[main] lop summary job error: %v", err)
-		} else {
-			log.Printf("[main] lop summaries updated: %d", n)
 		}
 	}
 
