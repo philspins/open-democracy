@@ -1,0 +1,12 @@
+[build]
+  command = "go build -o netlify/functions/ssr ./cmd/netlify"
+  functions = "netlify/functions"
+  publish = "netlify/static"
+
+[functions]
+  included_files = ["config/**", "open-democracy.db"]
+
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/ssr"
+  status = 200

@@ -39,6 +39,7 @@ func New(st *store.Store) *Server {
 		riding: riding.New(st, googleMapsKey),
 	}
 
+	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("GET /", s.handleHome)
 	s.mux.HandleFunc("GET /bills", s.handleBills)
 	s.mux.HandleFunc("GET /bills/{id}", s.handleBillDetail)
@@ -94,6 +95,20 @@ func applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 func (s *Server) parliamentStatus() store.ParliamentStatus {
 	ps, _ := s.store.GetParliamentStatus(scraper.CurrentParliament, scraper.CurrentSession)
 	return ps
+}
+
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	_, err := s.store.GetParliamentStatus(scraper.CurrentParliament, scraper.CurrentSession)
+	status := http.StatusOK
+	body := map[string]any{"ok": true}
+	if err != nil {
+		status = http.StatusServiceUnavailable
+		body = map[string]any{"ok": false, "error": "db_unavailable"}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {

@@ -201,6 +201,52 @@ The server expects a populated SQLite database. Run the crawler first (one-shot 
 
 ---
 
+## Deploy to Netlify (SSR via Function)
+
+This repository includes a Netlify SSR function entry point at `cmd/netlify/main.go` and routing/build config in `netlify.toml`.
+
+### What Netlify runs
+
+- Build command: `go build -o netlify/functions/ssr ./cmd/netlify`
+- Function path: `netlify/functions/ssr`
+- Redirect: all requests (`/*`) are routed to `/.netlify/functions/ssr`
+
+### Deploy steps
+
+1. Push this repo to GitHub.
+2. In Netlify, create a new site from that repository.
+3. Netlify detects `netlify.toml` and uses the configured build/function settings.
+4. Add required environment variables in Netlify Site Settings.
+
+### Recommended Netlify environment variables
+
+- `OAUTH_BASE_URL=https://<your-site>.netlify.app` (or your custom domain)
+- `OPEN_DEMOCRACY_DB_PATH=/tmp/open-democracy.db` (writable Lambda filesystem)
+- All auth/email/provider variables you use in production (`SES_FROM_EMAIL`, `GOOGLE_*`, `FACEBOOK_*`, AWS credentials/region).
+
+### SQLite note on serverless
+
+- Lambda code package files are read-only.
+- On cold start, the function copies bundled `open-democracy.db` to `/tmp/open-democracy.db` if needed, then opens SQLite there.
+- `/tmp` is ephemeral and instance-local, so writes are not durable across cold starts/instances.
+
+For persistent multi-instance writes, migrate to an external DB (for example Neon/Postgres).
+
+### Netlify production checklist
+
+- Confirm `GET /healthz` returns `200` after deploy.
+- In Netlify Site Settings and any uptime monitoring integration, set the health check URL/path override to `/healthz` (for example `https://<your-domain>/healthz`) instead of `/`.
+- Set `OAUTH_BASE_URL` to your Netlify/custom domain URL.
+- Set `OPEN_DEMOCRACY_DB_PATH=/tmp/open-democracy.db`.
+- Configure all auth variables you use (`GOOGLE_*`, `FACEBOOK_*`, `SES_FROM_EMAIL`, AWS region/credentials).
+- If not using local SQLite-only mode, move persistent user write paths to an external database.
+- Verify OAuth callback URLs in Google/Facebook dashboards match your Netlify domain.
+- Test login, profile update, and any write endpoints after a fresh deploy (cold start).
+- Monitor function duration/errors in Netlify logs; keep request handling under function timeout limits.
+- Add a custom domain and enforce HTTPS before production launch.
+
+---
+
 ## Database
 
 The SQLite database contains six tables:

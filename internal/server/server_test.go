@@ -196,6 +196,28 @@ func TestSecurityHeaders_AreSetOnResponses(t *testing.T) {
 	}
 }
 
+func TestHealthz_ReturnsOKJSON(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d want %d", rr.Code, http.StatusOK)
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("unexpected content-type: %s", got)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if ok, _ := resp["ok"].(bool); !ok {
+		t.Fatalf("expected ok=true response, got: %v", resp)
+	}
+}
+
 func TestHandleFollow_RequiresAuthenticatedSession(t *testing.T) {
 	srv, _ := newTestServer(t)
 	form := url.Values{}

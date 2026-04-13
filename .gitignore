@@ -12,7 +12,6 @@
 vendor/
 
 # Open Democracy runtime files
-*.db
 *.sqlite
 
 # Editor / OS
@@ -22,10 +21,6 @@ vendor/
 *.swp
 *.swo
 
-*.db-shm
-*.db-wal
-*.db-wal
-*.db-shm
 .env
 /open-democracy-crawler
 /open-democracy-server
