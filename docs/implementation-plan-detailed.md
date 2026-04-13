@@ -765,6 +765,8 @@ CREATE TABLE bill_reaction_counts (
 
 ### 4.3 Weekly Digest Email
 
+Users should have an option on their account page to enable or disable this feature.
+
 ```go
 // internal/digest/digest.go — weekly digest for followed MPs
 // Sent every Sunday at 8am UTC via Resend.com
