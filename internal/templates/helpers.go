@@ -3,11 +3,13 @@ package templates
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/a-h/templ"
 	"github.com/philspins/open-democracy/internal/store"
 )
 
@@ -379,4 +381,22 @@ func ReactionPercent(count, total int) int {
 		return 0
 	}
 	return (count * 100) / total
+}
+
+// safeExternalURL validates that rawURL has an http or https scheme and returns
+// templ.SafeURL(rawURL). If the scheme is not http/https (e.g. "javascript:"),
+// it returns templ.SafeURL("#") to prevent XSS via unsafe URL schemes.
+func safeExternalURL(rawURL string) templ.SafeURL {
+	if rawURL == "" {
+		return templ.SafeURL("#")
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return templ.SafeURL("#")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return templ.SafeURL("#")
+	}
+	return templ.SafeURL(rawURL)
 }

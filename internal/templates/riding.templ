@@ -71,7 +71,7 @@ templ openNorthRepCard(rep opennorth.Representative) {
 						<a href={ templ.SafeURL("mailto:" + rep.Email) } class="text-xs text-blue-600 hover:underline">Email</a>
 					}
 					if rep.URL != "" {
-						<a href={ templ.SafeURL(rep.URL) } target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">Profile</a>
+						<a href={ safeExternalURL(rep.URL) } target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">Profile</a>
 					}
 					for _, office := range rep.Offices {
 						if office.Tel != "" {
