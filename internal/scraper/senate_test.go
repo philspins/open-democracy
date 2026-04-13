@@ -8,28 +8,48 @@ import (
 
 // ── CrawlSenateVotesIndex ──────────────────────────────────────────────────────
 
+// sampleSenateVotesHTML mirrors the actual sencanada.ca votes table structure:
+// Col 0: date (ISO), data-order ends with sequential vote number
+// Col 1: description link + "Yeas: N | Nays: N | Abstentions: N | Total: N"
+// Col 2: bill number (optional link)
+// Col 3: result ("Defeated" / "Adopted" / "Agreed to")
 const sampleSenateVotesHTML = `<html><body>
   <table>
     <thead><tr>
-      <th>#</th><th>Date</th><th>Description</th>
-      <th>Yeas</th><th>Nays</th><th>Result</th>
+      <th>Date</th><th>Description</th><th>Bill</th><th>Result</th>
     </tr></thead>
     <tbody>
       <tr>
-        <td><a href="/en/in-the-chamber/votes/42">42</a></td>
-        <td>April 4, 2024</td>
-        <td>Motion on S-209</td>
-        <td>58</td>
-        <td>22</td>
-        <td>Agreed to</td>
+        <td class="vote-centered" data-order="2024-04-04 13:30:00 42">
+          <a href="/en/content/sen/chamber/451/journals/j-e">2024-04-04</a>
+        </td>
+        <td>
+          <a class="vote-web-title-link" href="/en/in-the-chamber/votes/details/12345/45-1">Motion on S-209</a>
+          <br />
+          Yeas: 58 | Nays: 22 | Abstentions: 2 | Total: 82
+        </td>
+        <td class="vote-centered">
+          <a href="http://www.parl.ca/LEGISInfo/BillDetails.aspx?Language=en&amp;billId=999">S-209</a>
+        </td>
+        <td class="vote-centered">
+          Agreed to
+        </td>
       </tr>
       <tr>
-        <td><a href="/en/in-the-chamber/votes/41">41</a></td>
-        <td>April 3, 2024</td>
-        <td>Third reading of S-5</td>
-        <td>50</td>
-        <td>30</td>
-        <td>Agreed to</td>
+        <td class="vote-centered" data-order="2024-04-03 13:30:00 41">
+          <a href="/en/content/sen/chamber/451/journals/j2-e">2024-04-03</a>
+        </td>
+        <td>
+          <a class="vote-web-title-link" href="/en/in-the-chamber/votes/details/12344/45-1">Third reading of S-5</a>
+          <br />
+          Yeas: 50 | Nays: 30 | Abstentions: 0 | Total: 80
+        </td>
+        <td class="vote-centered">
+          <a href="http://www.parl.ca/LEGISInfo/BillDetails.aspx?Language=en&amp;billId=888">S-5</a>
+        </td>
+        <td class="vote-centered">
+          Adopted
+        </td>
       </tr>
     </tbody>
   </table>
@@ -125,8 +145,14 @@ func TestCrawlSenateVotesIndex_ErrorWhenNoTable(t *testing.T) {
 }
 
 func TestCrawlSenateVotesIndex_SkipsRowsWithNoNumber(t *testing.T) {
+	// A row with 4 columns but no valid sequential vote number in data-order
 	html := `<html><body><table><tbody>
-      <tr><td>not-a-number</td><td>April 3, 2024</td><td>Some motion</td></tr>
+      <tr>
+        <td data-order="not-a-valid-order"><a href="#">2024-04-03</a></td>
+        <td><a class="vote-web-title-link" href="/en/votes/1">Some motion</a><br/>Yeas: 10 | Nays: 5</td>
+        <td></td>
+        <td>Adopted</td>
+      </tr>
     </tbody></table></body></html>`
 	srv := newTestServer(html)
 	defer srv.Close()

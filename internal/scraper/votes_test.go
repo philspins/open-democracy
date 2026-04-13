@@ -8,28 +8,31 @@ import (
 
 // ── CrawlVotesIndex ───────────────────────────────────────────────────────────
 
+// sampleVotesHTML mirrors the actual ourcommons.ca recorded-votes table structure:
+// Col 0: vote number | Col 1: bill type (optional) | Col 2: description
+// Col 3: "Yeas / Nays / Paired" | Col 4: result (with icon) | Col 5: date
 const sampleVotesHTML = `<html><body>
   <table class="table">
     <thead><tr>
-      <th>#</th><th>Date</th><th>Description</th>
-      <th>Yeas</th><th>Nays</th><th>Result</th>
+      <th>#</th><th>Vote type</th><th>Description</th>
+      <th>Votes</th><th>Result</th><th>Date</th>
     </tr></thead>
     <tbody>
       <tr>
-        <td><a href="/Members/en/votes/892">892</a></td>
-        <td>April 3, 2024</td>
+        <td><a href="/Members/en/votes/45/1/892">No. 892</a></td>
+        <td>House Government Bill</td>
         <td>Motion on C-47</td>
-        <td>172</td>
-        <td>148</td>
-        <td>Agreed to</td>
+        <td>172 / 148 / 5</td>
+        <td><i class="icon"></i> Agreed to</td>
+        <td>Wednesday, April 3, 2024</td>
       </tr>
       <tr>
-        <td><a href="/Members/en/votes/891">891</a></td>
-        <td>April 2, 2024</td>
+        <td><a href="/Members/en/votes/45/1/891">No. 891</a></td>
+        <td></td>
         <td>Motion on S-209</td>
-        <td>100</td>
-        <td>90</td>
-        <td>Negatived</td>
+        <td>100 / 90 / 0</td>
+        <td><i class="icon"></i> Negatived</td>
+        <td>Tuesday, April 2, 2024</td>
       </tr>
     </tbody>
   </table>
@@ -62,6 +65,9 @@ func TestCrawlVotesIndex_ParsesFirstDivision(t *testing.T) {
 	}
 	if d.Yeas != 172 || d.Nays != 148 {
 		t.Errorf("Yeas=%d Nays=%d want 172/148", d.Yeas, d.Nays)
+	}
+	if d.Paired != 5 {
+		t.Errorf("Paired=%d want 5", d.Paired)
 	}
 	if d.Result != "Agreed to" {
 		t.Errorf("Result=%q want Agreed to", d.Result)

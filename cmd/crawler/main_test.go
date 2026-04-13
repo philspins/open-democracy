@@ -221,17 +221,17 @@ func TestCrawlMembers_ReturnsErrorOnBadServer(t *testing.T) {
 const votesIndexBody = `<html><body>
   <table class="table">
     <thead><tr>
-      <th>#</th><th>Date</th><th>Description</th>
-      <th>Yeas</th><th>Nays</th><th>Result</th>
+      <th>#</th><th>Vote type</th><th>Description</th>
+      <th>Votes</th><th>Result</th><th>Date</th>
     </tr></thead>
     <tbody>
       <tr>
-        <td>892</td>
-        <td>April 3, 2024</td>
+        <td><a href="/Members/en/votes/45/1/892">No. 892</a></td>
+        <td>House Government Bill</td>
         <td>Motion on C-47</td>
-        <td>172</td>
-        <td>148</td>
-        <td>Agreed to</td>
+        <td>172 / 148 / 5</td>
+        <td><i class="icon"></i> Agreed to</td>
+        <td>Wednesday, April 3, 2024</td>
       </tr>
     </tbody>
   </table>
@@ -266,17 +266,24 @@ func TestCrawlVotes_ReturnsErrorOnBadServer(t *testing.T) {
 const senateVotesBody = `<html><body>
   <table>
     <thead><tr>
-      <th>#</th><th>Date</th><th>Description</th>
-      <th>Yeas</th><th>Nays</th><th>Result</th>
+      <th>Date</th><th>Description</th><th>Bill</th><th>Result</th>
     </tr></thead>
     <tbody>
       <tr>
-        <td>42</td>
-        <td>April 4, 2024</td>
-        <td>Motion on S-209</td>
-        <td>58</td>
-        <td>22</td>
-        <td>Agreed to</td>
+        <td class="vote-centered" data-order="2024-04-04 13:30:00 42">
+          <a href="/en/content/sen/chamber/451/journals/j-e">2024-04-04</a>
+        </td>
+        <td>
+          <a class="vote-web-title-link" href="/en/in-the-chamber/votes/details/12345/45-1">Motion on S-209</a>
+          <br />
+          Yeas: 58 | Nays: 22 | Abstentions: 2 | Total: 82
+        </td>
+        <td class="vote-centered">
+          <a href="http://www.parl.ca/LEGISInfo/BillDetails.aspx?Language=en&amp;billId=999">S-209</a>
+        </td>
+        <td class="vote-centered">
+          Agreed to
+        </td>
       </tr>
     </tbody>
   </table>
