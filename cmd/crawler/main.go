@@ -94,10 +94,9 @@ func main() {
 	// ── One-shot mode ────────────────────────────────────────────────────────
 	shouldRunAll := !(*billsFlag || *votesFlag || *senateFlag || *membersFlag || *calendarFlag)
 
-	// Run LoP batch download before the crawl to pre-populate summaries for
-	// bills already in the database.  New bills discovered during crawlBills
-	// will have their LoP summary scraped inline, so the AI step that follows
-	// will correctly skip any bill that already has a LoP summary.
+	// Run LoP batch download first so shouldSummarizeBill correctly skips
+	// bills that already have a Library of Parliament summary before the AI
+	// worker starts consuming from the channel.
 	if *billsFlag || shouldRunAll {
 		ctx := context.Background()
 		if n, err := summarizer.DownloadLoPSummaries(ctx, conn, nil); err != nil {
@@ -105,6 +104,25 @@ func main() {
 		} else {
 			log.Printf("[main] lop summaries updated: %d", n)
 		}
+	}
+
+	// Wire up the same channel-based summarization pipeline used by runAll.
+	// The producer (crawlBills) emits requests while crawling; the consumer
+	// goroutine calls Claude concurrently.  The channel is only created when
+	// bills are included in this run; other crawlers are not affected.
+	type summaryRunResult struct {
+		processed int
+		err       error
+	}
+	var summaryRequests chan summarizer.BillSummaryRequest
+	var summaryResultCh chan summaryRunResult
+	if *billsFlag || shouldRunAll {
+		summaryRequests = make(chan summarizer.BillSummaryRequest, 32)
+		summaryResultCh = make(chan summaryRunResult, 1)
+		go func() {
+			n, err := summarizer.SummarizeBillsFromChannel(context.Background(), conn, summaryRequests)
+			summaryResultCh <- summaryRunResult{processed: n, err: err}
+		}()
 	}
 
 	// Build the set of crawl tasks the user selected (or all if none specified).
@@ -117,7 +135,7 @@ func main() {
 		tasks = append(tasks, task{"calendar", func() error { return crawlCalendar(conn, client, delay, "") }})
 	}
 	if *billsFlag || shouldRunAll {
-		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "", nil) }})
+		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "", summaryRequests) }})
 	}
 	if *membersFlag || shouldRunAll {
 		tasks = append(tasks, task{"members", func() error { return crawlMembers(conn, client, delay, "", "") }})
@@ -140,6 +158,19 @@ func main() {
 	}
 
 	runParallel(*parallelism, fns)
+
+	// Signal the summarizer worker that all bills have been submitted, then
+	// wait for it to finish and log the result.
+	if summaryRequests != nil {
+		close(summaryRequests)
+		res := <-summaryResultCh
+		if res.err != nil {
+			log.Printf("[main] ai summarization pipeline error: %v", res.err)
+		} else {
+			log.Printf("[main] ai summaries generated: %d", res.processed)
+		}
+	}
+
 	log.Println("[main] done")
 }
 
