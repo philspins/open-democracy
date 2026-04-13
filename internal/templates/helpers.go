@@ -410,6 +410,9 @@ func safeMailtoURL(email string) templ.SafeURL {
 		return templ.SafeURL("#")
 	}
 	// Reject characters that could inject extra headers or malform the URI.
+	// Intentionally stricter than RFC 5321: quoted local-parts with spaces
+	// (e.g. "john doe"@example.com) are not common in practice and the
+	// additional complexity is not worth the risk for external API input.
 	if strings.ContainsAny(email, "\r\n\t ?&<>\"'\\") {
 		return templ.SafeURL("#")
 	}
