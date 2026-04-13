@@ -45,10 +45,6 @@ func main() {
 		log.Printf("warning: could not load .env: %v", err)
 	}
 
-	if err := utils.LoadDotEnv(".env"); err != nil {
-		log.Printf("warning: could not load .env: %v", err)
-	}
-
 	billsFlag := flag.Bool("bills", false, "Crawl bills only")
 	votesFlag := flag.Bool("votes", false, "Crawl Commons votes only")
 	senateFlag := flag.Bool("senate", false, "Crawl Senate votes only")
