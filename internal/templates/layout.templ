@@ -13,6 +13,16 @@ templ Layout(title string, ps store.ParliamentStatus) {
 			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
 			<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 			<script src="https://cdn.tailwindcss.com"></script>
+			<!-- Dark mode init: run before render to avoid flash -->
+			<script>
+				(function() {
+					var stored = localStorage.getItem("theme");
+					var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+					if (stored === "dark" || (!stored && prefersDark)) {
+						document.documentElement.classList.add("dark");
+					}
+				})();
+			</script>
 			<style>
 				:root {
 					--ink-900: #1a1a1a;
@@ -28,6 +38,19 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					--shadow: 0 8px 22px rgba(16, 24, 40, 0.08);
 				}
 
+				html.dark {
+					--ink-900: #e2e8f0;
+					--ink-700: #a8b8c8;
+					--ink-500: #7a8fa0;
+					--paper: #0f1923;
+					--paper-strong: #1a2535;
+					--line: #2a3a4e;
+					--accent: #4a8fc4;
+					--accent-strong: #357baa;
+					--focus: #60a5fa;
+					--shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+				}
+
 				html,
 				body {
 					min-height: 100%;
@@ -37,6 +60,11 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					font-family: "Noto Sans", "Segoe UI", sans-serif;
 					color: var(--ink-900);
 					background: linear-gradient(180deg, #f3f6fa 0%, var(--paper) 100%);
+					transition: background 200ms ease, color 200ms ease;
+				}
+
+				html.dark body {
+					background: linear-gradient(180deg, #0d1620 0%, var(--paper) 100%);
 				}
 
 				h1,
@@ -64,6 +92,11 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					background: rgba(255, 255, 255, 0.97);
 					border-bottom: 1px solid var(--line);
 					box-shadow: 0 1px 0 rgba(16, 24, 40, 0.04);
+					transition: background 200ms ease, border-color 200ms ease;
+				}
+
+				html.dark .site-nav {
+					background: rgba(15, 25, 35, 0.97);
 				}
 
 				.nav-inner {
@@ -137,7 +170,7 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					font-size: 0.92rem;
 					color: var(--ink-900);
 					outline: none;
-					transition: border-color 160ms ease, box-shadow 160ms ease;
+					transition: border-color 160ms ease, box-shadow 160ms ease, background 200ms ease, color 200ms ease;
 				}
 
 				.input-field:focus,
@@ -182,6 +215,56 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					color: var(--ink-700);
 				}
 
+				html.dark .btn-secondary {
+					background: var(--paper-strong);
+					border-color: var(--line);
+					color: var(--ink-700);
+				}
+
+				/* Theme toggle pill */
+				.theme-toggle {
+					display: inline-flex;
+					align-items: center;
+					background: #e2e8f0;
+					border-radius: 999px;
+					padding: 3px;
+					gap: 0;
+					border: 1px solid #c8d3dd;
+					cursor: pointer;
+					transition: background 200ms ease, border-color 200ms ease;
+					flex-shrink: 0;
+				}
+
+				html.dark .theme-toggle {
+					background: #1e2f42;
+					border-color: var(--line);
+				}
+
+				.theme-toggle-btn {
+					display: inline-flex;
+					align-items: center;
+					justify-content: center;
+					width: 1.75rem;
+					height: 1.75rem;
+					border-radius: 999px;
+					border: none;
+					background: transparent;
+					cursor: pointer;
+					font-size: 0.95rem;
+					transition: background 180ms ease;
+					line-height: 1;
+				}
+
+				.theme-toggle-btn.active {
+					background: #ffffff;
+					box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+				}
+
+				html.dark .theme-toggle-btn.active {
+					background: #2e4460;
+					box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+				}
+
 				.session-banner {
 					text-align: center;
 					padding: 0.55rem 1rem;
@@ -217,6 +300,11 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					box-shadow: var(--shadow);
 				}
 
+				html.dark .surface-card,
+				html.dark .bg-white.rounded-lg.border {
+					background: var(--paper-strong);
+				}
+
 				.table-shell,
 				.overflow-x-auto.bg-white.rounded-lg.border {
 					border-radius: 8px;
@@ -225,8 +313,17 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					background: rgba(255, 255, 255, 0.98);
 				}
 
+				html.dark .table-shell,
+				html.dark .overflow-x-auto.bg-white.rounded-lg.border {
+					background: var(--paper-strong);
+				}
+
 				table thead tr {
 					background: #eef3f8;
+				}
+
+				html.dark table thead tr {
+					background: #1e2f42;
 				}
 
 				table tbody tr {
@@ -235,6 +332,10 @@ templ Layout(title string, ps store.ParliamentStatus) {
 
 				table tbody tr:hover {
 					background: #f8fbff;
+				}
+
+				html.dark table tbody tr:hover {
+					background: #1e2d3e;
 				}
 
 				.page-title {
@@ -255,12 +356,21 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					border-radius: 999px;
 				}
 
+				html.dark .kicker {
+					color: #7ab0e0;
+					background: #1a2f45;
+				}
+
 				.hero-panel {
 					border: 1px solid var(--line);
 					border-radius: 8px;
 					padding: clamp(1.4rem, 3vw, 2.4rem);
 					background: linear-gradient(180deg, #f8fbff, #f2f6fb);
 					box-shadow: none;
+				}
+
+				html.dark .hero-panel {
+					background: linear-gradient(180deg, #162030, #111c28);
 				}
 
 				.title-row {
@@ -282,6 +392,10 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					background: rgba(255, 255, 255, 0.98);
 				}
 
+				html.dark .filter-shell {
+					background: var(--paper-strong);
+				}
+
 				.metric-grid {
 					display: grid;
 					grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -296,6 +410,10 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					text-align: center;
 				}
 
+				html.dark .metric-card {
+					background: var(--paper-strong);
+				}
+
 				.empty-state {
 					text-align: center;
 					padding: 2.6rem 1rem;
@@ -303,6 +421,11 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					border-radius: 8px;
 					color: var(--ink-500);
 					background: rgba(255, 255, 255, 0.92);
+				}
+
+				html.dark .empty-state {
+					border-color: var(--line);
+					background: rgba(26, 37, 53, 0.7);
 				}
 
 				.section-lead {
@@ -319,6 +442,10 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					font-size: 0.78rem;
 					color: var(--ink-500);
 					text-align: center;
+				}
+
+				html.dark .footer-shell {
+					border-top-color: var(--line);
 				}
 
 				@keyframes rise-in {
@@ -372,6 +499,11 @@ templ Layout(title string, ps store.ParliamentStatus) {
 						</div>
 					</div>
 					<div class="nav-actions">
+						<!-- Theme toggle pill -->
+						<div class="theme-toggle" id="theme-toggle" role="group" aria-label="Toggle color theme">
+							<button class="theme-toggle-btn" id="theme-light-btn" aria-label="Light mode" title="Light mode">☀️</button>
+							<button class="theme-toggle-btn" id="theme-dark-btn" aria-label="Dark mode" title="Dark mode">🌙</button>
+						</div>
 						<form id="nav-search-form" method="GET" action="/riding" class="search-form">
 							<input type="text" id="nav-address-input" name="address" placeholder="Enter your address"
 								class="input-field w-52" autocomplete="off"/>
@@ -403,6 +535,7 @@ templ Layout(title string, ps store.ParliamentStatus) {
 				<p>Open Democracy — Data sourced from the Parliament of Canada Open Data portal</p>
 			</footer>
 			<script>
+				// Auth check
 				(() => {
 					const authActions = document.getElementById("auth-actions");
 					const searchForm = document.getElementById("nav-search-form");
@@ -430,6 +563,39 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					}).catch(() => {
 						// Keep default sign up / login buttons when auth check fails.
 					});
+				})();
+
+				// Theme toggle
+				(() => {
+					const html = document.documentElement;
+					const lightBtn = document.getElementById("theme-light-btn");
+					const darkBtn = document.getElementById("theme-dark-btn");
+
+					function applyTheme(dark) {
+						if (dark) {
+							html.classList.add("dark");
+						} else {
+							html.classList.remove("dark");
+						}
+						if (lightBtn) lightBtn.classList.toggle("active", !dark);
+						if (darkBtn) darkBtn.classList.toggle("active", dark);
+					}
+
+					// Set initial active state
+					applyTheme(html.classList.contains("dark"));
+
+					if (lightBtn) {
+						lightBtn.addEventListener("click", function() {
+							localStorage.setItem("theme", "light");
+							applyTheme(false);
+						});
+					}
+					if (darkBtn) {
+						darkBtn.addEventListener("click", function() {
+							localStorage.setItem("theme", "dark");
+							applyTheme(true);
+						});
+					}
 				})();
 			</script>
 		</body>
