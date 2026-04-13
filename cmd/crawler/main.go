@@ -121,7 +121,7 @@ func main() {
 		tasks = append(tasks, task{"calendar", func() error { return crawlCalendar(conn, client, delay, "") }})
 	}
 	if *billsFlag || shouldRunAll {
-		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "") }})
+		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "", nil) }})
 	}
 	if *membersFlag || shouldRunAll {
 		tasks = append(tasks, task{"members", func() error { return crawlMembers(conn, client, delay, "", "") }})
