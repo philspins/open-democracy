@@ -45,6 +45,10 @@ func New(st *store.Store) *Server {
 	s.mux.HandleFunc("GET /members", s.handleMembers)
 	s.mux.HandleFunc("GET /members/{id}", s.handleMemberProfile)
 	s.mux.HandleFunc("GET /compare", s.handleCompare)
+	s.mux.HandleFunc("GET /privacy", s.handlePrivacy)
+	s.mux.HandleFunc("GET /tos", s.handleTerms)
+	s.mux.HandleFunc("GET /delete-data", s.handleDeleteDataPage)
+	s.mux.HandleFunc("POST /delete-data", s.handleDeleteDataCallback)
 	s.mux.HandleFunc("GET /riding", s.riding.HandleLookup)
 	s.mux.HandleFunc("POST /api/follow", s.handleFollow)
 	s.mux.HandleFunc("POST /api/react", s.handleReact)
@@ -56,7 +60,32 @@ func New(st *store.Store) *Server {
 
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w, r)
 	s.mux.ServeHTTP(w, r)
+}
+
+func applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
+	h := w.Header()
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+	h.Set("Content-Security-Policy", strings.Join([]string{
+		"default-src 'self'",
+		"base-uri 'self'",
+		"form-action 'self'",
+		"frame-ancestors 'none'",
+		"object-src 'none'",
+		"img-src 'self' data: https:",
+		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+		"font-src 'self' https://fonts.gstatic.com",
+		"script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://accounts.google.com https://connect.facebook.net",
+		"connect-src 'self' https://graph.facebook.com https://www.googleapis.com https://oauth2.googleapis.com",
+	}, "; "))
+
+	if r.TLS != nil {
+		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+	}
 }
 
 func (s *Server) parliamentStatus() store.ParliamentStatus {
@@ -159,27 +188,20 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.auth.RequireVerifiedSessionUser(w, r)
+	if !ok {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	email := r.FormValue("email")
-	postal := r.FormValue("postal_code")
 	memberID := r.FormValue("member_id")
-	if user, ok := s.auth.SessionUser(r); ok {
-		email = user.Email
-		if postal == "" {
-			postal = user.PostalCode
-		}
-	}
-	if strings.TrimSpace(email) == "" || strings.TrimSpace(memberID) == "" {
-		http.Error(w, "email and member_id required", http.StatusBadRequest)
+	if strings.TrimSpace(memberID) == "" {
+		http.Error(w, "member_id required", http.StatusBadRequest)
 		return
 	}
-	if !s.auth.RequireVerifiedEmail(w, email, postal) {
-		return
-	}
-	if err := s.store.FollowMember(email, postal, memberID); err != nil {
+	if err := s.store.FollowMember(u.Email, u.PostalCode, memberID); err != nil {
 		http.Error(w, "failed to follow", http.StatusInternalServerError)
 		return
 	}
@@ -187,29 +209,22 @@ func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReact(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.auth.RequireVerifiedSessionUser(w, r)
+	if !ok {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	email := r.FormValue("email")
-	postal := r.FormValue("postal_code")
 	billID := r.FormValue("bill_id")
 	reaction := r.FormValue("reaction")
 	note := r.FormValue("note")
-	if user, ok := s.auth.SessionUser(r); ok {
-		email = user.Email
-		if postal == "" {
-			postal = user.PostalCode
-		}
-	}
-	if strings.TrimSpace(email) == "" || strings.TrimSpace(billID) == "" {
-		http.Error(w, "email and bill_id required", http.StatusBadRequest)
+	if strings.TrimSpace(billID) == "" {
+		http.Error(w, "bill_id required", http.StatusBadRequest)
 		return
 	}
-	if !s.auth.RequireVerifiedEmail(w, email, postal) {
-		return
-	}
-	if err := s.store.ReactToBill(email, postal, billID, reaction, note); err != nil {
+	if err := s.store.ReactToBill(u.Email, u.PostalCode, billID, reaction, note); err != nil {
 		http.Error(w, "failed to save reaction", http.StatusBadRequest)
 		return
 	}
@@ -217,13 +232,15 @@ func (s *Server) handleReact(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogSubmission(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.auth.RequireVerifiedSessionUser(w, r)
+	if !ok {
+		return
+	}
 	var payload struct {
-		Email      string `json:"email"`
-		PostalCode string `json:"postal_code"`
-		MemberID   string `json:"member_id"`
-		Subject    string `json:"subject"`
-		Body       string `json:"body"`
-		Category   string `json:"category"`
+		MemberID string `json:"member_id"`
+		Subject  string `json:"subject"`
+		Body     string `json:"body"`
+		Category string `json:"category"`
 	}
 
 	contentType := r.Header.Get("Content-Type")
@@ -237,33 +254,19 @@ func (s *Server) handleLogSubmission(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		payload.Email = r.FormValue("email")
-		payload.PostalCode = r.FormValue("postal_code")
 		payload.MemberID = r.FormValue("member_id")
 		payload.Subject = r.FormValue("subject")
 		payload.Body = r.FormValue("body")
 		payload.Category = r.FormValue("category")
 	}
 
-	if strings.TrimSpace(payload.Email) == "" || strings.TrimSpace(payload.MemberID) == "" {
-		if user, ok := s.auth.SessionUser(r); ok {
-			payload.Email = user.Email
-			if payload.PostalCode == "" {
-				payload.PostalCode = user.PostalCode
-			}
-		}
-	}
-
-	if strings.TrimSpace(payload.Email) == "" || strings.TrimSpace(payload.MemberID) == "" {
-		http.Error(w, "email and member_id required", http.StatusBadRequest)
-		return
-	}
-	if !s.auth.RequireVerifiedEmail(w, payload.Email, payload.PostalCode) {
+	if strings.TrimSpace(payload.MemberID) == "" {
+		http.Error(w, "member_id required", http.StatusBadRequest)
 		return
 	}
 	if err := s.store.LogPolicySubmission(
-		payload.Email,
-		payload.PostalCode,
+		u.Email,
+		u.PostalCode,
 		payload.MemberID,
 		payload.Subject,
 		payload.Body,

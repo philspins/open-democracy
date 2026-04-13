@@ -13,6 +13,106 @@ import (
 	"github.com/philspins/open-democracy/internal/store"
 )
 
+func TestHandleSignupPage_RendersOAuthWidgetsAndFallbacks(t *testing.T) {
+	svc, _ := newTestService(t)
+	t.Setenv("GOOGLE_CLIENT_ID", "google-client")
+	t.Setenv("FACEBOOK_CLIENT_ID", "fb-client")
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/signup", nil)
+	rr := httptest.NewRecorder()
+
+	svc.HandleSignupPage(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Create Your Account") {
+		t.Fatalf("expected signup heading in page body")
+	}
+	if !strings.Contains(body, "google-signin-widget") {
+		t.Fatalf("expected google widget container")
+	}
+	if !strings.Contains(body, "fb:login-button") {
+		t.Fatalf("expected facebook widget tag")
+	}
+	if !strings.Contains(body, "/auth/google/login") || !strings.Contains(body, "/auth/facebook/login") {
+		t.Fatalf("expected oauth fallback links")
+	}
+}
+
+func TestHandleLoginPage_RendersLoginVariant(t *testing.T) {
+	svc, _ := newTestService(t)
+	t.Setenv("GOOGLE_CLIENT_ID", "google-client")
+	t.Setenv("FACEBOOK_CLIENT_ID", "fb-client")
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	rr := httptest.NewRecorder()
+
+	svc.HandleLoginPage(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Welcome Back") {
+		t.Fatalf("expected login heading in page body")
+	}
+	if !strings.Contains(body, "signin_with") {
+		t.Fatalf("expected login-specific google widget text")
+	}
+}
+
+func TestHandleSignupPage_AuthenticatedUserRedirectsHome(t *testing.T) {
+	svc, st := newTestService(t)
+	u, err := st.UpsertUser("signed-in-signup@example.com", "")
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+	sessionID, err := st.CreateSession(u.ID, time.Hour)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/signup", nil)
+	req.AddCookie(&http.Cookie{Name: "od_session", Value: sessionID})
+	rr := httptest.NewRecorder()
+
+	svc.HandleSignupPage(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("status=%d want %d", rr.Code, http.StatusSeeOther)
+	}
+	if rr.Header().Get("Location") != "/" {
+		t.Fatalf("location=%q want /", rr.Header().Get("Location"))
+	}
+}
+
+func TestHandleLoginPage_AuthenticatedUserRedirectsHome(t *testing.T) {
+	svc, st := newTestService(t)
+	u, err := st.UpsertUser("signed-in-login@example.com", "")
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+	sessionID, err := st.CreateSession(u.ID, time.Hour)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	req.AddCookie(&http.Cookie{Name: "od_session", Value: sessionID})
+	rr := httptest.NewRecorder()
+
+	svc.HandleLoginPage(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("status=%d want %d", rr.Code, http.StatusSeeOther)
+	}
+	if rr.Header().Get("Location") != "/" {
+		t.Fatalf("location=%q want /", rr.Header().Get("Location"))
+	}
+}
+
 func newTestService(t *testing.T) (*Service, *store.Store) {
 	t.Helper()
 	t.Setenv("SES_FROM_EMAIL", "")

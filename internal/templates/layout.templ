@@ -113,6 +113,20 @@ templ Layout(title string, ps store.ParliamentStatus) {
 					flex-wrap: wrap;
 				}
 
+				.nav-actions {
+					display: flex;
+					align-items: center;
+					gap: 0.65rem;
+					flex-wrap: wrap;
+				}
+
+				.auth-actions {
+					display: flex;
+					align-items: center;
+					gap: 0.5rem;
+					flex-wrap: wrap;
+				}
+
 				.input-field,
 				select,
 				input[type="text"] {
@@ -323,8 +337,13 @@ templ Layout(title string, ps store.ParliamentStatus) {
 						padding: 1.2rem;
 					}
 
-					.search-form {
+					.nav-actions {
 						width: 100%;
+					}
+
+					.search-form {
+						flex: 1;
+						min-width: 220px;
 					}
 
 					.search-form input[type="text"] {
@@ -352,11 +371,17 @@ templ Layout(title string, ps store.ParliamentStatus) {
 							<a href="/compare">Compare</a>
 						</div>
 					</div>
-					<form method="GET" action="/riding" class="search-form">
-						<input type="text" name="address" placeholder="Enter your address"
-							class="input-field w-52"/>
-						<button type="submit" class="btn btn-primary">Find My MP</button>
-					</form>
+					<div class="nav-actions">
+						<form method="GET" action="/riding" class="search-form">
+							<input type="text" name="address" placeholder="Enter your address"
+								class="input-field w-52"/>
+							<button type="submit" class="btn btn-primary">Find My MP</button>
+						</form>
+						<div id="auth-actions" class="auth-actions">
+							<a href="/auth/signup" class="btn btn-secondary">Sign Up</a>
+							<a href="/auth/login" class="btn btn-secondary">Login</a>
+						</div>
+					</div>
 				</div>
 			</nav>
 			<!-- Session banner -->
@@ -377,6 +402,29 @@ templ Layout(title string, ps store.ParliamentStatus) {
 				<p>This project is funded by everyday taxpayers who believe in government transparency. Help us keep the lights on - <a href="https://buymeacoffee.com/opendemocracy">Donate here</a>.</p>
 				<p>Open Democracy — Data sourced from the Parliament of Canada Open Data portal</p>
 			</footer>
+			<script>
+				(() => {
+					const authActions = document.getElementById("auth-actions");
+					if (!authActions) {
+						return;
+					}
+
+					fetch("/auth/me", {
+						method: "GET",
+						credentials: "same-origin",
+						headers: {
+							"Accept": "application/json",
+						},
+					}).then((resp) => {
+						if (!resp.ok) {
+							return;
+						}
+						authActions.innerHTML = "<form method=\"POST\" action=\"/auth/logout\"><button type=\"submit\" class=\"btn btn-secondary\">Sign Out</button></form>";
+					}).catch(() => {
+						// Keep default sign up / login buttons when auth check fails.
+					});
+				})();
+			</script>
 		</body>
 	</html>
 }

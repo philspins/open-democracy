@@ -87,6 +87,8 @@ func New(st *store.Store, baseURL string) *Service {
 }
 
 func (s *Service) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /auth/signup", s.HandleSignupPage)
+	mux.HandleFunc("GET /auth/login", s.HandleLoginPage)
 	mux.HandleFunc("POST /auth/request-verification", s.HandleRequestVerification)
 	mux.HandleFunc("POST /auth/verify", s.HandleVerifyEmail)
 	mux.HandleFunc("POST /auth/logout", s.HandleLogout)

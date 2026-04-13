@@ -21,15 +21,21 @@ func (s *Service) SessionUser(r *http.Request) (store.UserRow, bool) {
 	return u, true
 }
 
-func (s *Service) RequireVerifiedEmail(w http.ResponseWriter, email, postalCode string) bool {
-	u, err := s.store.GetUserByEmail(email)
-	if err == nil && u.EmailVerified {
-		return true
+func (s *Service) RequireVerifiedSessionUser(w http.ResponseWriter, r *http.Request) (store.UserRow, bool) {
+	u, ok := s.SessionUser(r)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"authentication_required","message":"sign in to continue"}`))
+		return store.UserRow{}, false
+	}
+	if u.EmailVerified {
+		return u, true
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = w.Write([]byte(`{"error":"email_verification_required","message":"request a verification code via /auth/request-verification"}`))
-	return false
+	return store.UserRow{}, false
 }
 
 func (s *Service) setSessionCookie(w http.ResponseWriter, userID string) error {
