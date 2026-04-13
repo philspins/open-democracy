@@ -89,7 +89,7 @@ func Home(ps store.ParliamentStatus, bills []store.BillRow, divs []store.Divisio
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<section class=\"grid gap-0 md:grid-cols-2 rounded-2xl overflow-hidden border border-gray-200 shadow-lg bg-white/85\"><div class=\"border-r border-gray-200\"><div class=\"px-5 py-3 text-sm font-semibold\" style=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<section class=\"rep-grid\"><div><div class=\"px-5 py-3 text-sm font-semibold\" style=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
