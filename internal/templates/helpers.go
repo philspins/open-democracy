@@ -3,6 +3,8 @@ package templates
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"strings"
@@ -381,6 +383,45 @@ func ReactionPercent(count, total int) int {
 		return 0
 	}
 	return (count * 100) / total
+}
+
+// ReactionPieChartSVG returns an inline SVG donut chart showing the proportions
+// of support (green), oppose (red), and neutral (gray) reactions.
+func ReactionPieChartSVG(support, oppose, neutral, total int) string {
+	const (
+		r  = 40.0
+		cx = 50.0
+		cy = 50.0
+		sw = 20.0 // stroke-width (creates the donut ring)
+	)
+	C := 2 * math.Pi * r // circumference ≈ 251.33
+
+	if total <= 0 {
+		return `<svg viewBox="0 0 100 100" width="120" height="120" aria-hidden="true"><circle cx="50" cy="50" r="40" fill="none" stroke="#e5e7eb" stroke-width="20"/></svg>`
+	}
+
+	supLen := float64(support) / float64(total) * C
+	oppLen := float64(oppose) / float64(total) * C
+	neuLen := float64(neutral) / float64(total) * C
+
+	// Each colored circle starts at a rotation derived from the cumulative
+	// fraction of prior segments (−90° = top of circle).
+	supRot := -90.0
+	oppRot := supRot + float64(support)/float64(total)*360.0
+	neuRot := oppRot + float64(oppose)/float64(total)*360.0
+
+	return fmt.Sprintf(
+		`<svg viewBox="0 0 100 100" width="120" height="120" aria-hidden="true">`+
+			`<circle cx="%.0f" cy="%.0f" r="%.0f" fill="none" stroke="#e5e7eb" stroke-width="%.0f"/>`+
+			`<circle cx="%.0f" cy="%.0f" r="%.0f" fill="none" stroke="#22c55e" stroke-width="%.0f" stroke-dasharray="%.2f %.2f" transform="rotate(%.4f 50 50)"/>`+
+			`<circle cx="%.0f" cy="%.0f" r="%.0f" fill="none" stroke="#ef4444" stroke-width="%.0f" stroke-dasharray="%.2f %.2f" transform="rotate(%.4f 50 50)"/>`+
+			`<circle cx="%.0f" cy="%.0f" r="%.0f" fill="none" stroke="#9ca3af" stroke-width="%.0f" stroke-dasharray="%.2f %.2f" transform="rotate(%.4f 50 50)"/>`+
+			`</svg>`,
+		cx, cy, r, sw,
+		cx, cy, r, sw, supLen, C-supLen, supRot,
+		cx, cy, r, sw, oppLen, C-oppLen, oppRot,
+		cx, cy, r, sw, neuLen, C-neuLen, neuRot,
+	)
 }
 
 // safeExternalURL validates that rawURL has an http or https scheme and returns
