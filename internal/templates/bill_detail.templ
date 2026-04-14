@@ -76,12 +76,12 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 				</div>
 			}
 
-			<!-- Content panels: flex-col on mobile (order-* controls sequence), 2-col grid on sm+ -->
+			<!-- Content panels: flex-col on mobile (order-* controls sequence), 2-col grid on md+ -->
 			<!-- Mobile order: Key Changes → Vibes → Gotchas → Who's Affected -->
-			<!-- Desktop: left col = Key Changes + Who's Affected; right col = Vibes + Gotchas -->
-			<div class="flex flex-col sm:grid sm:grid-cols-2 gap-4 items-start">
+			<!-- Desktop: left col = Key Changes + Who's Affected; right col = Vibes + Gotchas (auto-stacked) -->
+			<div class="flex flex-col md:grid md:grid-cols-2 gap-4 items-start">
 				if len(aiSummary.KeyChanges) > 0 {
-					<div class="panel order-1 sm:col-start-1 sm:row-start-1">
+					<div class="panel order-1 md:col-start-1">
 						<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Key Changes</p>
 						<ul class="list-disc list-inside space-y-1">
 							for _, item := range aiSummary.KeyChanges {
@@ -91,7 +91,7 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 					</div>
 				}
 				<!-- Vibes — top of right column on desktop, second on mobile -->
-				<div class="panel order-2 sm:col-start-2 sm:row-start-1">
+				<div class="panel order-2 md:col-start-2">
 					<h2 class="text-sm font-semibold uppercase tracking-wide mb-3" style="color:var(--ink-700)">Vibes</h2>
 					<div class="flex gap-4 items-center">
 						<!-- Pie chart -->
@@ -138,7 +138,7 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 					</div>
 				</div>
 				if len(aiSummary.NotableConsiderations) > 0 {
-					<div class="panel order-3 sm:col-start-2 sm:row-start-2">
+					<div class="panel order-3 md:col-start-2">
 						<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Gotchas</p>
 						<ul class="list-disc list-inside space-y-1">
 							for _, item := range aiSummary.NotableConsiderations {
@@ -148,7 +148,7 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 					</div>
 				}
 				if len(aiSummary.WhoIsAffected) > 0 {
-					<div class="panel order-4 sm:col-start-1 sm:row-start-2">
+					<div class="panel order-4 md:col-start-1">
 						<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Who&#39;s Affected</p>
 						<ul class="list-disc list-inside space-y-1">
 							for _, item := range aiSummary.WhoIsAffected {
