@@ -32,7 +32,7 @@ templ VotesFeed(ps store.ParliamentStatus, divs []store.DivisionRow, total int, 
 								<td class="px-4 py-2 text-gray-500 whitespace-nowrap">{ FormatDate(d.Date) }</td>
 								<td class="px-4 py-2 max-w-sm truncate">
 									if d.BillID != "" {
-										<a href={ templ.SafeURL("/bills/" + d.BillID) } class="hover:underline hover:text-blue-700">{ d.Description }</a>
+										<a href={ templ.SafeURL("/bills/" + d.BillID) } class="text-blue-700 hover:underline">{ d.Description }</a>
 									} else {
 										{ d.Description }
 									}

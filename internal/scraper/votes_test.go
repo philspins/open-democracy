@@ -80,6 +80,21 @@ func TestCrawlVotesIndex_ParsesFirstDivision(t *testing.T) {
 	}
 }
 
+func TestCrawlVotesIndex_ExtractsBillNumberFromDescription(t *testing.T) {
+	srv := newTestServer(sampleVotesHTML)
+	defer srv.Close()
+
+	divs, _ := scraper.CrawlVotesIndex(srv.URL, 45, 1, srv.Client())
+	// First row: description "Motion on C-47" → BillNumber should be "C-47"
+	if divs[0].BillNumber != "C-47" {
+		t.Errorf("divs[0].BillNumber=%q want C-47", divs[0].BillNumber)
+	}
+	// Second row: description "Motion on S-209" → BillNumber should be "S-209"
+	if divs[1].BillNumber != "S-209" {
+		t.Errorf("divs[1].BillNumber=%q want S-209", divs[1].BillNumber)
+	}
+}
+
 func TestCrawlVotesIndex_ErrorOnBadServer(t *testing.T) {
 	_, err := scraper.CrawlVotesIndex("http://localhost:0/no-server", 45, 1, nil)
 	if err == nil {

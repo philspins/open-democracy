@@ -94,6 +94,14 @@ func CrawlSenateVotesIndex(
 
 		result := strings.TrimSpace(cols.Eq(3).Text())
 
+		// Col 2 contains the bill number as text (e.g. "S-209"), optionally linked.
+		billNumber := strings.TrimSpace(cols.Eq(2).Text())
+		// Normalize multi-line/whitespace and validate it looks like a bill number.
+		billNumber = strings.Join(strings.Fields(billNumber), "")
+		if utils.ExtractBillNumber(billNumber) == "" {
+			billNumber = ""
+		}
+
 		// Extract vote detail URL from the .vote-web-title-link anchor in col 1.
 		var detailURL string
 		if href, ok := col1.Find(".vote-web-title-link").Attr("href"); ok && href != "" {
@@ -112,6 +120,7 @@ func CrawlSenateVotesIndex(
 			Session:     session,
 			Number:      num,
 			Date:        date,
+			BillNumber:  billNumber,
 			Description: description,
 			Yeas:        yeas,
 			Nays:        nays,

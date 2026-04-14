@@ -33,6 +33,7 @@ type DivisionStub struct {
 	Session     int
 	Number      int
 	Date        string
+	BillNumber  string
 	Description string
 	Yeas        int
 	Nays        int
@@ -117,6 +118,13 @@ func CrawlVotesIndex(
 			date = utils.FindDateInText(strings.TrimSpace(cols.Eq(5).Text()))
 		}
 
+		// Extract bill number: first check col 1 (which may contain just a bill
+		// number like "C-47" on some sites), then fall back to the description.
+		billNumber := utils.ExtractBillNumber(strings.TrimSpace(cols.Eq(1).Text()))
+		if billNumber == "" {
+			billNumber = utils.ExtractBillNumber(description)
+		}
+
 		// Detail link
 		var detailURL string
 		row.Find("a[href*='votes']").Each(func(_ int, a *goquery.Selection) {
@@ -137,6 +145,7 @@ func CrawlVotesIndex(
 			Session:     session,
 			Number:      num,
 			Date:        date,
+			BillNumber:  billNumber,
 			Description: description,
 			Yeas:        yeas,
 			Nays:        nays,
