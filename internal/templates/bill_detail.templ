@@ -101,19 +101,36 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 						</div>
 					}
 				</div>
-				<!-- Right column: Constituent Sentiment (top), Notable Considerations -->
+				<!-- Right column: Vibes (top), Gotchas -->
 				<div class="space-y-3">
-					<!-- Constituent Sentiment -->
+					<!-- Vibes -->
 					<div class="bg-white rounded-lg border border-gray-200 p-4">
-						<h2 class="text-sm font-semibold uppercase tracking-wide mb-3" style="color:var(--ink-700)">Constituent Sentiment</h2>
+						<h2 class="text-sm font-semibold uppercase tracking-wide mb-3" style="color:var(--ink-700)">Vibes</h2>
 						<div class="flex gap-4 items-center">
 							<!-- Pie chart -->
 							<div class="flex flex-col items-center gap-1 shrink-0">
 								@templ.Raw(ReactionPieChartSVG(reactions.SupportCount, reactions.OpposeCount, reactions.NeutralCount, reactions.TotalReactions))
-								<p class="text-xs" style="color:var(--ink-500)">{ fmt.Sprint(reactions.TotalReactions) } responses</p>
+								<div class="flex items-center gap-1">
+									<p class="text-xs" style="color:var(--ink-500)">{ fmt.Sprint(reactions.TotalReactions) } responses</p>
+									<form method="POST" action="/api/react" class="inline">
+										<input type="hidden" name="bill_id" value={ bill.ID }/>
+										<input type="hidden" name="reaction" value="support"/>
+										<button type="submit" title="Support" class="text-base hover:scale-110 transition-transform" aria-label="Support this bill">👍</button>
+									</form>
+									<form method="POST" action="/api/react" class="inline">
+										<input type="hidden" name="bill_id" value={ bill.ID }/>
+										<input type="hidden" name="reaction" value="neutral"/>
+										<button type="submit" title="Neutral" class="text-base hover:scale-110 transition-transform" aria-label="Neutral on this bill">🤔</button>
+									</form>
+									<form method="POST" action="/api/react" class="inline">
+										<input type="hidden" name="bill_id" value={ bill.ID }/>
+										<input type="hidden" name="reaction" value="oppose"/>
+										<button type="submit" title="Oppose" class="text-base hover:scale-110 transition-transform" aria-label="Oppose this bill">👎</button>
+									</form>
+								</div>
 							</div>
-							<!-- Legend & buttons -->
-							<div class="flex-1 space-y-3">
+							<!-- Legend -->
+							<div class="flex-1">
 								<div class="space-y-1 text-sm">
 									<div class="flex items-center gap-2">
 										<span class="inline-block w-3 h-3 rounded-full bg-green-500 shrink-0"></span>
@@ -131,29 +148,12 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 										<span class="ml-auto font-medium" style="color:var(--ink-900)">{ fmt.Sprint(reactions.NeutralCount) }</span>
 									</div>
 								</div>
-								<div class="flex items-center gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
-									<form method="POST" action="/api/react" class="inline">
-										<input type="hidden" name="bill_id" value={ bill.ID }/>
-										<input type="hidden" name="reaction" value="support"/>
-										<button type="submit" title="Support" class="text-2xl hover:scale-110 transition-transform" aria-label="Support this bill">👍</button>
-									</form>
-									<form method="POST" action="/api/react" class="inline">
-										<input type="hidden" name="bill_id" value={ bill.ID }/>
-										<input type="hidden" name="reaction" value="neutral"/>
-										<button type="submit" title="Neutral" class="text-2xl hover:scale-110 transition-transform" aria-label="Neutral on this bill">🤔</button>
-									</form>
-									<form method="POST" action="/api/react" class="inline">
-										<input type="hidden" name="bill_id" value={ bill.ID }/>
-										<input type="hidden" name="reaction" value="oppose"/>
-										<button type="submit" title="Oppose" class="text-2xl hover:scale-110 transition-transform" aria-label="Oppose this bill">👎</button>
-									</form>
-								</div>
 							</div>
 						</div>
 					</div>
 					if len(aiSummary.NotableConsiderations) > 0 {
 						<div class="panel">
-							<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Notable Considerations</p>
+							<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Gotchas</p>
 							<ul class="list-disc list-inside space-y-1">
 								for _, item := range aiSummary.NotableConsiderations {
 									<li class="text-sm">{ item }</li>
@@ -164,10 +164,10 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 				</div>
 			</div>
 
-			<!-- Overview — full width below the 2-column grid -->
+			<!-- Summary — full width below the 2-column grid -->
 			if aiSummary.PlainSummary != "" {
 				<div class="panel">
-					<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Overview</p>
+					<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Summary</p>
 					<p class="text-sm">{ aiSummary.PlainSummary }</p>
 				</div>
 			}
