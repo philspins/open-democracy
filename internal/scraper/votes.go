@@ -76,30 +76,45 @@ func CrawlVotesIndex(
 		return nil, fmt.Errorf("votes index: no table found on %s", url)
 	}
 
+	nonDigitRe := regexp.MustCompile(`\D`)
+
 	var divs []DivisionStub
 	table.Find("tbody tr").Each(func(_ int, row *goquery.Selection) {
 		cols := row.Find("td")
-		if cols.Length() < 4 {
+		// Actual ourcommons.ca column order (6 columns):
+		// 0: vote number  1: bill type (optional)  2: description
+		// 3: "Yeas / Nays / Paired"  4: result (with icon)  5: date
+		if cols.Length() < 5 {
 			return
 		}
 
-		numText := strings.TrimSpace(regexp.MustCompile(`\D`).ReplaceAllString(cols.Eq(0).Text(), ""))
+		numText := strings.TrimSpace(nonDigitRe.ReplaceAllString(cols.Eq(0).Text(), ""))
 		if numText == "" {
 			return
 		}
 		num, _ := strconv.Atoi(numText)
 
-		date := utils.ParseDate(strings.TrimSpace(cols.Eq(1).Text()))
 		description := strings.TrimSpace(cols.Eq(2).Text())
-		yeas, _ := strconv.Atoi(strings.TrimSpace(regexp.MustCompile(`\D`).ReplaceAllString(cols.Eq(3).Text(), "")))
 
-		nays := 0
-		if cols.Length() > 4 {
-			nays, _ = strconv.Atoi(strings.TrimSpace(regexp.MustCompile(`\D`).ReplaceAllString(cols.Eq(4).Text(), "")))
+		// Col 3 contains "Yeas / Nays / Paired" — split on "/"
+		yeas, nays, paired := 0, 0, 0
+		voteParts := strings.Split(cols.Eq(3).Text(), "/")
+		if len(voteParts) >= 1 {
+			yeas, _ = strconv.Atoi(strings.TrimSpace(nonDigitRe.ReplaceAllString(voteParts[0], "")))
 		}
-		result := ""
+		if len(voteParts) >= 2 {
+			nays, _ = strconv.Atoi(strings.TrimSpace(nonDigitRe.ReplaceAllString(voteParts[1], "")))
+		}
+		if len(voteParts) >= 3 {
+			paired, _ = strconv.Atoi(strings.TrimSpace(nonDigitRe.ReplaceAllString(voteParts[2], "")))
+		}
+
+		result := strings.TrimSpace(cols.Eq(4).Text())
+
+		// Col 5: date formatted as "Wednesday, March 25, 2026"
+		date := ""
 		if cols.Length() > 5 {
-			result = strings.TrimSpace(cols.Eq(5).Text())
+			date = utils.FindDateInText(strings.TrimSpace(cols.Eq(5).Text()))
 		}
 
 		// Detail link
@@ -125,7 +140,7 @@ func CrawlVotesIndex(
 			Description: description,
 			Yeas:        yeas,
 			Nays:        nays,
-			Paired:      0,
+			Paired:      paired,
 			Result:      result,
 			Chamber:     "commons",
 			DetailURL:   detailURL,

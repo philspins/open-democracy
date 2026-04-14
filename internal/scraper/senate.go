@@ -47,48 +47,62 @@ func CrawlSenateVotesIndex(
 		return nil, fmt.Errorf("senate votes index: no table found on %s", url)
 	}
 
-	nonDigitRe := regexp.MustCompile(`\D`)
+	yeaRe := regexp.MustCompile(`Yeas:\s*(\d+)`)
+	nayRe := regexp.MustCompile(`Nays:\s*(\d+)`)
 
 	var divs []DivisionStub
 	table.Find("tbody tr").Each(func(_ int, row *goquery.Selection) {
 		cols := row.Find("td")
-		if cols.Length() < 3 {
+		// Actual sencanada.ca column order (4 columns):
+		// 0: date (ISO "2025-12-04"), data-order ends with sequential vote number
+		// 1: description link + "Yeas: N | Nays: N | Abstentions: N | Total: N"
+		// 2: bill number (optional link)
+		// 3: result ("Defeated" / "Adopted")
+		if cols.Length() < 4 {
 			return
 		}
 
-		numText := strings.TrimSpace(nonDigitRe.ReplaceAllString(cols.Eq(0).Text(), ""))
-		if numText == "" {
+		// Extract sequential vote number from the data-order attribute of col 0.
+		// The attribute is formatted as "YYYY-MM-DD HH:MM:SS N" where N is the vote number.
+		dataOrder, _ := cols.Eq(0).Attr("data-order")
+		dataOrderParts := strings.Fields(dataOrder)
+		if len(dataOrderParts) == 0 {
 			return
 		}
-		num, _ := strconv.Atoi(numText)
+		num, err := strconv.Atoi(dataOrderParts[len(dataOrderParts)-1])
+		if err != nil || num <= 0 {
+			return
+		}
 
-		date := utils.ParseDate(strings.TrimSpace(cols.Eq(1).Text()))
-		description := strings.TrimSpace(cols.Eq(2).Text())
+		date := utils.ParseDate(strings.TrimSpace(cols.Eq(0).Text()))
 
+		col1 := cols.Eq(1)
+		description := strings.TrimSpace(col1.Find(".vote-web-title-link").Text())
+		if description == "" {
+			description = strings.TrimSpace(col1.Find("a").First().Text())
+		}
+
+		col1Text := col1.Text()
 		yeas := 0
-		if cols.Length() > 3 {
-			yeas, _ = strconv.Atoi(strings.TrimSpace(nonDigitRe.ReplaceAllString(cols.Eq(3).Text(), "")))
+		if m := yeaRe.FindStringSubmatch(col1Text); len(m) > 1 {
+			yeas, _ = strconv.Atoi(m[1])
 		}
 		nays := 0
-		if cols.Length() > 4 {
-			nays, _ = strconv.Atoi(strings.TrimSpace(nonDigitRe.ReplaceAllString(cols.Eq(4).Text(), "")))
-		}
-		result := ""
-		if cols.Length() > 5 {
-			result = strings.TrimSpace(cols.Eq(5).Text())
+		if m := nayRe.FindStringSubmatch(col1Text); len(m) > 1 {
+			nays, _ = strconv.Atoi(m[1])
 		}
 
+		result := strings.TrimSpace(cols.Eq(3).Text())
+
+		// Extract vote detail URL from the .vote-web-title-link anchor in col 1.
 		var detailURL string
-		row.Find("a").Each(func(_ int, a *goquery.Selection) {
-			if detailURL == "" {
-				href, _ := a.Attr("href")
-				if strings.HasPrefix(href, "http") {
-					detailURL = href
-				} else if href != "" {
-					detailURL = SenateSiteBase + href
-				}
+		if href, ok := col1.Find(".vote-web-title-link").Attr("href"); ok && href != "" {
+			if strings.HasPrefix(href, "http") {
+				detailURL = href
+			} else {
+				detailURL = SenateSiteBase + href
 			}
-		})
+		}
 
 		divID := fmt.Sprintf("senate-%s", utils.DivisionID(parliament, session, num))
 
