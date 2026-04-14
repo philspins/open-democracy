@@ -291,7 +291,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<!-- Main 2-column grid: summary lists (left) + sentiment & more (right) --><div class=\"grid sm:grid-cols-2 gap-4 items-start\"><!-- Left column: Key Changes (top), Estimated Cost (below if present) --><div class=\"space-y-3\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<!-- Main 2-column grid: summary lists (left) + sentiment & more (right) --><div class=\"grid sm:grid-cols-2 gap-4 items-start\"><!-- Left column: Key Changes (top), Who's Affected (below if present) --><div class=\"space-y-3\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -324,26 +324,36 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					return templ_7745c5c3_Err
 				}
 			}
-			if aiSummary.EstimatedCost != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<div class=\"panel\"><p class=\"text-xs font-semibold uppercase tracking-wide mb-1\" style=\"color:var(--ink-500)\">Estimated Cost</p><p class=\"text-sm\">")
+			if len(aiSummary.WhoIsAffected) > 0 {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<div class=\"panel\"><p class=\"text-xs font-semibold uppercase tracking-wide mb-2\" style=\"color:var(--ink-500)\">Who&#39;s Affected</p><ul class=\"list-disc list-inside space-y-1\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var17 string
-				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(aiSummary.EstimatedCost)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 96, Col: 51}
+				for _, item := range aiSummary.WhoIsAffected {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "<li class=\"text-sm\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var17 string
+					templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(item)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 98, Col: 35}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</li>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "</p></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "</ul></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</div><!-- Right column: Constituent Sentiment (top), Notable Considerations, Who's Affected --><div class=\"space-y-3\"><!-- Constituent Sentiment --><div class=\"bg-white rounded-lg border border-gray-200 p-4\"><h2 class=\"text-sm font-semibold uppercase tracking-wide mb-3\" style=\"color:var(--ink-700)\">Constituent Sentiment</h2><div class=\"flex gap-4 items-center\"><!-- Pie chart --><div class=\"flex flex-col items-center gap-1 shrink-0\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "</div><!-- Right column: Constituent Sentiment (top), Notable Considerations --><div class=\"space-y-3\"><!-- Constituent Sentiment --><div class=\"bg-white rounded-lg border border-gray-200 p-4\"><h2 class=\"text-sm font-semibold uppercase tracking-wide mb-3\" style=\"color:var(--ink-700)\">Constituent Sentiment</h2><div class=\"flex gap-4 items-center\"><!-- Pie chart --><div class=\"flex flex-col items-center gap-1 shrink-0\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -351,331 +361,302 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<p class=\"text-xs\" style=\"color:var(--ink-500)\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "<p class=\"text-xs\" style=\"color:var(--ink-500)\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var18 string
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(reactions.TotalReactions))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 109, Col: 94}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 113, Col: 94}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, " responses</p></div><!-- Legend & buttons --><div class=\"flex-1 space-y-3\"><div class=\"space-y-1 text-sm\"><div class=\"flex items-center gap-2\"><span class=\"inline-block w-3 h-3 rounded-full bg-green-500 shrink-0\"></span> <span style=\"color:var(--ink-700)\">Support</span> <span class=\"ml-auto font-medium\" style=\"color:var(--ink-900)\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, " responses</p></div><!-- Legend & buttons --><div class=\"flex-1 space-y-3\"><div class=\"space-y-1 text-sm\"><div class=\"flex items-center gap-2\"><span class=\"inline-block w-3 h-3 rounded-full bg-green-500 shrink-0\"></span> <span style=\"color:var(--ink-700)\">Support</span> <span class=\"ml-auto font-medium\" style=\"color:var(--ink-900)\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var19 string
 			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(reactions.SupportCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 117, Col: 109}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 121, Col: 109}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</span></div><div class=\"flex items-center gap-2\"><span class=\"inline-block w-3 h-3 rounded-full bg-red-500 shrink-0\"></span> <span style=\"color:var(--ink-700)\">Oppose</span> <span class=\"ml-auto font-medium\" style=\"color:var(--ink-900)\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "</span></div><div class=\"flex items-center gap-2\"><span class=\"inline-block w-3 h-3 rounded-full bg-red-500 shrink-0\"></span> <span style=\"color:var(--ink-700)\">Oppose</span> <span class=\"ml-auto font-medium\" style=\"color:var(--ink-900)\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(reactions.OpposeCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 122, Col: 108}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 126, Col: 108}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "</span></div><div class=\"flex items-center gap-2\"><span class=\"inline-block w-3 h-3 rounded-full bg-gray-400 shrink-0\"></span> <span style=\"color:var(--ink-700)\">Neutral</span> <span class=\"ml-auto font-medium\" style=\"color:var(--ink-900)\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "</span></div><div class=\"flex items-center gap-2\"><span class=\"inline-block w-3 h-3 rounded-full bg-gray-400 shrink-0\"></span> <span style=\"color:var(--ink-700)\">Neutral</span> <span class=\"ml-auto font-medium\" style=\"color:var(--ink-900)\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var21 string
 			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(reactions.NeutralCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 127, Col: 109}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 131, Col: 109}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "</span></div></div><div class=\"flex items-center gap-3 pt-2 border-t border-gray-100 dark:border-gray-700\"><form method=\"POST\" action=\"/api/react\" class=\"inline\"><input type=\"hidden\" name=\"bill_id\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "</span></div></div><div class=\"flex items-center gap-3 pt-2 border-t border-gray-100 dark:border-gray-700\"><form method=\"POST\" action=\"/api/react\" class=\"inline\"><input type=\"hidden\" name=\"bill_id\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(bill.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 132, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 136, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "\"> <input type=\"hidden\" name=\"reaction\" value=\"support\"> <button type=\"submit\" title=\"Support\" class=\"text-2xl hover:scale-110 transition-transform\" aria-label=\"Support this bill\">👍</button></form><form method=\"POST\" action=\"/api/react\" class=\"inline\"><input type=\"hidden\" name=\"bill_id\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "\"> <input type=\"hidden\" name=\"reaction\" value=\"support\"> <button type=\"submit\" title=\"Support\" class=\"text-2xl hover:scale-110 transition-transform\" aria-label=\"Support this bill\">👍</button></form><form method=\"POST\" action=\"/api/react\" class=\"inline\"><input type=\"hidden\" name=\"bill_id\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(bill.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 137, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 141, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "\"> <input type=\"hidden\" name=\"reaction\" value=\"neutral\"> <button type=\"submit\" title=\"Neutral\" class=\"text-2xl hover:scale-110 transition-transform\" aria-label=\"Neutral on this bill\">🤔</button></form><form method=\"POST\" action=\"/api/react\" class=\"inline\"><input type=\"hidden\" name=\"bill_id\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "\"> <input type=\"hidden\" name=\"reaction\" value=\"neutral\"> <button type=\"submit\" title=\"Neutral\" class=\"text-2xl hover:scale-110 transition-transform\" aria-label=\"Neutral on this bill\">🤔</button></form><form method=\"POST\" action=\"/api/react\" class=\"inline\"><input type=\"hidden\" name=\"bill_id\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var24 string
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(bill.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 142, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 146, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "\"> <input type=\"hidden\" name=\"reaction\" value=\"oppose\"> <button type=\"submit\" title=\"Oppose\" class=\"text-2xl hover:scale-110 transition-transform\" aria-label=\"Oppose this bill\">👎</button></form></div></div></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "\"> <input type=\"hidden\" name=\"reaction\" value=\"oppose\"> <button type=\"submit\" title=\"Oppose\" class=\"text-2xl hover:scale-110 transition-transform\" aria-label=\"Oppose this bill\">👎</button></form></div></div></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if len(aiSummary.NotableConsiderations) > 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<div class=\"panel\"><p class=\"text-xs font-semibold uppercase tracking-wide mb-2\" style=\"color:var(--ink-500)\">Notable Considerations</p><ul class=\"list-disc list-inside space-y-1\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "<div class=\"panel\"><p class=\"text-xs font-semibold uppercase tracking-wide mb-2\" style=\"color:var(--ink-500)\">Notable Considerations</p><ul class=\"list-disc list-inside space-y-1\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				for _, item := range aiSummary.NotableConsiderations {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<li class=\"text-sm\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "<li class=\"text-sm\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var25 string
 					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(item)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 155, Col: 35}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 159, Col: 35}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "</li>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "</li>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "</ul></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "</ul></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			if len(aiSummary.WhoIsAffected) > 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "<div class=\"panel\"><p class=\"text-xs font-semibold uppercase tracking-wide mb-2\" style=\"color:var(--ink-500)\">Who&#39;s Affected</p><ul class=\"list-disc list-inside space-y-1\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				for _, item := range aiSummary.WhoIsAffected {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<li class=\"text-sm\">")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var26 string
-					templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(item)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 165, Col: 35}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "</li>")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "</ul></div>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "</div></div><!-- Overview — full width below the 2-column grid -->")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "</div></div><!-- Overview — full width below the 2-column grid -->")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if aiSummary.PlainSummary != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "<div class=\"panel\"><p class=\"text-xs font-semibold uppercase tracking-wide mb-2\" style=\"color:var(--ink-500)\">Overview</p><p class=\"text-sm\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<div class=\"panel\"><p class=\"text-xs font-semibold uppercase tracking-wide mb-2\" style=\"color:var(--ink-500)\">Overview</p><p class=\"text-sm\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var27 string
-				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(aiSummary.PlainSummary)
+				var templ_7745c5c3_Var26 string
+				templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(aiSummary.PlainSummary)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 177, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 171, Col: 48}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "</p></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "</p></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 			if bill.SummaryAI != "" || bill.SummaryLoP != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<p class=\"text-xs text-gray-400 dark:text-gray-500 -mt-4\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "<p class=\"text-xs text-gray-400 dark:text-gray-500 -mt-4\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if bill.SummaryLoP != "" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "Source: Library of Parliament")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "Source: Library of Parliament")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "Automatically generated from bill text using Claude")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "Automatically generated from bill text using Claude")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<!-- External links --><div class=\"flex gap-4\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "<!-- External links --><div class=\"flex gap-4\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if bill.LegisInfoURL != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "<a href=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "<a href=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var28 templ.SafeURL
-				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(bill.LegisInfoURL))
+				var templ_7745c5c3_Var27 templ.SafeURL
+				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(bill.LegisInfoURL))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 193, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 187, Col: 47}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "\" target=\"_blank\" rel=\"noopener\" class=\"text-sm text-blue-600 hover:underline\">LEGISinfo →</a> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "\" target=\"_blank\" rel=\"noopener\" class=\"text-sm text-blue-600 hover:underline\">LEGISinfo →</a> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 			if bill.FullTextURL != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "<a href=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "<a href=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var29 templ.SafeURL
-				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(bill.FullTextURL))
+				var templ_7745c5c3_Var28 templ.SafeURL
+				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(bill.FullTextURL))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 197, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 191, Col: 46}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "\" target=\"_blank\" rel=\"noopener\" class=\"text-sm text-blue-600 hover:underline\">Full Text →</a>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "\" target=\"_blank\" rel=\"noopener\" class=\"text-sm text-blue-600 hover:underline\">Full Text →</a>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "</div><!-- Divisions -->")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "</div><!-- Divisions -->")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if len(divs) > 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "<section><h2 class=\"text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3\">Recorded Votes</h2><div class=\"overflow-x-auto\"><table class=\"min-w-full text-sm\"><thead><tr class=\"bg-gray-50 dark:bg-gray-800/50 text-left text-xs text-gray-500 dark:text-gray-400\"><th class=\"px-3 py-2\">Date</th><th class=\"px-3 py-2\">Description</th><th class=\"px-3 py-2 text-right\">Yeas</th><th class=\"px-3 py-2 text-right\">Nays</th><th class=\"px-3 py-2\">Result</th></tr></thead> <tbody class=\"divide-y divide-gray-100 dark:divide-gray-700\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "<section><h2 class=\"text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3\">Recorded Votes</h2><div class=\"overflow-x-auto\"><table class=\"min-w-full text-sm\"><thead><tr class=\"bg-gray-50 dark:bg-gray-800/50 text-left text-xs text-gray-500 dark:text-gray-400\"><th class=\"px-3 py-2\">Date</th><th class=\"px-3 py-2\">Description</th><th class=\"px-3 py-2 text-right\">Yeas</th><th class=\"px-3 py-2 text-right\">Nays</th><th class=\"px-3 py-2\">Result</th></tr></thead> <tbody class=\"divide-y divide-gray-100 dark:divide-gray-700\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				for _, d := range divs {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "<tr class=\"hover:bg-gray-50 dark:hover:bg-gray-800/30\"><td class=\"px-3 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "<tr class=\"hover:bg-gray-50 dark:hover:bg-gray-800/30\"><td class=\"px-3 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var29 string
+					templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(FormatDate(d.Date))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 214, Col: 103}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "</td><td class=\"px-3 py-2 dark:text-gray-300\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var30 string
-					templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(FormatDate(d.Date))
+					templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(d.Description)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 220, Col: 103}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 215, Col: 66}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "</td><td class=\"px-3 py-2 dark:text-gray-300\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "</td><td class=\"px-3 py-2 text-right text-green-600 font-medium\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var31 string
-					templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(d.Description)
+					templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(d.Yeas))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 221, Col: 66}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 216, Col: 90}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "</td><td class=\"px-3 py-2 text-right text-green-600 font-medium\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "</td><td class=\"px-3 py-2 text-right text-red-600 font-medium\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var32 string
-					templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(d.Yeas))
+					templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(d.Nays))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 222, Col: 90}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 217, Col: 88}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "</td><td class=\"px-3 py-2 text-right text-red-600 font-medium\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "</td><td class=\"px-3 py-2 text-gray-600 dark:text-gray-400\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var33 string
-					templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(d.Nays))
+					templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(d.Result)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 223, Col: 88}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 218, Col: 75}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "</td><td class=\"px-3 py-2 text-gray-600 dark:text-gray-400\">")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var34 string
-					templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(d.Result)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/templates/bill_detail.templ`, Line: 224, Col: 75}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "</td></tr>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "</td></tr>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "</tbody></table></div></section>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "</tbody></table></div></section>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

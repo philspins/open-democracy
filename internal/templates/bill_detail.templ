@@ -78,7 +78,7 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 
 			<!-- Main 2-column grid: summary lists (left) + sentiment & more (right) -->
 			<div class="grid sm:grid-cols-2 gap-4 items-start">
-				<!-- Left column: Key Changes (top), Estimated Cost (below if present) -->
+				<!-- Left column: Key Changes (top), Who's Affected (below if present) -->
 				<div class="space-y-3">
 					if len(aiSummary.KeyChanges) > 0 {
 						<div class="panel">
@@ -90,14 +90,18 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 							</ul>
 						</div>
 					}
-					if aiSummary.EstimatedCost != "" {
+					if len(aiSummary.WhoIsAffected) > 0 {
 						<div class="panel">
-							<p class="text-xs font-semibold uppercase tracking-wide mb-1" style="color:var(--ink-500)">Estimated Cost</p>
-							<p class="text-sm">{ aiSummary.EstimatedCost }</p>
+							<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Who&#39;s Affected</p>
+							<ul class="list-disc list-inside space-y-1">
+								for _, item := range aiSummary.WhoIsAffected {
+									<li class="text-sm">{ item }</li>
+								}
+							</ul>
 						</div>
 					}
 				</div>
-				<!-- Right column: Constituent Sentiment (top), Notable Considerations, Who's Affected -->
+				<!-- Right column: Constituent Sentiment (top), Notable Considerations -->
 				<div class="space-y-3">
 					<!-- Constituent Sentiment -->
 					<div class="bg-white rounded-lg border border-gray-200 p-4">
@@ -152,16 +156,6 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 							<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Notable Considerations</p>
 							<ul class="list-disc list-inside space-y-1">
 								for _, item := range aiSummary.NotableConsiderations {
-									<li class="text-sm">{ item }</li>
-								}
-							</ul>
-						</div>
-					}
-					if len(aiSummary.WhoIsAffected) > 0 {
-						<div class="panel">
-							<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Who&#39;s Affected</p>
-							<ul class="list-disc list-inside space-y-1">
-								for _, item := range aiSummary.WhoIsAffected {
 									<li class="text-sm">{ item }</li>
 								}
 							</ul>
