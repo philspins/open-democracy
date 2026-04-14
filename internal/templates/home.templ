@@ -98,7 +98,11 @@ templ Home(ps store.ParliamentStatus, bills []store.BillRow, divs []store.Divisi
 										<tr>
 											<td class="px-4 py-2 text-gray-500 whitespace-nowrap">{ FormatDate(d.Date) }</td>
 											<td class="px-4 py-2">
-												<p class="font-medium text-gray-800 truncate max-w-xs">{ d.Description }</p>
+												if d.BillID != "" {
+													<a href={ templ.SafeURL("/bills/" + d.BillID) } class="font-medium text-gray-800 truncate max-w-xs hover:underline hover:text-blue-700 block">{ d.Description }</a>
+												} else {
+													<p class="font-medium text-gray-800 truncate max-w-xs">{ d.Description }</p>
+												}
 												if d.BillNumber != "" {
 													<a href={ templ.SafeURL("/bills/" + d.BillID) } class="font-mono text-blue-700 text-xs hover:underline">{ d.BillNumber }</a>
 												}
