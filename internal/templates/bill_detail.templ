@@ -110,44 +110,43 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 							<!-- Pie chart -->
 							<div class="flex flex-col items-center gap-1 shrink-0">
 								@templ.Raw(ReactionPieChartSVG(reactions.SupportCount, reactions.OpposeCount, reactions.NeutralCount, reactions.TotalReactions))
-								<div class="flex items-center gap-1">
-									<p class="text-xs" style="color:var(--ink-500)">{ fmt.Sprint(reactions.TotalReactions) } responses</p>
-									<form method="POST" action="/api/react" class="inline">
-										<input type="hidden" name="bill_id" value={ bill.ID }/>
-										<input type="hidden" name="reaction" value="support"/>
-										<button type="submit" title="Support" class="text-base hover:scale-110 transition-transform" aria-label="Support this bill">👍</button>
-									</form>
-									<form method="POST" action="/api/react" class="inline">
-										<input type="hidden" name="bill_id" value={ bill.ID }/>
-										<input type="hidden" name="reaction" value="neutral"/>
-										<button type="submit" title="Neutral" class="text-base hover:scale-110 transition-transform" aria-label="Neutral on this bill">🤔</button>
-									</form>
-									<form method="POST" action="/api/react" class="inline">
-										<input type="hidden" name="bill_id" value={ bill.ID }/>
-										<input type="hidden" name="reaction" value="oppose"/>
-										<button type="submit" title="Oppose" class="text-base hover:scale-110 transition-transform" aria-label="Oppose this bill">👎</button>
-									</form>
-								</div>
+								<p class="text-xs" style="color:var(--ink-500)">{ fmt.Sprint(reactions.TotalReactions) } responses</p>
 							</div>
 							<!-- Legend -->
-							<div class="flex-1">
-								<div class="space-y-1 text-sm">
-									<div class="flex items-center gap-2">
-										<span class="inline-block w-3 h-3 rounded-full bg-green-500 shrink-0"></span>
-										<span style="color:var(--ink-700)">Support</span>
-										<span class="ml-auto font-medium" style="color:var(--ink-900)">{ fmt.Sprint(reactions.SupportCount) }</span>
-									</div>
-									<div class="flex items-center gap-2">
-										<span class="inline-block w-3 h-3 rounded-full bg-red-500 shrink-0"></span>
-										<span style="color:var(--ink-700)">Oppose</span>
-										<span class="ml-auto font-medium" style="color:var(--ink-900)">{ fmt.Sprint(reactions.OpposeCount) }</span>
-									</div>
-									<div class="flex items-center gap-2">
-										<span class="inline-block w-3 h-3 rounded-full bg-gray-400 shrink-0"></span>
-										<span style="color:var(--ink-700)">Neutral</span>
-										<span class="ml-auto font-medium" style="color:var(--ink-900)">{ fmt.Sprint(reactions.NeutralCount) }</span>
-									</div>
+							<div class="flex-1 space-y-1 text-sm">
+								<div class="flex items-center gap-2">
+									<span class="inline-block w-3 h-3 rounded-full bg-green-500 shrink-0"></span>
+									<span style="color:var(--ink-700)">Support</span>
+									<span class="ml-auto font-medium" style="color:var(--ink-900)">{ fmt.Sprint(reactions.SupportCount) }</span>
 								</div>
+								<div class="flex items-center gap-2">
+									<span class="inline-block w-3 h-3 rounded-full bg-gray-400 shrink-0"></span>
+									<span style="color:var(--ink-700)">Neutral</span>
+									<span class="ml-auto font-medium" style="color:var(--ink-900)">{ fmt.Sprint(reactions.NeutralCount) }</span>
+								</div>
+								<div class="flex items-center gap-2">
+									<span class="inline-block w-3 h-3 rounded-full bg-red-500 shrink-0"></span>
+									<span style="color:var(--ink-700)">Oppose</span>
+									<span class="ml-auto font-medium" style="color:var(--ink-900)">{ fmt.Sprint(reactions.OpposeCount) }</span>
+								</div>
+							</div>
+							<!-- Reaction buttons aligned with legend rows -->
+							<div class="flex flex-col gap-1 shrink-0">
+								<form method="POST" action="/api/react" class="inline">
+									<input type="hidden" name="bill_id" value={ bill.ID }/>
+									<input type="hidden" name="reaction" value="support"/>
+									<button type="submit" title="Support" class="text-base hover:scale-110 transition-transform" aria-label="Support this bill">👍</button>
+								</form>
+								<form method="POST" action="/api/react" class="inline">
+									<input type="hidden" name="bill_id" value={ bill.ID }/>
+									<input type="hidden" name="reaction" value="neutral"/>
+									<button type="submit" title="Neutral" class="text-base hover:scale-110 transition-transform" aria-label="Neutral on this bill">🤔</button>
+								</form>
+								<form method="POST" action="/api/react" class="inline">
+									<input type="hidden" name="bill_id" value={ bill.ID }/>
+									<input type="hidden" name="reaction" value="oppose"/>
+									<button type="submit" title="Oppose" class="text-base hover:scale-110 transition-transform" aria-label="Oppose this bill">👎</button>
+								</form>
 							</div>
 						</div>
 					</div>
