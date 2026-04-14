@@ -13,6 +13,7 @@ templ Layout(title string, ps store.ParliamentStatus) {
 			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
 			<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 			<script src="https://cdn.tailwindcss.com"></script>
+			<script>tailwind.config = { darkMode: 'class' }</script>
 			<!-- Dark mode init: run before render to avoid flash -->
 			<script>
 				(function() {
@@ -303,6 +304,31 @@ templ Layout(title string, ps store.ParliamentStatus) {
 				html.dark .surface-card,
 				html.dark .bg-white.rounded-lg.border {
 					background: var(--paper-strong);
+				}
+
+				/* Theme-aware panels for inner content cards */
+				.panel {
+					background: #f4f7fb;
+					border-radius: 8px;
+					padding: 1rem;
+				}
+
+				html.dark .panel {
+					background: var(--paper-strong);
+				}
+
+				/* Accent callout for the one-sentence summary banner */
+				.callout-info {
+					background: rgba(59, 130, 246, 0.08);
+					border-left: 4px solid #3b82f6;
+					border-radius: 0 8px 8px 0;
+					padding: 1rem;
+					color: var(--ink-900);
+				}
+
+				html.dark .callout-info {
+					background: rgba(96, 165, 250, 0.1);
+					border-left-color: #60a5fa;
 				}
 
 				.table-shell,
