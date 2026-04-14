@@ -131,7 +131,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div><!-- Meta grid + Progress bar on the same row --><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-4 items-start\"><div class=\"panel grid grid-cols-2 gap-4\"><div><p class=\"text-xs text-gray-500 dark:text-gray-400\">Chamber</p><p class=\"font-medium capitalize dark:text-gray-200\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div><!-- Meta grid + Progress bar on the same row --><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-4 items-stretch\"><div class=\"panel flex flex-row gap-4\"><div class=\"flex-1 min-w-0\"><p class=\"text-xs text-gray-500 dark:text-gray-400\">Chamber</p><p class=\"font-medium capitalize dark:text-gray-200\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -144,7 +144,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</p></div><div><p class=\"text-xs text-gray-500 dark:text-gray-400\">Stage</p><p class=\"font-medium dark:text-gray-200\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</p></div><div class=\"flex-1 min-w-0\"><p class=\"text-xs text-gray-500 dark:text-gray-400\">Stage</p><p class=\"font-medium dark:text-gray-200\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -162,7 +162,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 				return templ_7745c5c3_Err
 			}
 			if bill.SponsorName != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div><p class=\"text-xs text-gray-500 dark:text-gray-400\">Sponsor</p><p class=\"font-medium dark:text-gray-200\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div class=\"flex-1 min-w-0\"><p class=\"text-xs text-gray-500 dark:text-gray-400\">Sponsor</p><p class=\"font-medium dark:text-gray-200 truncate\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -213,7 +213,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<div><p class=\"text-xs text-gray-500 dark:text-gray-400\">Introduced</p><p class=\"font-medium dark:text-gray-200\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<div class=\"flex-1 min-w-0\"><p class=\"text-xs text-gray-500 dark:text-gray-400\">Introduced</p><p class=\"font-medium dark:text-gray-200\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -231,7 +231,7 @@ func BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.Bi
 				return templ_7745c5c3_Err
 			}
 			if bill.CurrentStage != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<div class=\"panel\"><p class=\"text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3\">Progress</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<div class=\"panel h-full\"><p class=\"text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3\">Progress</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
