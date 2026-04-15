@@ -4,6 +4,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -18,10 +19,12 @@ import (
 
 // Server holds application dependencies.
 type Server struct {
-	store  *store.Store
-	mux    *http.ServeMux
-	auth   *auth.Service
-	riding *riding.Service
+	store      *store.Store
+	mux        *http.ServeMux
+	auth       *auth.Service
+	riding     *riding.Service
+	baseURL    string
+	trustProxy bool
 }
 
 // New creates a Server and registers all routes.
@@ -33,12 +36,15 @@ func New(st *store.Store) *Server {
 	googleMapsKey := strings.TrimSpace(os.Getenv("GOOGLE_MAPS_API_KEY"))
 
 	s := &Server{
-		store:  st,
-		mux:    http.NewServeMux(),
-		auth:   auth.New(st, baseURL),
-		riding: riding.New(st, googleMapsKey),
+		store:      st,
+		mux:        http.NewServeMux(),
+		auth:       auth.New(st, baseURL),
+		riding:     riding.New(st, googleMapsKey),
+		baseURL:    baseURL,
+		trustProxy: strings.ToLower(strings.TrimSpace(os.Getenv("TRUST_PROXY"))) == "true",
 	}
 
+	s.mux.HandleFunc("GET /health", s.handleHealth)
 	s.mux.HandleFunc("GET /", s.handleHome)
 	s.mux.HandleFunc("GET /bills", s.handleBills)
 	s.mux.HandleFunc("GET /bills/{id}", s.handleBillDetail)
@@ -63,11 +69,26 @@ func New(st *store.Store) *Server {
 
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	applySecurityHeaders(w, r)
+	// When running behind a trusted reverse proxy in HTTPS mode, redirect
+	// plain-HTTP requests to HTTPS. The /health path is exempt so that ALB
+	// health checks always succeed regardless of protocol.
+	if s.trustProxy && strings.HasPrefix(s.baseURL, "https://") &&
+		strings.TrimSuffix(r.URL.Path, "/") != "/health" {
+		if strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))) == "http" {
+			// Use the configured base URL host to avoid host-header injection.
+			configuredHost := r.Host
+			if parsed, err := url.Parse(s.baseURL); err == nil && parsed.Host != "" {
+				configuredHost = parsed.Host
+			}
+			http.Redirect(w, r, "https://"+configuredHost+r.RequestURI, http.StatusMovedPermanently)
+			return
+		}
+	}
+	s.applySecurityHeaders(w, r)
 	s.mux.ServeHTTP(w, r)
 }
 
-func applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
+func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
@@ -86,7 +107,11 @@ func applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		"connect-src 'self' https://graph.facebook.com https://www.googleapis.com https://oauth2.googleapis.com https://maps.googleapis.com",
 	}, "; "))
 
-	if r.TLS != nil {
+	isHTTPS := r.TLS != nil
+	if !isHTTPS && s.trustProxy {
+		isHTTPS = strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))) == "https"
+	}
+	if isHTTPS {
 		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	}
 }
@@ -291,4 +316,9 @@ func (s *Server) handleLogSubmission(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }

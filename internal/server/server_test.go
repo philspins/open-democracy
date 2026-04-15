@@ -417,6 +417,183 @@ func TestHandleHome_UsesSavedRepresentativesAndHidesLookupHero(t *testing.T) {
 	}
 }
 
+func TestHandleHealth_Returns200OK(t *testing.T) {
+	srv, _ := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d want %d", rr.Code, http.StatusOK)
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("Content-Type=%q want application/json", ct)
+	}
+	if body := strings.TrimSpace(rr.Body.String()); body != `{"status":"ok"}` {
+		t.Fatalf("unexpected health response body: %s", body)
+	}
+}
+
+func TestHTTPSRedirect_WhenTrustProxyAndHTTPSBaseURL(t *testing.T) {
+	_, st := newTestServer(t)
+	t.Setenv("OAUTH_BASE_URL", "https://open-democracy.ca")
+	t.Setenv("TRUST_PROXY", "true")
+	srv := New(st)
+
+	req := httptest.NewRequest(http.MethodGet, "/bills", nil)
+	req.Host = "open-democracy.ca"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusMovedPermanently {
+		t.Fatalf("status=%d want %d (redirect to HTTPS)", rr.Code, http.StatusMovedPermanently)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.HasPrefix(loc, "https://open-democracy.ca/") {
+		t.Fatalf("redirect location %q should start with https://open-democracy.ca/ (configured host, not spoofable)", loc)
+	}
+}
+
+func TestHTTPSRedirect_UsesConfiguredHostNotRequestHost(t *testing.T) {
+	// Ensure Host header injection is prevented: redirect must use the host
+	// from OAUTH_BASE_URL, not the potentially attacker-controlled r.Host.
+	_, st := newTestServer(t)
+	t.Setenv("OAUTH_BASE_URL", "https://open-democracy.ca")
+	t.Setenv("TRUST_PROXY", "true")
+	srv := New(st)
+
+	req := httptest.NewRequest(http.MethodGet, "/bills", nil)
+	req.Host = "evil.com" // attacker-controlled Host header
+	req.Header.Set("X-Forwarded-Proto", "http")
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusMovedPermanently {
+		t.Fatalf("status=%d want %d", rr.Code, http.StatusMovedPermanently)
+	}
+	loc := rr.Header().Get("Location")
+	if strings.Contains(loc, "evil.com") {
+		t.Fatalf("redirect location %q must not contain attacker Host header value", loc)
+	}
+	if !strings.HasPrefix(loc, "https://open-democracy.ca/") {
+		t.Fatalf("redirect location %q should use configured host open-democracy.ca", loc)
+	}
+}
+
+func TestHTTPSRedirect_SkipsHealthEndpoint(t *testing.T) {
+	_, st := newTestServer(t)
+	t.Setenv("OAUTH_BASE_URL", "https://open-democracy.ca")
+	t.Setenv("TRUST_PROXY", "true")
+	srv := New(st)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Host = "open-democracy.ca"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d want %d (health must not redirect)", rr.Code, http.StatusOK)
+	}
+	if body := strings.TrimSpace(rr.Body.String()); body != `{"status":"ok"}` {
+		t.Fatalf("unexpected health body: %s", body)
+	}
+}
+
+func TestHTTPSRedirect_SkipsHealthEndpointWithTrailingSlash(t *testing.T) {
+	_, st := newTestServer(t)
+	t.Setenv("OAUTH_BASE_URL", "https://open-democracy.ca")
+	t.Setenv("TRUST_PROXY", "true")
+	srv := New(st)
+
+	req := httptest.NewRequest(http.MethodGet, "/health/", nil)
+	req.Host = "open-democracy.ca"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code == http.StatusMovedPermanently {
+		t.Fatalf("status=%d: /health/ must not trigger HTTPS redirect", rr.Code)
+	}
+}
+
+func TestHTTPSRedirect_NotAppliedWithoutTrustProxy(t *testing.T) {
+	_, st := newTestServer(t)
+	t.Setenv("OAUTH_BASE_URL", "https://open-democracy.ca")
+	t.Setenv("TRUST_PROXY", "false")
+	srv := New(st)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Forwarded-Proto", "http")
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code == http.StatusMovedPermanently {
+		t.Fatalf("should not redirect when TRUST_PROXY=false")
+	}
+}
+
+func TestHTTPSRedirect_NotAppliedWhenAlreadyHTTPS(t *testing.T) {
+	_, st := newTestServer(t)
+	t.Setenv("OAUTH_BASE_URL", "https://open-democracy.ca")
+	t.Setenv("TRUST_PROXY", "true")
+	srv := New(st)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code == http.StatusMovedPermanently {
+		t.Fatalf("should not redirect when X-Forwarded-Proto is already https")
+	}
+}
+
+func TestHSTSHeader_SetWhenForwardedProtoHTTPS(t *testing.T) {
+	_, st := newTestServer(t)
+	t.Setenv("OAUTH_BASE_URL", "https://open-democracy.ca")
+	t.Setenv("TRUST_PROXY", "true")
+	srv := New(st)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	hsts := rr.Header().Get("Strict-Transport-Security")
+	if hsts == "" {
+		t.Fatalf("expected Strict-Transport-Security header when X-Forwarded-Proto: https and TRUST_PROXY=true")
+	}
+	if !strings.Contains(hsts, "max-age=") {
+		t.Fatalf("HSTS header missing max-age directive: %s", hsts)
+	}
+}
+
+func TestHSTSHeader_NotSetWhenTrustProxyFalse(t *testing.T) {
+	// TRUST_PROXY=false: X-Forwarded-Proto should be ignored; HSTS not set
+	// (OAUTH_BASE_URL is http, default test env)
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if hsts := rr.Header().Get("Strict-Transport-Security"); hsts != "" {
+		t.Fatalf("HSTS should not be set when TRUST_PROXY=false, got: %s", hsts)
+	}
+}
+
 func buildSignedRequest(t *testing.T, secret string, payload map[string]any) string {
 	t.Helper()
 	payloadJSON, err := json.Marshal(payload)
