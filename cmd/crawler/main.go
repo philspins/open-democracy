@@ -353,6 +353,8 @@ func crawlVotes(conn *sql.DB, client *http.Client, delay time.Duration, indexURL
 		return err
 	}
 	for _, div := range divs {
+		// On DB error: default to existed=false so we fall through to detail
+		// scraping — the safe direction (re-scraping is idempotent).
 		existed, err := db.DivisionExists(conn, div.ID)
 		if err != nil {
 			log.Printf("[votes] exists check %s: %v", div.ID, err)
@@ -380,6 +382,8 @@ func crawlVotes(conn *sql.DB, client *http.Client, delay time.Duration, indexURL
 		//   (a) this is a new division, or
 		//   (b) the division already existed but has no member votes yet
 		//       (e.g. a previous crawl failed or the scraper was broken).
+		// On DB error: hasVotes defaults to false, so needsDetail stays true —
+		// again the safe direction.
 		needsDetail := !existed
 		if existed && div.DetailURL != "" {
 			hasVotes, err := db.DivisionHasVotes(conn, div.ID)
@@ -408,6 +412,8 @@ func crawlSenate(conn *sql.DB, client *http.Client, delay time.Duration, indexUR
 		return err
 	}
 	for _, div := range divs {
+		// On DB error: default to existed=false so we fall through to detail
+		// scraping — the safe direction (re-scraping is idempotent).
 		existed, err := db.DivisionExists(conn, div.ID)
 		if err != nil {
 			log.Printf("[senate] exists check %s: %v", div.ID, err)
@@ -434,6 +440,8 @@ func crawlSenate(conn *sql.DB, client *http.Client, delay time.Duration, indexUR
 		// Scrape per-member votes when:
 		//   (a) this is a new division, or
 		//   (b) the division already existed but has no member votes yet.
+		// On DB error: hasVotes defaults to false, so needsDetail stays true —
+		// again the safe direction.
 		needsDetail := !existed
 		if existed && div.DetailURL != "" {
 			hasVotes, err := db.DivisionHasVotes(conn, div.ID)
