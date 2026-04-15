@@ -32,3 +32,4 @@ vendor/
 /open-democracy-crawler.exe
 /open-democracy-server.exe
 *.pem
+sshlogin.sh
