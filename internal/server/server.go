@@ -3,6 +3,7 @@ package server
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -39,9 +40,11 @@ func New(st *store.Store) *Server {
 	}
 	googleMapsKey := strings.TrimSpace(os.Getenv("GOOGLE_MAPS_API_KEY"))
 
-	parsed, _ := url.Parse(baseURL)
+	parsed, err := url.Parse(baseURL)
 	baseHost := ""
-	if parsed != nil {
+	if err != nil {
+		log.Printf("warning: could not parse OAUTH_BASE_URL %q: %v; HTTP→HTTPS redirect disabled", baseURL, err)
+	} else if parsed != nil {
 		baseHost = parsed.Host
 	}
 
