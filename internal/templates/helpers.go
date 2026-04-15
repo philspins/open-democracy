@@ -468,3 +468,16 @@ func safeMailtoURL(email string) templ.SafeURL {
 	}
 	return templ.SafeURL("mailto:" + email)
 }
+
+// GovernmentLevelBadge returns a small inline badge component for the member's
+// government level ("federal" or "provincial"). Unknown values render as "".
+func GovernmentLevelBadge(level string) templ.Component {
+	switch strings.ToLower(level) {
+	case "federal":
+		return templ.Raw(`<span class="inline-block text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">Federal</span>`)
+	case "provincial":
+		return templ.Raw(`<span class="inline-block text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">Provincial</span>`)
+	default:
+		return templ.Raw(``)
+	}
+}

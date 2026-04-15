@@ -26,7 +26,27 @@ const (
 	// RepresentAPIURL is the Represent OpenNorth API endpoint for current House of
 	// Commons MPs. A single request with limit=1000 returns all 343 members.
 	RepresentAPIURL = "https://represent.opennorth.ca/representatives/house-of-commons/?format=json&limit=1000"
+
+	// RepresentBaseURL is the root URL of the Represent OpenNorth API.
+	RepresentBaseURL = "https://represent.opennorth.ca"
 )
+
+// ProvincialLegislatureAPIs lists the Represent OpenNorth API endpoints for
+// each provincial and territorial legislature, keyed by the representative-set
+// slug. The slug is used to generate deterministic member IDs.
+var ProvincialLegislatureAPIs = map[string]string{
+	"alberta-legislature":                "https://represent.opennorth.ca/representatives/alberta-legislature/?format=json&limit=1000",
+	"bc-legislature":                     "https://represent.opennorth.ca/representatives/bc-legislature/?format=json&limit=1000",
+	"manitoba-legislature":               "https://represent.opennorth.ca/representatives/manitoba-legislature/?format=json&limit=1000",
+	"newfoundland-labrador-legislature":  "https://represent.opennorth.ca/representatives/newfoundland-labrador-legislature/?format=json&limit=1000",
+	"nova-scotia-legislature":            "https://represent.opennorth.ca/representatives/nova-scotia-legislature/?format=json&limit=1000",
+	"northwest-territories-legislature":  "https://represent.opennorth.ca/representatives/northwest-territories-legislature/?format=json&limit=1000",
+	"ontario-legislature":                "https://represent.opennorth.ca/representatives/ontario-legislature/?format=json&limit=1000",
+	"pei-legislature":                    "https://represent.opennorth.ca/representatives/pei-legislature/?format=json&limit=1000",
+	"quebec-assemblee-nationale":         "https://represent.opennorth.ca/representatives/quebec-assemblee-nationale/?format=json&limit=1000",
+	"saskatchewan-legislature":           "https://represent.opennorth.ca/representatives/saskatchewan-legislature/?format=json&limit=1000",
+	"yukon-legislature":                  "https://represent.opennorth.ca/representatives/yukon-legislature/?format=json&limit=1000",
+}
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -43,18 +63,19 @@ type MemberStub struct {
 
 // MemberProfile is a fully enriched MP record scraped from the profile page.
 type MemberProfile struct {
-	ID          string
-	Name        string
-	Party       string
-	Riding      string
-	Province    string
-	Role        string
-	PhotoURL    string
-	Email       string
-	Website     string
-	Chamber     string
-	Active      bool
-	LastScraped string
+	ID              string
+	Name            string
+	Party           string
+	Riding          string
+	Province        string
+	Role            string
+	PhotoURL        string
+	Email           string
+	Website         string
+	Chamber         string
+	Active          bool
+	LastScraped     string
+	GovernmentLevel string // "federal" | "provincial"
 }
 
 // MemberVoteRecord is a vote-history entry from an MP's 'Work' tab.
@@ -78,15 +99,16 @@ type representAPIResponse struct {
 
 // representAPIItem is one representative record from the Represent API.
 type representAPIItem struct {
-	Name         string               `json:"name"`
-	PartyName    string               `json:"party_name"`
-	DistrictName string               `json:"district_name"`
-	Email        string               `json:"email"`
-	URL          string               `json:"url"`
-	PersonalURL  string               `json:"personal_url"`
-	PhotoURL     string               `json:"photo_url"`
-	Offices      []representAPIOffice `json:"offices"`
-	Extra        representAPIExtra    `json:"extra"`
+	Name          string               `json:"name"`
+	PartyName     string               `json:"party_name"`
+	DistrictName  string               `json:"district_name"`
+	Email         string               `json:"email"`
+	URL           string               `json:"url"`
+	PersonalURL   string               `json:"personal_url"`
+	PhotoURL      string               `json:"photo_url"`
+	Offices       []representAPIOffice `json:"offices"`
+	Extra         representAPIExtra    `json:"extra"`
+	ElectedOffice string               `json:"elected_office"`
 }
 
 // representAPIOffice is a single office record inside a representative item.
@@ -156,7 +178,36 @@ func CrawlMembersFromAPI(apiURL string, client *http.Client) ([]MemberProfile, e
 	if client == nil {
 		client = utils.NewHTTPClient()
 	}
+	return fetchRepresentPages(apiURL, "federal", "", client)
+}
 
+// CrawlProvincialMembersFromAPI fetches all members for one provincial or
+// territorial legislature from the Represent OpenNorth API.
+//
+// setSlug is the representative-set slug (e.g. "ontario-legislature") and is
+// used to form deterministic member IDs of the form "{setSlug}-{name-slug}".
+// If apiURL is empty the URL is derived from ProvincialLegislatureAPIs.
+func CrawlProvincialMembersFromAPI(setSlug, apiURL string, client *http.Client) ([]MemberProfile, error) {
+	if apiURL == "" {
+		var ok bool
+		apiURL, ok = ProvincialLegislatureAPIs[setSlug]
+		if !ok {
+			return nil, fmt.Errorf("no known API URL for provincial set %q", setSlug)
+		}
+	}
+	if client == nil {
+		client = utils.NewHTTPClient()
+	}
+	return fetchRepresentPages(apiURL, "provincial", setSlug, client)
+}
+
+// fetchRepresentPages is the shared pagination engine used by both federal and
+// provincial crawl functions.
+//
+//   - governmentLevel is stored verbatim on each MemberProfile.
+//   - setSlug is used to build provincial member IDs; pass "" for federal (IDs
+//     are extracted from the ourcommons.ca URL instead).
+func fetchRepresentPages(apiURL, governmentLevel, setSlug string, client *http.Client) ([]MemberProfile, error) {
 	base, err := url.Parse(apiURL)
 	if err != nil {
 		return nil, fmt.Errorf("members API: bad URL %q: %w", apiURL, err)
@@ -180,33 +231,53 @@ func CrawlMembersFromAPI(apiURL string, client *http.Client) ([]MemberProfile, e
 		}
 
 		for _, item := range page.Objects {
-			memberID := utils.ExtractMemberID(item.URL)
+			memberID := ""
+			if governmentLevel == "federal" {
+				memberID = utils.ExtractMemberID(item.URL)
+			} else {
+				memberID = extractProvincialMemberID(setSlug, item)
+			}
 			if memberID == "" {
 				log.Printf("[members] skipping item with no extractable ID: url=%q", item.URL)
 				continue
 			}
 
-			role := "Member of Parliament"
-			for _, r := range item.Extra.Roles {
-				if r != "" {
-					role = r
-					break
+			role := item.ElectedOffice
+			if role == "" {
+				for _, r := range item.Extra.Roles {
+					if r != "" {
+						role = r
+						break
+					}
+				}
+			}
+			if role == "" {
+				if governmentLevel == "federal" {
+					role = "Member of Parliament"
+				} else {
+					role = "Member of Provincial Parliament"
 				}
 			}
 
+			chamber := "legislature"
+			if governmentLevel == "federal" {
+				chamber = "commons"
+			}
+
 			profiles = append(profiles, MemberProfile{
-				ID:          memberID,
-				Name:        item.Name,
-				Party:       item.PartyName,
-				Riding:      item.DistrictName,
-				Province:    extractProvinceFromOffices(item.Offices),
-				Role:        role,
-				PhotoURL:    item.PhotoURL,
-				Email:       item.Email,
-				Website:     item.PersonalURL,
-				Chamber:     "commons",
-				Active:      true,
-				LastScraped: utils.NowISO(),
+				ID:              memberID,
+				Name:            item.Name,
+				Party:           item.PartyName,
+				Riding:          item.DistrictName,
+				Province:        extractProvinceFromOffices(item.Offices),
+				Role:            role,
+				PhotoURL:        item.PhotoURL,
+				Email:           item.Email,
+				Website:         item.PersonalURL,
+				Chamber:         chamber,
+				Active:          true,
+				LastScraped:     utils.NowISO(),
+				GovernmentLevel: governmentLevel,
 			})
 		}
 
@@ -220,8 +291,49 @@ func CrawlMembersFromAPI(apiURL string, client *http.Client) ([]MemberProfile, e
 		}
 	}
 
-	log.Printf("[members] fetched %d members from Represent API", len(profiles))
+	log.Printf("[members] fetched %d %s members from Represent API", len(profiles), governmentLevel)
 	return profiles, nil
+}
+
+// extractProvincialMemberID builds a deterministic ID for a provincial member
+// as "{setSlug}-{name-slug}" where the name slug is derived from the last
+// path segment of item.URL (a slugified name on most provincial sites), or
+// falls back to a slugified version of item.Name when the URL is empty.
+func extractProvincialMemberID(setSlug string, item representAPIItem) string {
+	nameSlug := urlLastSegment(item.URL)
+	if nameSlug == "" {
+		nameSlug = nameToSlug(item.Name)
+	}
+	if nameSlug == "" {
+		return ""
+	}
+	return setSlug + "-" + nameSlug
+}
+
+// urlLastSegment returns the last non-empty path segment of rawURL.
+func urlLastSegment(rawURL string) string {
+	rawURL = strings.TrimSuffix(rawURL, "/")
+	if i := strings.LastIndex(rawURL, "/"); i >= 0 {
+		return rawURL[i+1:]
+	}
+	return rawURL
+}
+
+// nameToSlug converts a display name to a URL-safe slug, e.g.
+// "Laura Smith" → "laura-smith".
+func nameToSlug(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	// Replace spaces with hyphens; strip characters that aren't alphanumeric or hyphens.
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == ' ', r == '-', r == '_':
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 // ── Members list ──────────────────────────────────────────────────────────────
@@ -338,18 +450,19 @@ func CrawlMemberProfile(memberID string, profileURL string, client *http.Client)
 	})
 
 	return MemberProfile{
-		ID:          memberID,
-		Name:        name,
-		Party:       party,
-		Riding:      riding,
-		Province:    province,
-		Role:        role,
-		PhotoURL:    photoURL,
-		Email:       email,
-		Website:     website,
-		Chamber:     "commons",
-		Active:      true,
-		LastScraped: utils.NowISO(),
+		ID:              memberID,
+		Name:            name,
+		Party:           party,
+		Riding:          riding,
+		Province:        province,
+		Role:            role,
+		PhotoURL:        photoURL,
+		Email:           email,
+		Website:         website,
+		Chamber:         "commons",
+		Active:          true,
+		LastScraped:     utils.NowISO(),
+		GovernmentLevel: "federal",
 	}, nil
 }
 

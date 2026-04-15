@@ -20,7 +20,10 @@ templ MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []s
 					</div>
 				}
 				<div>
-					<h1 class="text-2xl font-bold text-gray-900">{ member.Name }</h1>
+					<div class="flex items-center gap-2 flex-wrap">
+						<h1 class="text-2xl font-bold text-gray-900">{ member.Name }</h1>
+						@GovernmentLevelBadge(member.GovernmentLevel)
+					</div>
 					<p class={ "text-lg", PartyClass(member.Party) }>{ member.Party }</p>
 					<p class="text-gray-600">{ member.Riding } · { member.Province }</p>
 					if member.Role != "" {

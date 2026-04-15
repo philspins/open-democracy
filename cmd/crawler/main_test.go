@@ -196,6 +196,12 @@ func TestCrawlMembers_PersistsMember(t *testing.T) {
 	if count != 1 {
 		t.Errorf("expected member 111 in DB, count=%d", count)
 	}
+
+	var govLevel string
+	conn.QueryRow(`SELECT COALESCE(government_level,'') FROM members WHERE id='111'`).Scan(&govLevel)
+	if govLevel != "federal" {
+		t.Errorf("government_level=%q want federal", govLevel)
+	}
 }
 
 func TestCrawlMembers_ReturnsErrorOnBadServer(t *testing.T) {

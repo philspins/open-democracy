@@ -280,6 +280,9 @@ t.Errorf("Chamber=%q want commons", m.Chamber)
 if !m.Active {
 t.Error("Active should be true")
 }
+if m.GovernmentLevel != "federal" {
+t.Errorf("GovernmentLevel=%q want federal", m.GovernmentLevel)
+}
 }
 
 func TestCrawlMembersFromAPI_ParsesRoleFromExtra(t *testing.T) {
@@ -354,4 +357,87 @@ t.Fatalf("CrawlMembersFromAPI: %v", err)
 if len(profiles) != 2 {
 t.Errorf("len=%d, want 2 (expected pagination to be followed)", len(profiles))
 }
+}
+
+// ── CrawlProvincialMembersFromAPI ─────────────────────────────────────────────
+
+const sampleProvincialAPIResponse = `{
+  "objects": [
+    {
+      "name": "Laura Smith",
+      "party_name": "Progressive Conservative Party of Ontario",
+      "district_name": "Thornhill",
+      "email": "laura.smith@pc.ola.org",
+      "url": "https://www.ola.org/en/members/all/laura-smith",
+      "personal_url": "",
+      "photo_url": "https://www.ola.org/sites/default/files/Laura_Smith.png",
+      "elected_office": "MPP",
+      "offices": [
+        {"type": "constituency", "postal": "1136 Centre St.\nThornhill ON  L4J 3M8"}
+      ],
+      "extra": {}
+    }
+  ],
+  "meta": {"next": null}
+}`
+
+func TestCrawlProvincialMembersFromAPI_ReturnsProfile(t *testing.T) {
+	srv := newJSONTestServer(sampleProvincialAPIResponse)
+	defer srv.Close()
+
+	profiles, err := scraper.CrawlProvincialMembersFromAPI("ontario-legislature", srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlProvincialMembersFromAPI: %v", err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("len=%d, want 1", len(profiles))
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_GovernmentLevel(t *testing.T) {
+	srv := newJSONTestServer(sampleProvincialAPIResponse)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlProvincialMembersFromAPI("ontario-legislature", srv.URL, srv.Client())
+	if profiles[0].GovernmentLevel != "provincial" {
+		t.Errorf("GovernmentLevel=%q want provincial", profiles[0].GovernmentLevel)
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_IDFromSetSlugAndURLSlug(t *testing.T) {
+	srv := newJSONTestServer(sampleProvincialAPIResponse)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlProvincialMembersFromAPI("ontario-legislature", srv.URL, srv.Client())
+	wantID := "ontario-legislature-laura-smith"
+	if profiles[0].ID != wantID {
+		t.Errorf("ID=%q want %q", profiles[0].ID, wantID)
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_ElectedOfficeAsRole(t *testing.T) {
+	srv := newJSONTestServer(sampleProvincialAPIResponse)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlProvincialMembersFromAPI("ontario-legislature", srv.URL, srv.Client())
+	if profiles[0].Role != "MPP" {
+		t.Errorf("Role=%q want MPP", profiles[0].Role)
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_ProvinceFromOffices(t *testing.T) {
+	srv := newJSONTestServer(sampleProvincialAPIResponse)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlProvincialMembersFromAPI("ontario-legislature", srv.URL, srv.Client())
+	if profiles[0].Province != "Ontario" {
+		t.Errorf("Province=%q want Ontario", profiles[0].Province)
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_ErrorOnUnknownSetWithNoURL(t *testing.T) {
+	_, err := scraper.CrawlProvincialMembersFromAPI("nonexistent-set", "", nil)
+	if err == nil {
+		t.Error("expected error for unknown set slug with no apiURL")
+	}
 }

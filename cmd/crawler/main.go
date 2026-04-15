@@ -298,30 +298,47 @@ func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration, rssURL s
 }
 
 func crawlMembers(conn *sql.DB, client *http.Client, delay time.Duration, apiURL string) error {
+	// Crawl federal House of Commons members.
 	profiles, err := scraper.CrawlMembersFromAPI(apiURL, client)
 	if err != nil {
 		return err
 	}
+	upsertProfiles(conn, profiles, delay)
+
+	// Crawl all provincial/territorial legislatures.
+	for setSlug := range scraper.ProvincialLegislatureAPIs {
+		provProfiles, perr := scraper.CrawlProvincialMembersFromAPI(setSlug, "", client)
+		if perr != nil {
+			log.Printf("[members] provincial set %s: %v", setSlug, perr)
+			continue
+		}
+		upsertProfiles(conn, provProfiles, delay)
+	}
+	return nil
+}
+
+// upsertProfiles persists a slice of MemberProfile records to the database.
+func upsertProfiles(conn *sql.DB, profiles []scraper.MemberProfile, delay time.Duration) {
 	for _, profile := range profiles {
 		if err := db.UpsertMember(conn, db.Member{
-			ID:          profile.ID,
-			Name:        profile.Name,
-			Party:       profile.Party,
-			Riding:      profile.Riding,
-			Province:    profile.Province,
-			Role:        profile.Role,
-			PhotoURL:    profile.PhotoURL,
-			Email:       profile.Email,
-			Website:     profile.Website,
-			Chamber:     profile.Chamber,
-			Active:      profile.Active,
-			LastScraped: profile.LastScraped,
+			ID:              profile.ID,
+			Name:            profile.Name,
+			Party:           profile.Party,
+			Riding:          profile.Riding,
+			Province:        profile.Province,
+			Role:            profile.Role,
+			PhotoURL:        profile.PhotoURL,
+			Email:           profile.Email,
+			Website:         profile.Website,
+			Chamber:         profile.Chamber,
+			Active:          profile.Active,
+			LastScraped:     profile.LastScraped,
+			GovernmentLevel: profile.GovernmentLevel,
 		}); err != nil {
 			log.Printf("[members] upsert %s: %v", profile.ID, err)
 		}
 		time.Sleep(delay)
 	}
-	return nil
 }
 
 func crawlVotes(conn *sql.DB, client *http.Client, delay time.Duration, indexURL string) error {

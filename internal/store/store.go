@@ -223,8 +223,8 @@ func scanDivisionRows(rows *sql.Rows) ([]DivisionRow, error) {
 
 // ── member queries ────────────────────────────────────────────────────────────
 
-// ListMembers returns members matching optional search/party/province filters.
-func (s *Store) ListMembers(search, party, province string) ([]MemberRow, error) {
+// ListMembers returns members matching optional search/party/province/governmentLevel filters.
+func (s *Store) ListMembers(search, party, province, governmentLevel string) ([]MemberRow, error) {
 	where := []string{"1=1"}
 	args := []interface{}{}
 
@@ -241,11 +241,16 @@ func (s *Store) ListMembers(search, party, province string) ([]MemberRow, error)
 		where = append(where, "province LIKE ?")
 		args = append(args, "%"+province+"%")
 	}
+	if governmentLevel != "" {
+		where = append(where, "government_level = ?")
+		args = append(args, governmentLevel)
+	}
 
 	rows, err := s.db.Query(`
 		SELECT id, name, COALESCE(party,''), COALESCE(riding,''), COALESCE(province,''),
 		       COALESCE(role,''), COALESCE(photo_url,''), COALESCE(email,''),
-		       COALESCE(website,''), COALESCE(chamber,'commons'), active
+		       COALESCE(website,''), COALESCE(chamber,'commons'), active,
+		       COALESCE(government_level,'federal')
 		FROM members WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY name`, args...)
 	if err != nil {
@@ -260,12 +265,13 @@ func (s *Store) GetMember(id string) (MemberRow, error) {
 	row := s.db.QueryRow(`
 		SELECT id, name, COALESCE(party,''), COALESCE(riding,''), COALESCE(province,''),
 		       COALESCE(role,''), COALESCE(photo_url,''), COALESCE(email,''),
-		       COALESCE(website,''), COALESCE(chamber,'commons'), active
+		       COALESCE(website,''), COALESCE(chamber,'commons'), active,
+		       COALESCE(government_level,'federal')
 		FROM members WHERE id = ?`, id)
 	var m MemberRow
 	var active int
 	err := row.Scan(&m.ID, &m.Name, &m.Party, &m.Riding, &m.Province,
-		&m.Role, &m.PhotoURL, &m.Email, &m.Website, &m.Chamber, &active)
+		&m.Role, &m.PhotoURL, &m.Email, &m.Website, &m.Chamber, &active, &m.GovernmentLevel)
 	if errors.Is(err, sql.ErrNoRows) {
 		return MemberRow{}, fmt.Errorf("member %q not found", id)
 	}
@@ -279,7 +285,8 @@ func scanMemberRows(rows *sql.Rows) ([]MemberRow, error) {
 		var m MemberRow
 		var active int
 		if err := rows.Scan(&m.ID, &m.Name, &m.Party, &m.Riding, &m.Province,
-			&m.Role, &m.PhotoURL, &m.Email, &m.Website, &m.Chamber, &active); err != nil {
+			&m.Role, &m.PhotoURL, &m.Email, &m.Website, &m.Chamber, &active,
+			&m.GovernmentLevel); err != nil {
 			return nil, err
 		}
 		m.Active = active == 1
@@ -293,7 +300,8 @@ func (s *Store) GetMembersByRiding(riding string) ([]MemberRow, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, COALESCE(party,''), COALESCE(riding,''), COALESCE(province,''),
 		       COALESCE(role,''), COALESCE(photo_url,''), COALESCE(email,''),
-		       COALESCE(website,''), COALESCE(chamber,'commons'), active
+		       COALESCE(website,''), COALESCE(chamber,'commons'), active,
+		       COALESCE(government_level,'federal')
 		FROM members WHERE LOWER(riding) LIKE '%' || LOWER(?) || '%'
 		ORDER BY name`, riding)
 	if err != nil {

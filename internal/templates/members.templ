@@ -2,7 +2,7 @@ package templates
 
 import "github.com/philspins/open-democracy/internal/store"
 
-templ MembersDirectory(ps store.ParliamentStatus, members []store.MemberRow, search, party, province string) {
+templ MembersDirectory(ps store.ParliamentStatus, members []store.MemberRow, search, party, province, governmentLevel string) {
 	@Layout("Members of Parliament", ps) {
 		<div class="space-y-6">
 			<h1 class="page-title">Members of Parliament</h1>
@@ -14,6 +14,11 @@ templ MembersDirectory(ps store.ParliamentStatus, members []store.MemberRow, sea
 					class="input-field w-32"/>
 				<input type="text" name="province" value={ province } placeholder="Province"
 					class="input-field w-24"/>
+				<select name="level" class="input-field w-36">
+					<option value="" selected?={ governmentLevel == "" }>All levels</option>
+					<option value="federal" selected?={ governmentLevel == "federal" }>Federal</option>
+					<option value="provincial" selected?={ governmentLevel == "provincial" }>Provincial</option>
+				</select>
 				<button type="submit" class="btn btn-primary">Search</button>
 				<a href="/members" class="text-sm text-gray-500 hover:underline">Clear</a>
 			</form>
@@ -41,7 +46,10 @@ templ memberCard(m store.MemberRow) {
 				</div>
 			}
 			<div class="min-w-0">
-				<p class="font-medium text-gray-900 truncate">{ m.Name }</p>
+				<div class="flex items-center gap-2">
+					<p class="font-medium text-gray-900 truncate">{ m.Name }</p>
+					@GovernmentLevelBadge(m.GovernmentLevel)
+				</div>
 				<p class={ "text-sm", PartyClass(m.Party) }>{ m.Party }</p>
 				<p class="text-xs text-gray-500 truncate">{ m.Riding }</p>
 			</div>

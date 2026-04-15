@@ -40,17 +40,18 @@ type DivisionRow struct {
 }
 
 type MemberRow struct {
-	ID       string
-	Name     string
-	Party    string
-	Riding   string
-	Province string
-	Role     string
-	PhotoURL string
-	Email    string
-	Website  string
-	Chamber  string
-	Active   bool
+	ID              string
+	Name            string
+	Party           string
+	Riding          string
+	Province        string
+	Role            string
+	PhotoURL        string
+	Email           string
+	Website         string
+	Chamber         string
+	Active          bool
+	GovernmentLevel string // "federal" | "provincial"
 }
 
 type VoteRow struct {

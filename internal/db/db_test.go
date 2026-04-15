@@ -67,22 +67,23 @@ func TestUpsertMember(t *testing.T) {
 	d := tempDB(t)
 
 	m := db.Member{
-		ID:          "123006",
-		Name:        "Jane Doe",
-		Party:       "Liberal",
-		Riding:      "Ottawa Centre",
-		Province:    "Ontario",
-		Role:        "Member of Parliament",
-		Chamber:     "commons",
-		Active:      true,
-		LastScraped: "2024-04-03T00:00:00",
+		ID:              "123006",
+		Name:            "Jane Doe",
+		Party:           "Liberal",
+		Riding:          "Ottawa Centre",
+		Province:        "Ontario",
+		Role:            "Member of Parliament",
+		Chamber:         "commons",
+		Active:          true,
+		LastScraped:     "2024-04-03T00:00:00",
+		GovernmentLevel: "federal",
 	}
 	if err := db.UpsertMember(d, m); err != nil {
 		t.Fatalf("UpsertMember: %v", err)
 	}
 
-	var name, party string
-	err := d.QueryRow(`SELECT name, party FROM members WHERE id='123006'`).Scan(&name, &party)
+	var name, party, govLevel string
+	err := d.QueryRow(`SELECT name, party, COALESCE(government_level,'') FROM members WHERE id='123006'`).Scan(&name, &party, &govLevel)
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
@@ -91,6 +92,9 @@ func TestUpsertMember(t *testing.T) {
 	}
 	if party != "Liberal" {
 		t.Errorf("party=%q want %q", party, "Liberal")
+	}
+	if govLevel != "federal" {
+		t.Errorf("government_level=%q want federal", govLevel)
 	}
 }
 

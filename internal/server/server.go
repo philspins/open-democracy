@@ -198,12 +198,12 @@ func (s *Server) handleVotes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleMembers(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	ps := s.parliamentStatus()
-	members, err := s.store.ListMembers(q.Get("q"), q.Get("party"), q.Get("province"))
+	members, err := s.store.ListMembers(q.Get("q"), q.Get("party"), q.Get("province"), q.Get("level"))
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	_ = templates.MembersDirectory(ps, members, q.Get("q"), q.Get("party"), q.Get("province")).Render(r.Context(), w)
+	_ = templates.MembersDirectory(ps, members, q.Get("q"), q.Get("party"), q.Get("province"), q.Get("level")).Render(r.Context(), w)
 }
 
 func (s *Server) handleMemberProfile(w http.ResponseWriter, r *http.Request) {
