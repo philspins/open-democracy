@@ -76,52 +76,126 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 				</div>
 			}
 
-			<!-- Content panels: flex-col on mobile (order-* controls sequence), 2-col grid on sm+ -->
-			<!-- Mobile order: Key Changes → Gotchas → Who's Affected -->
-			<!-- Desktop: left col = Key Changes + Who's Affected; right col = Gotchas -->
-			<div class="flex flex-col sm:grid sm:grid-cols-2 gap-4 items-start">
-				if len(aiSummary.KeyChanges) > 0 {
-					<div class="panel order-1 sm:col-start-1">
-						<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Key Changes</p>
-						<ul class="list-disc list-inside space-y-1">
-							for _, item := range aiSummary.KeyChanges {
-								<li class="text-sm">{ item }</li>
-							}
-						</ul>
+			<!-- Content panels + Summary -->
+			<!-- Desktop (≥900px): two independent flex-col stacks side-by-side — no shared row heights, no checkerboard stagger -->
+			<!--   Left col:  Key Changes → Who's Affected                                                                       -->
+			<!--   Right col: Vibes → Gotchas                                                                                    -->
+			<!-- Mobile (<900px): Key Changes → Gotchas → Who's Affected → Summary → Vibes (via DOM order + hidden duplicates)   -->
+			<div class="flex flex-col min-[900px]:flex-row gap-4 min-[900px]:items-start">
+				<!-- Left column -->
+				<div class="flex flex-col gap-4 min-[900px]:flex-1">
+					if len(aiSummary.KeyChanges) > 0 {
+						<div class="panel">
+							<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Key Changes</p>
+							<ul class="list-disc list-inside space-y-1">
+								for _, item := range aiSummary.KeyChanges {
+									<li class="text-sm">{ item }</li>
+								}
+							</ul>
+						</div>
+					}
+					<!-- Gotchas — mobile only (hidden on desktop; appears here so mobile order is KC → Gotchas → WA) -->
+					if len(aiSummary.NotableConsiderations) > 0 {
+						<div class="panel min-[900px]:hidden">
+							<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Gotchas</p>
+							<ul class="list-disc list-inside space-y-1">
+								for _, item := range aiSummary.NotableConsiderations {
+									<li class="text-sm">{ item }</li>
+								}
+							</ul>
+						</div>
+					}
+					if len(aiSummary.WhoIsAffected) > 0 {
+						<div class="panel">
+							<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Who&#39;s Affected</p>
+							<ul class="list-disc list-inside space-y-1">
+								for _, item := range aiSummary.WhoIsAffected {
+									<li class="text-sm">{ item }</li>
+								}
+							</ul>
+						</div>
+					}
+				</div>
+				<!-- Right column — desktop only (hidden on mobile; Vibes+Gotchas stack independently, no shared row heights) -->
+				<div class="hidden min-[900px]:flex flex-col gap-4 flex-1">
+					<div class="panel">
+						<h2 class="text-sm font-semibold uppercase tracking-wide mb-3" style="color:var(--ink-700)">Vibes</h2>
+						<div class="flex gap-4 items-center">
+							<!-- Pie chart -->
+							<div class="flex flex-col items-center gap-1 shrink-0">
+								@templ.Raw(ReactionPieChartSVG(reactions.SupportCount, reactions.OpposeCount, reactions.NeutralCount, reactions.TotalReactions))
+								<p class="text-xs" style="color:var(--ink-500)">{ fmt.Sprint(reactions.TotalReactions) } responses</p>
+							</div>
+							<!-- Legend -->
+							<div class="flex-1 space-y-1 text-sm">
+								<div class="flex items-center gap-2">
+									<span class="inline-block w-3 h-3 rounded-full bg-green-500 shrink-0"></span>
+									<span style="color:var(--ink-700)">Support</span>
+									<span class="ml-auto font-medium" style="color:var(--ink-900)">{ fmt.Sprint(reactions.SupportCount) }</span>
+								</div>
+								<div class="flex items-center gap-2">
+									<span class="inline-block w-3 h-3 rounded-full bg-gray-400 shrink-0"></span>
+									<span style="color:var(--ink-700)">Neutral</span>
+									<span class="ml-auto font-medium" style="color:var(--ink-900)">{ fmt.Sprint(reactions.NeutralCount) }</span>
+								</div>
+								<div class="flex items-center gap-2">
+									<span class="inline-block w-3 h-3 rounded-full bg-red-500 shrink-0"></span>
+									<span style="color:var(--ink-700)">Oppose</span>
+									<span class="ml-auto font-medium" style="color:var(--ink-900)">{ fmt.Sprint(reactions.OpposeCount) }</span>
+								</div>
+							</div>
+							<!-- Reaction buttons aligned with legend rows -->
+							<div class="flex flex-col gap-1 shrink-0">
+								<form method="POST" action="/api/react" class="inline">
+									<input type="hidden" name="bill_id" value={ bill.ID }/>
+									<input type="hidden" name="reaction" value="support"/>
+									<button type="submit" title="Support" class="text-base hover:scale-110 transition-transform" aria-label="Support this bill">👍</button>
+								</form>
+								<form method="POST" action="/api/react" class="inline">
+									<input type="hidden" name="bill_id" value={ bill.ID }/>
+									<input type="hidden" name="reaction" value="neutral"/>
+									<button type="submit" title="Neutral" class="text-base hover:scale-110 transition-transform" aria-label="Neutral on this bill">🤔</button>
+								</form>
+								<form method="POST" action="/api/react" class="inline">
+									<input type="hidden" name="bill_id" value={ bill.ID }/>
+									<input type="hidden" name="reaction" value="oppose"/>
+									<button type="submit" title="Oppose" class="text-base hover:scale-110 transition-transform" aria-label="Oppose this bill">👎</button>
+								</form>
+							</div>
+						</div>
 					</div>
-				}
-				if len(aiSummary.NotableConsiderations) > 0 {
-					<div class="panel order-2 sm:col-start-2 sm:row-start-1">
-						<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Gotchas</p>
-						<ul class="list-disc list-inside space-y-1">
-							for _, item := range aiSummary.NotableConsiderations {
-								<li class="text-sm">{ item }</li>
-							}
-						</ul>
-					</div>
-				}
-				if len(aiSummary.WhoIsAffected) > 0 {
-					<div class="panel order-3 sm:col-start-1">
-						<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Who&#39;s Affected</p>
-						<ul class="list-disc list-inside space-y-1">
-							for _, item := range aiSummary.WhoIsAffected {
-								<li class="text-sm">{ item }</li>
-							}
-						</ul>
-					</div>
-				}
+					if len(aiSummary.NotableConsiderations) > 0 {
+						<div class="panel">
+							<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Gotchas</p>
+							<ul class="list-disc list-inside space-y-1">
+								for _, item := range aiSummary.NotableConsiderations {
+									<li class="text-sm">{ item }</li>
+								}
+							</ul>
+						</div>
+					}
+				</div>
 			</div>
 
-			<!-- Summary — full width -->
+			<!-- Summary — full width on both mobile and desktop -->
 			if aiSummary.PlainSummary != "" {
 				<div class="panel">
 					<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Summary</p>
 					<p class="text-sm">{ aiSummary.PlainSummary }</p>
+					if bill.SummaryAI != "" || bill.SummaryLoP != "" {
+						<p class="text-xs text-gray-400 dark:text-gray-500 mt-2">
+							if bill.SummaryLoP != "" {
+								Source: Library of Parliament
+							} else {
+								Automatically generated from bill text using Claude
+							}
+						</p>
+					}
 				</div>
 			}
 
-			<!-- Vibes — full width, after Summary so it appears last on mobile -->
-			<div class="bg-white rounded-lg border border-gray-200 p-4">
+			<!-- Vibes — mobile only (hidden on desktop; appears after Summary so mobile order ends: … → Summary → Vibes) -->
+			<div class="panel min-[900px]:hidden">
 				<h2 class="text-sm font-semibold uppercase tracking-wide mb-3" style="color:var(--ink-700)">Vibes</h2>
 				<div class="flex gap-4 items-center">
 					<!-- Pie chart -->
@@ -167,15 +241,6 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 					</div>
 				</div>
 			</div>
-			if bill.SummaryAI != "" || bill.SummaryLoP != "" {
-				<p class="text-xs text-gray-400 dark:text-gray-500 -mt-4">
-					if bill.SummaryLoP != "" {
-						Source: Library of Parliament
-					} else {
-						Automatically generated from bill text using Claude
-					}
-				</p>
-			}
 
 			<!-- External links -->
 			<div class="flex gap-4">
