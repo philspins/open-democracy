@@ -24,6 +24,10 @@ type Server struct {
 	auth       *auth.Service
 	riding     *riding.Service
 	baseURL    string
+	// baseHost is the hostname extracted from baseURL at construction time.
+	// It is used for the HTTP→HTTPS redirect to prevent host-header injection.
+	// Empty when baseURL cannot be parsed or contains no host.
+	baseHost   string
 	trustProxy bool
 }
 
@@ -35,12 +39,19 @@ func New(st *store.Store) *Server {
 	}
 	googleMapsKey := strings.TrimSpace(os.Getenv("GOOGLE_MAPS_API_KEY"))
 
+	parsed, _ := url.Parse(baseURL)
+	baseHost := ""
+	if parsed != nil {
+		baseHost = parsed.Host
+	}
+
 	s := &Server{
 		store:      st,
 		mux:        http.NewServeMux(),
 		auth:       auth.New(st, baseURL),
 		riding:     riding.New(st, googleMapsKey),
 		baseURL:    baseURL,
+		baseHost:   baseHost,
 		trustProxy: strings.ToLower(strings.TrimSpace(os.Getenv("TRUST_PROXY"))) == "true",
 	}
 
@@ -72,15 +83,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// When running behind a trusted reverse proxy in HTTPS mode, redirect
 	// plain-HTTP requests to HTTPS. The /health path is exempt so that ALB
 	// health checks always succeed regardless of protocol.
-	if s.trustProxy && strings.HasPrefix(s.baseURL, "https://") &&
+	// s.baseHost is derived from OAUTH_BASE_URL at startup; if it is empty the
+	// redirect is skipped to avoid an open-redirect via a spoofed Host header.
+	if s.trustProxy && s.baseHost != "" && strings.HasPrefix(s.baseURL, "https://") &&
 		strings.TrimSuffix(r.URL.Path, "/") != "/health" {
 		if strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))) == "http" {
-			// Use the configured base URL host to avoid host-header injection.
-			configuredHost := r.Host
-			if parsed, err := url.Parse(s.baseURL); err == nil && parsed.Host != "" {
-				configuredHost = parsed.Host
-			}
-			http.Redirect(w, r, "https://"+configuredHost+r.RequestURI, http.StatusMovedPermanently)
+			http.Redirect(w, r, "https://"+s.baseHost+r.RequestURI, http.StatusMovedPermanently)
 			return
 		}
 	}
