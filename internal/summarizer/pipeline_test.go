@@ -1,8 +1,13 @@
 package summarizer
 
 import (
+	"database/sql"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestParseSummaryJSON_FencedJSON(t *testing.T) {
@@ -128,5 +133,59 @@ func TestSummaryResultStructure(t *testing.T) {
 
 	if len(sr.NotableConsiderations) != 1 {
 		t.Error("NotableConsiderations should have one item")
+	}
+}
+
+func TestSummarizeBillsFromChannel_Clears404FullTextURL(t *testing.T) {
+	// Serve HTTP 404 for any request.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	// Build a minimal in-memory SQLite DB with the bills table.
+	db, err := sql.Open("sqlite3", "file:clear404?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	if _, err := db.Exec(`CREATE TABLE bills (
+		id TEXT PRIMARY KEY,
+		number TEXT,
+		title TEXT,
+		full_text_url TEXT,
+		summary_ai TEXT,
+		summary_lop TEXT,
+		last_activity_date TEXT
+	)`); err != nil {
+		t.Fatalf("create bills: %v", err)
+	}
+
+	billURL := srv.URL + "/bill/S-1/first-reading"
+	if _, err := db.Exec(
+		`INSERT INTO bills (id, number, title, full_text_url) VALUES ('45-1-s-1','S-1','Pro-forma Senate bill',?)`,
+		billURL,
+	); err != nil {
+		t.Fatalf("insert bill: %v", err)
+	}
+
+	// Feed one request through the channel pipeline.
+	ch := make(chan BillSummaryRequest, 1)
+	ch <- BillSummaryRequest{
+		BillID:      "45-1-s-1",
+		BillTitle:   "Pro-forma Senate bill",
+		FullTextURL: billURL,
+	}
+	close(ch)
+
+	SummarizeBillsFromChannel(t.Context(), db, ch) //nolint:errcheck
+
+	// full_text_url must now be empty.
+	var storedURL string
+	db.QueryRow(`SELECT COALESCE(full_text_url,'') FROM bills WHERE id='45-1-s-1'`).Scan(&storedURL)
+	if storedURL != "" {
+		t.Errorf("expected full_text_url to be cleared after 404, got %q", storedURL)
 	}
 }

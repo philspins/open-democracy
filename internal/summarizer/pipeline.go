@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -21,6 +22,12 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/philspins/open-democracy/internal/utils"
 )
+
+// ErrBillTextNotFound is returned by fetchBillText when the remote server
+// responds with HTTP 404.  The bill text simply doesn't exist at the stored
+// URL (e.g. pro-forma Senate bills like S-1), so the caller should clear
+// full_text_url in the database to avoid retrying on every crawl run.
+var ErrBillTextNotFound = errors.New("bill text not found (HTTP 404)")
 
 const (
 	claudeModel = "claude-sonnet-4-6"
@@ -392,9 +399,24 @@ func SummarizeBillsFromChannel(ctx context.Context, db *sql.DB, requests <-chan 
 				continue
 			}
 
-			// Check whether summarization is actually needed before downloading
-			// the (potentially large) bill text, and bail out early if the API
-			// key isn't configured.
+			// Fetch the bill text first: this validates the URL and lets us
+			// clear full_text_url immediately on 404 regardless of whether
+			// an API key is configured.
+			billText, err := fetchBillText(ctx, req.FullTextURL)
+			if err != nil {
+				if errors.Is(err, ErrBillTextNotFound) {
+					// The bill text doesn't exist at the stored URL (e.g. pro-forma
+					// Senate bills like S-1).  Clear full_text_url so we don't
+					// retry on every future crawl run.
+					log.Printf("[summarizer] bill text unavailable (404) for %q; clearing full_text_url", req.BillID)
+					db.ExecContext(ctx, `UPDATE bills SET full_text_url = '' WHERE id = ?`, req.BillID)
+				} else {
+					log.Printf("[summarizer] fetch bill text %q: %v", req.BillID, err)
+				}
+				continue
+			}
+
+			// Gate summarization on the API key and staleness check.
 			if os.Getenv("ANTHROPIC_API_KEY") == "" {
 				log.Printf("[summarizer] ANTHROPIC_API_KEY not set; skipping %q", req.BillID)
 				continue
@@ -406,12 +428,6 @@ func SummarizeBillsFromChannel(ctx context.Context, db *sql.DB, requests <-chan 
 			}
 			if !needed {
 				log.Printf("[summarizer] skip unchanged bill %q", req.BillID)
-				continue
-			}
-
-			billText, err := fetchBillText(ctx, req.FullTextURL)
-			if err != nil {
-				log.Printf("[summarizer] fetch bill text %q: %v", req.BillID, err)
 				continue
 			}
 
@@ -537,6 +553,10 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "", ErrBillTextNotFound
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		preview, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
