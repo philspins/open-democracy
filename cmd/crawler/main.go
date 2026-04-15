@@ -353,11 +353,10 @@ func crawlVotes(conn *sql.DB, client *http.Client, delay time.Duration, indexURL
 		return err
 	}
 	for _, div := range divs {
-		isNew, err := db.DivisionExists(conn, div.ID)
+		existed, err := db.DivisionExists(conn, div.ID)
 		if err != nil {
 			log.Printf("[votes] exists check %s: %v", div.ID, err)
 		}
-		isNew = !isNew // DivisionExists returns true when it exists; we want isNew=true when it doesn't
 
 		if err := db.UpsertDivision(conn, db.Division{
 			ID:          div.ID,
@@ -377,7 +376,19 @@ func crawlVotes(conn *sql.DB, client *http.Client, delay time.Duration, indexURL
 			log.Printf("[votes] upsert %s: %v", div.ID, err)
 		}
 
-		if isNew && div.DetailURL != "" {
+		// Scrape per-member votes when:
+		//   (a) this is a new division, or
+		//   (b) the division already existed but has no member votes yet
+		//       (e.g. a previous crawl failed or the scraper was broken).
+		needsDetail := !existed
+		if existed && div.DetailURL != "" {
+			hasVotes, err := db.DivisionHasVotes(conn, div.ID)
+			if err != nil {
+				log.Printf("[votes] has-votes check %s: %v", div.ID, err)
+			}
+			needsDetail = !hasVotes
+		}
+		if needsDetail && div.DetailURL != "" {
 			votes, err := scraper.CrawlDivisionDetail(div.ID, div.DetailURL, client)
 			if err != nil {
 				log.Printf("[votes] detail error %s: %v", div.ID, err)
@@ -397,11 +408,10 @@ func crawlSenate(conn *sql.DB, client *http.Client, delay time.Duration, indexUR
 		return err
 	}
 	for _, div := range divs {
-		isNew, err := db.DivisionExists(conn, div.ID)
+		existed, err := db.DivisionExists(conn, div.ID)
 		if err != nil {
 			log.Printf("[senate] exists check %s: %v", div.ID, err)
 		}
-		isNew = !isNew
 
 		if err := db.UpsertDivision(conn, db.Division{
 			ID:          div.ID,
@@ -421,7 +431,18 @@ func crawlSenate(conn *sql.DB, client *http.Client, delay time.Duration, indexUR
 			log.Printf("[senate] upsert %s: %v", div.ID, err)
 		}
 
-		if isNew && div.DetailURL != "" {
+		// Scrape per-member votes when:
+		//   (a) this is a new division, or
+		//   (b) the division already existed but has no member votes yet.
+		needsDetail := !existed
+		if existed && div.DetailURL != "" {
+			hasVotes, err := db.DivisionHasVotes(conn, div.ID)
+			if err != nil {
+				log.Printf("[senate] has-votes check %s: %v", div.ID, err)
+			}
+			needsDetail = !hasVotes
+		}
+		if needsDetail && div.DetailURL != "" {
 			votes, err := scraper.CrawlSenateDivisionDetail(div.ID, div.DetailURL, client)
 			if err != nil {
 				log.Printf("[senate] detail error %s: %v", div.ID, err)

@@ -421,6 +421,18 @@ func DivisionExists(db *sql.DB, divisionID string) (bool, error) {
 	return count > 0, nil
 }
 
+// DivisionHasVotes returns true if at least one member_votes row exists for
+// the given division.  It is used by the crawlers to decide whether to
+// (re-)fetch the per-division detail page.
+func DivisionHasVotes(db *sql.DB, divisionID string) (bool, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(1) FROM member_votes WHERE division_id = ?`, divisionID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // SittingDates returns all sitting dates for the given parliament/session.
 func SittingDates(db *sql.DB, parliament, session int) ([]string, error) {
 	rows, err := db.Query(

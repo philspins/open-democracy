@@ -295,6 +295,68 @@ func TestCrawlVotes_ReturnsErrorOnBadServer(t *testing.T) {
 	}
 }
 
+func TestCrawlVotes_BackfillsVotesForExistingDivision(t *testing.T) {
+	// Build a two-route test server: index returns a row whose detail link
+	// points to the same server; detail returns the current table layout.
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	indexHTML := `<html><body>
+  <table class="table"><thead><tr>
+    <th>#</th><th>Vote type</th><th>Description</th>
+    <th>Votes</th><th>Result</th><th>Date</th>
+  </tr></thead><tbody>
+    <tr>
+      <td><a href="` + srv.URL + `/votes/45/1/892">No. 892</a></td>
+      <td>Procedural</td><td>Procedural vote</td>
+      <td>172 / 148 / 5</td>
+      <td><i class="icon"></i> Agreed to</td>
+      <td>Wednesday, April 3, 2024</td>
+    </tr>
+  </tbody></table>
+</body></html>`
+
+	const detailHTML = `<html><body>
+  <table class="table table-striped ce-mip-table-mobile">
+    <tbody>
+      <tr>
+        <td><a href="/members/en/111">Alice Smith</a></td>
+        <td>Liberal</td><td>Yea</td><td></td>
+      </tr>
+    </tbody>
+  </table>
+</body></html>`
+
+	mux.HandleFunc("/votes/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(detailHTML))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(indexHTML))
+	})
+
+	conn := newDB(t)
+	// Pre-insert the member so the FK constraint on member_votes is satisfied.
+	db.UpsertMember(conn, db.Member{ID: "111", Name: "Alice Smith"})
+	// Pre-insert the division with no member_votes — simulates a DB that was
+	// populated by a previous crawl run before vote detail scraping was fixed.
+	db.UpsertDivision(conn, db.Division{
+		ID: "45-1-892", Parliament: 45, Session: 1, Number: 892, Chamber: "commons",
+	})
+
+	if err := crawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
+		t.Fatalf("crawlVotes backfill: %v", err)
+	}
+
+	var count int
+	conn.QueryRow(`SELECT COUNT(1) FROM member_votes WHERE division_id = '45-1-892'`).Scan(&count)
+	if count == 0 {
+		t.Error("expected member_votes to be backfilled for existing voteless division")
+	}
+}
+
 // ── crawlSenate ───────────────────────────────────────────────────────────────
 
 const senateVotesBody = `<html><body>
@@ -387,6 +449,68 @@ func TestCrawlSenate_ReturnsErrorOnBadServer(t *testing.T) {
 	err := crawlSenate(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
 	if err == nil {
 		t.Error("expected error for unreachable server")
+	}
+}
+
+func TestCrawlSenate_BackfillsVotesForExistingDivision(t *testing.T) {
+	// Build a two-route test server: index returns a row whose detail link
+	// points to the same server; detail returns senator vote HTML.
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	indexHTML := `<html><body>
+  <table><thead><tr>
+    <th>Date</th><th>Description</th><th>Bill</th><th>Result</th>
+  </tr></thead><tbody>
+    <tr>
+      <td class="vote-centered" data-order="2024-04-04 13:30:00 42">
+        <a href="/en/content/sen/chamber/451/journals/j-e">2024-04-04</a>
+      </td>
+      <td>
+        <a class="vote-web-title-link" href="` + srv.URL + `/votes/details/12345/45-1">Procedural motion</a>
+        <br />
+        Yeas: 1 | Nays: 0 | Abstentions: 0 | Total: 1
+      </td>
+      <td class="vote-centered"></td>
+      <td class="vote-centered">Agreed to</td>
+    </tr>
+  </tbody></table>
+</body></html>`
+
+	const detailHTML = `<html><body>
+  <div class="vote-yea">
+    <ul>
+      <li><a href="/Members/en/555">Bob Senator</a></li>
+    </ul>
+  </div>
+</body></html>`
+
+	mux.HandleFunc("/votes/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(detailHTML))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(indexHTML))
+	})
+
+	conn := newDB(t)
+	// Pre-insert the member so the FK constraint on member_votes is satisfied.
+	db.UpsertMember(conn, db.Member{ID: "555", Name: "Bob Senator"})
+	// Pre-insert the division with no member_votes.
+	db.UpsertDivision(conn, db.Division{
+		ID: "senate-45-1-42", Parliament: 45, Session: 1, Number: 42, Chamber: "senate",
+	})
+
+	if err := crawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
+		t.Fatalf("crawlSenate backfill: %v", err)
+	}
+
+	var count int
+	conn.QueryRow(`SELECT COUNT(1) FROM member_votes WHERE division_id = 'senate-45-1-42'`).Scan(&count)
+	if count == 0 {
+		t.Error("expected member_votes to be backfilled for existing voteless senate division")
 	}
 }
 
