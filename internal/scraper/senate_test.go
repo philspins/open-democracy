@@ -92,6 +92,21 @@ func TestCrawlSenateVotesIndex_ParsesFirstDivision(t *testing.T) {
 	}
 }
 
+func TestCrawlSenateVotesIndex_ExtractsBillNumber(t *testing.T) {
+	srv := newTestServer(sampleSenateVotesHTML)
+	defer srv.Close()
+
+	divs, _ := scraper.CrawlSenateVotesIndex(srv.URL, 45, 1, srv.Client())
+	// First row: col 2 link text "S-209"
+	if divs[0].BillNumber != "S-209" {
+		t.Errorf("divs[0].BillNumber=%q want S-209", divs[0].BillNumber)
+	}
+	// Second row: col 2 link text "S-5"
+	if divs[1].BillNumber != "S-5" {
+		t.Errorf("divs[1].BillNumber=%q want S-5", divs[1].BillNumber)
+	}
+}
+
 func TestCrawlSenateVotesIndex_ChamberIsSenate(t *testing.T) {
 	srv := newTestServer(sampleSenateVotesHTML)
 	defer srv.Close()

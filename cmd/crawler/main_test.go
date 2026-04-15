@@ -227,8 +227,8 @@ const votesIndexBody = `<html><body>
     <tbody>
       <tr>
         <td><a href="/Members/en/votes/45/1/892">No. 892</a></td>
-        <td>House Government Bill</td>
-        <td>Motion on C-47</td>
+        <td>Procedural</td>
+        <td>Procedural vote</td>
         <td>172 / 148 / 5</td>
         <td><i class="icon"></i> Agreed to</td>
         <td>Wednesday, April 3, 2024</td>
@@ -253,6 +253,44 @@ func TestCrawlVotes_PersistsDivision(t *testing.T) {
 	}
 }
 
+const votesWithBillBody = `<html><body>
+  <table class="table">
+    <thead><tr>
+      <th>#</th><th>Vote type</th><th>Description</th>
+      <th>Votes</th><th>Result</th><th>Date</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td><a href="/Members/en/votes/45/1/893">No. 893</a></td>
+        <td>House Government Bill</td>
+        <td>Motion on C-47</td>
+        <td>172 / 148 / 5</td>
+        <td><i class="icon"></i> Agreed to</td>
+        <td>Wednesday, April 3, 2024</td>
+      </tr>
+    </tbody>
+  </table>
+</body></html>`
+
+func TestCrawlVotes_StoresBillIDWhenBillExists(t *testing.T) {
+	srv := serve(votesWithBillBody)
+	defer srv.Close()
+
+	conn := newDB(t)
+	// Pre-insert the referenced bill so FK constraint is satisfied.
+	db.UpsertBill(conn, db.Bill{ID: "45-1-c-47", Parliament: 45, Session: 1, Number: "C-47", Chamber: "commons"})
+
+	if err := crawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
+		t.Fatalf("crawlVotes: %v", err)
+	}
+
+	var billID string
+	conn.QueryRow(`SELECT COALESCE(bill_id,'') FROM divisions WHERE id='45-1-893'`).Scan(&billID)
+	if billID != "45-1-c-47" {
+		t.Errorf("expected bill_id=45-1-c-47, got %q", billID)
+	}
+}
+
 func TestCrawlVotes_ReturnsErrorOnBadServer(t *testing.T) {
 	conn := newDB(t)
 	err := crawlVotes(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
@@ -274,13 +312,11 @@ const senateVotesBody = `<html><body>
           <a href="/en/content/sen/chamber/451/journals/j-e">2024-04-04</a>
         </td>
         <td>
-          <a class="vote-web-title-link" href="/en/in-the-chamber/votes/details/12345/45-1">Motion on S-209</a>
+          <a class="vote-web-title-link" href="/en/in-the-chamber/votes/details/12345/45-1">Procedural motion</a>
           <br />
           Yeas: 58 | Nays: 22 | Abstentions: 2 | Total: 82
         </td>
-        <td class="vote-centered">
-          <a href="http://www.parl.ca/LEGISInfo/BillDetails.aspx?Language=en&amp;billId=999">S-209</a>
-        </td>
+        <td class="vote-centered"></td>
         <td class="vote-centered">
           Agreed to
         </td>
@@ -302,6 +338,51 @@ func TestCrawlSenate_PersistsDivision(t *testing.T) {
 	conn.QueryRow(`SELECT COUNT(1) FROM divisions WHERE id='senate-45-1-42'`).Scan(&count)
 	if count != 1 {
 		t.Errorf("expected senate division senate-45-1-42 in DB, count=%d", count)
+	}
+}
+
+const senateVotesWithBillBody = `<html><body>
+  <table>
+    <thead><tr>
+      <th>Date</th><th>Description</th><th>Bill</th><th>Result</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td class="vote-centered" data-order="2024-04-04 13:30:00 43">
+          <a href="/en/content/sen/chamber/451/journals/j-e">2024-04-04</a>
+        </td>
+        <td>
+          <a class="vote-web-title-link" href="/en/in-the-chamber/votes/details/12345/45-1">Third reading of S-209</a>
+          <br />
+          Yeas: 58 | Nays: 22 | Abstentions: 2 | Total: 82
+        </td>
+        <td class="vote-centered">
+          <a href="http://www.parl.ca/LEGISInfo/BillDetails.aspx?Language=en&amp;billId=999">S-209</a>
+        </td>
+        <td class="vote-centered">
+          Agreed to
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</body></html>`
+
+func TestCrawlSenate_StoresBillIDWhenBillExists(t *testing.T) {
+	srv := serve(senateVotesWithBillBody)
+	defer srv.Close()
+
+	conn := newDB(t)
+	// Pre-insert the referenced bill so FK constraint is satisfied.
+	db.UpsertBill(conn, db.Bill{ID: "45-1-s-209", Parliament: 45, Session: 1, Number: "S-209", Chamber: "senate"})
+
+	if err := crawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
+		t.Fatalf("crawlSenate: %v", err)
+	}
+
+	var billID string
+	conn.QueryRow(`SELECT COALESCE(bill_id,'') FROM divisions WHERE id='senate-45-1-43'`).Scan(&billID)
+	if billID != "45-1-s-209" {
+		t.Errorf("expected bill_id=45-1-s-209, got %q", billID)
 	}
 }
 

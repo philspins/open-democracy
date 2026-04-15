@@ -42,8 +42,9 @@ func (t *uaTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // ── URL / ID extraction helpers ───────────────────────────────────────────────
 
 var (
-	legisinfoRe = regexp.MustCompile(`(?i)/legisinfo/en/bill/(\d+)-(\d+)/([A-Za-z]+-?\d+)`)
-	memberRe    = regexp.MustCompile(`(?i)/Members/en/(\d+)`)
+	legisinfoRe  = regexp.MustCompile(`(?i)/legisinfo/en/bill/(\d+)-(\d+)/([A-Za-z]+-?\d+)`)
+	memberRe     = regexp.MustCompile(`(?i)/Members/en/(\d+)`)
+	billNumberRe = regexp.MustCompile(`(?i)\b([CS]-\d+)\b`)
 )
 
 // ExtractBillID parses a canonical bill ID from a LEGISinfo URL.
@@ -71,6 +72,26 @@ func ExtractMemberID(rawURL string) string {
 // DivisionID builds the canonical division ID from its components.
 func DivisionID(parliament, session, number int) string {
 	return fmt.Sprintf("%d-%d-%d", parliament, session, number)
+}
+
+// BillIDFromParts constructs a canonical bill ID from its components.
+// billNumber should be like "C-47" or "S-209"; returns empty string if blank.
+func BillIDFromParts(parliament, session int, billNumber string) string {
+	billNumber = strings.TrimSpace(billNumber)
+	if billNumber == "" {
+		return ""
+	}
+	return fmt.Sprintf("%d-%d-%s", parliament, session, strings.ToLower(billNumber))
+}
+
+// ExtractBillNumber extracts a bill number like "C-47" or "S-209" from text.
+// Returns empty string if none found.
+func ExtractBillNumber(text string) string {
+	m := billNumberRe.FindStringSubmatch(text)
+	if len(m) == 2 {
+		return strings.ToUpper(m[1])
+	}
+	return ""
 }
 
 // BillNumberFromID extracts the bill-number portion of a bill ID.

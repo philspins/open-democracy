@@ -56,6 +56,47 @@ func TestDivisionID(t *testing.T) {
 	}
 }
 
+// ── BillIDFromParts ───────────────────────────────────────────────────────────
+
+func TestBillIDFromParts(t *testing.T) {
+	cases := []struct {
+		parliament, session int
+		billNumber          string
+		want                string
+	}{
+		{45, 1, "C-47", "45-1-c-47"},
+		{45, 1, "S-209", "45-1-s-209"},
+		{45, 1, "c-47", "45-1-c-47"}, // already lowercase
+		{45, 1, "  C-47  ", "45-1-c-47"}, // trims whitespace
+		{45, 1, "", ""},              // empty input → empty output
+	}
+	for _, c := range cases {
+		got := utils.BillIDFromParts(c.parliament, c.session, c.billNumber)
+		if got != c.want {
+			t.Errorf("BillIDFromParts(%d, %d, %q) = %q, want %q", c.parliament, c.session, c.billNumber, got, c.want)
+		}
+	}
+}
+
+// ── ExtractBillNumber ─────────────────────────────────────────────────────────
+
+func TestExtractBillNumber(t *testing.T) {
+	cases := []struct{ text, want string }{
+		{"Motion on C-47", "C-47"},
+		{"Third reading of S-209", "S-209"},
+		{"Second reading of Bill C-230, An Act respecting X", "C-230"},
+		{"S-5 third reading", "S-5"},
+		{"Procedural motion", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		got := utils.ExtractBillNumber(c.text)
+		if got != c.want {
+			t.Errorf("ExtractBillNumber(%q) = %q, want %q", c.text, got, c.want)
+		}
+	}
+}
+
 // ── BillNumberFromID ──────────────────────────────────────────────────────────
 
 func TestBillNumberFromID(t *testing.T) {

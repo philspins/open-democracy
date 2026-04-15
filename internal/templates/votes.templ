@@ -30,7 +30,13 @@ templ VotesFeed(ps store.ParliamentStatus, divs []store.DivisionRow, total int, 
 						for _, d := range divs {
 							<tr class="hover:bg-gray-50">
 								<td class="px-4 py-2 text-gray-500 whitespace-nowrap">{ FormatDate(d.Date) }</td>
-								<td class="px-4 py-2 max-w-sm truncate">{ d.Description }</td>
+								<td class="px-4 py-2 max-w-sm truncate">
+									if d.BillID != "" {
+										<a href={ templ.SafeURL("/bills/" + d.BillID) } class="text-blue-700 hover:underline">{ d.Description }</a>
+									} else {
+										{ d.Description }
+									}
+								</td>
 								<td class="px-4 py-2">
 									if d.BillNumber != "" {
 										<a href={ templ.SafeURL("/bills/" + d.BillID) } class="text-blue-600 hover:underline font-mono">{ d.BillNumber }</a>
