@@ -28,6 +28,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -305,8 +306,13 @@ func crawlMembers(conn *sql.DB, client *http.Client, delay time.Duration, apiURL
 	}
 	upsertProfiles(conn, profiles, delay)
 
-	// Crawl all provincial/territorial legislatures.
-	for setSlug := range scraper.ProvincialLegislatureAPIs {
+	// Crawl all provincial/territorial legislatures in deterministic order.
+	setSlugsSorted := make([]string, 0, len(scraper.ProvincialLegislatureAPIs))
+	for slug := range scraper.ProvincialLegislatureAPIs {
+		setSlugsSorted = append(setSlugsSorted, slug)
+	}
+	sort.Strings(setSlugsSorted)
+	for _, setSlug := range setSlugsSorted {
 		provProfiles, perr := scraper.CrawlProvincialMembersFromAPI(setSlug, "", client)
 		if perr != nil {
 			log.Printf("[members] provincial set %s: %v", setSlug, perr)

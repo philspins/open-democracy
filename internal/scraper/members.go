@@ -255,7 +255,7 @@ func fetchRepresentPages(apiURL, governmentLevel, setSlug string, client *http.C
 				if governmentLevel == "federal" {
 					role = "Member of Parliament"
 				} else {
-					role = "Member of Provincial Parliament"
+					role = "Member of the Legislature"
 				}
 			}
 
@@ -320,20 +320,37 @@ func urlLastSegment(rawURL string) string {
 }
 
 // nameToSlug converts a display name to a URL-safe slug, e.g.
-// "Laura Smith" → "laura-smith".
+// "Laura Smith" → "laura-smith", "Émilise Lessard-Therrien" → "emilise-lessard-therrien".
+// Common French/accented characters are transliterated to their ASCII equivalents.
 func nameToSlug(name string) string {
-	name = strings.ToLower(strings.TrimSpace(name))
+	// Transliterate common accented characters before lowercasing.
+	replacer := strings.NewReplacer(
+		"À", "a", "Â", "a", "Ä", "a", "à", "a", "â", "a", "ä", "a",
+		"Ç", "c", "ç", "c",
+		"È", "e", "É", "e", "Ê", "e", "Ë", "e",
+		"è", "e", "é", "e", "ê", "e", "ë", "e",
+		"Î", "i", "Ï", "i", "î", "i", "ï", "i",
+		"Ô", "o", "Ö", "o", "ô", "o", "ö", "o",
+		"Ù", "u", "Û", "u", "Ü", "u", "ù", "u", "û", "u", "ü", "u",
+		"Ÿ", "y", "ÿ", "y",
+	)
+	name = strings.ToLower(strings.TrimSpace(replacer.Replace(name)))
 	// Replace spaces with hyphens; strip characters that aren't alphanumeric or hyphens.
 	var b strings.Builder
 	for _, r := range name {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
 			b.WriteRune(r)
-		case r == ' ', r == '-', r == '_':
+		case r == ' ', r == '-', r == '_', r == '\'':
 			b.WriteByte('-')
 		}
 	}
-	return strings.Trim(b.String(), "-")
+	// Collapse multiple consecutive hyphens and trim.
+	slug := b.String()
+	for strings.Contains(slug, "--") {
+		slug = strings.ReplaceAll(slug, "--", "-")
+	}
+	return strings.Trim(slug, "-")
 }
 
 // ── Members list ──────────────────────────────────────────────────────────────
