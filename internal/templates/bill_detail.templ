@@ -76,34 +76,22 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 				</div>
 			}
 
-			<!-- Content panels: two independent flex columns above 900px so each side stacks freely -->
-			<!-- Below 900px: single column — Left col (Key Changes + Who's Affected) then Right col (Vibes + Gotchas) -->
-			<div class="flex flex-col min-[900px]:flex-row gap-4 items-start">
-				<!-- Left column: Key Changes → Who's Affected -->
-				<div class="flex flex-col gap-4 w-full min-[900px]:flex-1">
-					if len(aiSummary.KeyChanges) > 0 {
-						<div class="panel">
-							<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Key Changes</p>
-							<ul class="list-disc list-inside space-y-1">
-								for _, item := range aiSummary.KeyChanges {
-									<li class="text-sm">{ item }</li>
-								}
-							</ul>
-						</div>
-					}
-					if len(aiSummary.WhoIsAffected) > 0 {
-						<div class="panel">
-							<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Who&#39;s Affected</p>
-							<ul class="list-disc list-inside space-y-1">
-								for _, item := range aiSummary.WhoIsAffected {
-									<li class="text-sm">{ item }</li>
-								}
-							</ul>
-						</div>
-					}
-				</div>
-				<!-- Right column: Vibes → Gotchas (each floats up independently) -->
-				<div class="flex flex-col gap-4 w-full min-[900px]:flex-1">
+			<!-- Content panels -->
+			<!-- Mobile (single col): Key Changes → Vibes → Gotchas → Who's Affected -->
+			<!-- Desktop (≥900px, 2-col grid): col1 = Key Changes (row1) + Who's Affected (row2); col2 = Vibes+Gotchas spanning both rows (independent stacking, no checkerboard) -->
+			<div class="flex flex-col min-[900px]:grid min-[900px]:grid-cols-2 gap-4">
+				if len(aiSummary.KeyChanges) > 0 {
+					<div class="panel min-[900px]:col-start-1 min-[900px]:self-start">
+						<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Key Changes</p>
+						<ul class="list-disc list-inside space-y-1">
+							for _, item := range aiSummary.KeyChanges {
+								<li class="text-sm">{ item }</li>
+							}
+						</ul>
+					</div>
+				}
+				<!-- Right column wrapper: spans 2 grid rows so Vibes+Gotchas stack freely without coupling to left-col row heights -->
+				<div class="min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:self-start flex flex-col gap-4">
 					<div class="panel">
 						<h2 class="text-sm font-semibold uppercase tracking-wide mb-3" style="color:var(--ink-700)">Vibes</h2>
 						<div class="flex gap-4 items-center">
@@ -161,6 +149,16 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 						</div>
 					}
 				</div>
+				if len(aiSummary.WhoIsAffected) > 0 {
+					<div class="panel min-[900px]:col-start-1 min-[900px]:self-start">
+						<p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--ink-500)">Who&#39;s Affected</p>
+						<ul class="list-disc list-inside space-y-1">
+							for _, item := range aiSummary.WhoIsAffected {
+								<li class="text-sm">{ item }</li>
+							}
+						</ul>
+					</div>
+				}
 			</div>
 
 			<!-- Summary — full width -->
