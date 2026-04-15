@@ -26,6 +26,7 @@ Built with the **GOAT Stack**: Go · Templ · Alpine.js · Tailwind CSS.
 | `PARTY_THEME_FILE` | No | frontend templates | Override path for party/province style config (default `config/party-theme.json`) |
 | `OAUTH_BASE_URL` | Recommended for auth/OAuth | server | Public app base URL used to build verification and OAuth callback URLs (e.g. `https://open-democracy.ca`) |
 | `SES_FROM_EMAIL` | Yes for verification email delivery | server | Verified SES sender address used for outgoing verification emails (e.g. `contact@open-democracy.ca`) |
+| `TRUST_PROXY` | Yes when behind ALB/reverse proxy | server | Set `true` when running behind a trusted reverse proxy (e.g. AWS ALB). Enables: real client IP from `X-Forwarded-For`/`X-Real-IP` for rate-limiting; HTTP→HTTPS redirect (when `OAUTH_BASE_URL` is `https://`); `Strict-Transport-Security` header on HTTPS responses |
 | `GOOGLE_CLIENT_ID` | Only for Google login | server | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Only for Google login | server | Google OAuth client secret |
 | `FACEBOOK_CLIENT_ID` | Only for Facebook login | server | Facebook OAuth app client ID |
@@ -44,12 +45,16 @@ Notes:
 - If `SES_FROM_EMAIL` is unset, verification requests are accepted but emails are not sent.
 - OAuth login routes require provider credentials to be set (`GOOGLE_*` and/or `FACEBOOK_*`).
 - AWS credentials are loaded via the default AWS SDK chain (env vars, shared config/profile, or attached role).
+- Set `TRUST_PROXY=true` when running behind AWS ALB or any reverse proxy. The `/health` endpoint is always exempt from the HTTP→HTTPS redirect so ALB health checks succeed regardless of protocol.
 
 Auth/OAuth examples:
 
 ```bash
 # Base URL used in OAuth callbacks and verification links
 OAUTH_BASE_URL=https://open-democracy.ca
+
+# Enable proxy-header trust (required when running behind AWS ALB)
+TRUST_PROXY=true
 
 # SES sender (must be verified in SES)
 SES_FROM_EMAIL=contact@open-democracy.ca
