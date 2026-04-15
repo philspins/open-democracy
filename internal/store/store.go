@@ -234,12 +234,12 @@ func (s *Store) ListMembers(search, party, province string) ([]MemberRow, error)
 		args = append(args, like, like)
 	}
 	if party != "" {
-		where = append(where, "party = ?")
-		args = append(args, party)
+		where = append(where, "party LIKE ?")
+		args = append(args, "%"+party+"%")
 	}
 	if province != "" {
-		where = append(where, "province = ?")
-		args = append(args, province)
+		where = append(where, "province LIKE ?")
+		args = append(args, "%"+province+"%")
 	}
 
 	rows, err := s.db.Query(`

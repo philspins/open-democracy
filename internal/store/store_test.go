@@ -510,3 +510,64 @@ func TestUpdateUserLocationPersistsAddressAndRidings(t *testing.T) {
 		t.Fatalf("reloaded user mismatch: %+v vs %+v", reloaded, updated)
 	}
 }
+
+func TestListMembers_Filters(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, err := conn.Exec(`INSERT INTO members (id, name, party, riding, province, chamber, active)
+		VALUES ('m1', 'Alice Smith', 'Liberal', 'Ottawa Centre', 'Ontario', 'commons', 1),
+		       ('m2', 'Bob Jones', 'Conservative', 'Calgary East', 'Alberta', 'commons', 1),
+		       ('m3', 'Carol White', 'NDP', 'Vancouver East', 'British Columbia', 'commons', 1)`)
+	if err != nil {
+		t.Fatalf("insert members: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		search   string
+		party    string
+		province string
+		wantIDs  []string
+	}{
+		{"no filter returns all", "", "", "", []string{"m1", "m2", "m3"}},
+		{"name search exact", "Alice Smith", "", "", []string{"m1"}},
+		{"name search partial", "alice", "", "", []string{"m1"}},
+		{"name search case insensitive", "ALICE", "", "", []string{"m1"}},
+		{"riding search partial", "ottawa", "", "", []string{"m1"}},
+		{"party exact match", "", "Liberal", "", []string{"m1"}},
+		{"party lowercase", "", "liberal", "", []string{"m1"}},
+		{"party partial match", "", "Lib", "", []string{"m1"}},
+		{"province exact match", "", "", "Ontario", []string{"m1"}},
+		{"province lowercase", "", "", "ontario", []string{"m1"}},
+		{"province partial match", "", "", "Ont", []string{"m1"}},
+		{"name and party combined", "alice", "Liberal", "", []string{"m1"}},
+		{"no match returns empty", "zzz", "", "", []string{}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			members, err := st.ListMembers(tc.search, tc.party, tc.province)
+			if err != nil {
+				t.Fatalf("ListMembers: %v", err)
+			}
+			gotIDs := make([]string, len(members))
+			for i, m := range members {
+				gotIDs[i] = m.ID
+			}
+			if len(gotIDs) != len(tc.wantIDs) {
+				t.Errorf("got %d members (%v), want %d (%v)", len(gotIDs), gotIDs, len(tc.wantIDs), tc.wantIDs)
+				return
+			}
+			wantSet := make(map[string]bool)
+			for _, id := range tc.wantIDs {
+				wantSet[id] = true
+			}
+			for _, id := range gotIDs {
+				if !wantSet[id] {
+					t.Errorf("unexpected member ID %q in results %v", id, gotIDs)
+				}
+			}
+		})
+	}
+}
