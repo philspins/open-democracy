@@ -2,9 +2,11 @@
 package scraper
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,6 +22,10 @@ const (
 	MemberProfileBase = "https://www.ourcommons.ca/Members/en/%s"
 	MemberVotesBase   = "https://www.ourcommons.ca/Members/en/%s?tab=votes"
 	OurCommonsBase    = "https://www.ourcommons.ca"
+
+	// RepresentAPIURL is the Represent OpenNorth API endpoint for current House of
+	// Commons MPs. A single request with limit=1000 returns all 343 members.
+	RepresentAPIURL = "https://represent.opennorth.ca/representatives/house-of-commons/?format=json&limit=1000"
 )
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -58,6 +64,164 @@ type MemberVoteRecord struct {
 	Vote        string
 	Description string
 	Date        string
+}
+
+// ── Represent API types ───────────────────────────────────────────────────────
+
+// representAPIResponse is the top-level JSON response from the Represent API.
+type representAPIResponse struct {
+	Objects []representAPIItem `json:"objects"`
+	Meta    struct {
+		Next string `json:"next"`
+	} `json:"meta"`
+}
+
+// representAPIItem is one representative record from the Represent API.
+type representAPIItem struct {
+	Name         string               `json:"name"`
+	PartyName    string               `json:"party_name"`
+	DistrictName string               `json:"district_name"`
+	Email        string               `json:"email"`
+	URL          string               `json:"url"`
+	PersonalURL  string               `json:"personal_url"`
+	PhotoURL     string               `json:"photo_url"`
+	Offices      []representAPIOffice `json:"offices"`
+	Extra        representAPIExtra    `json:"extra"`
+}
+
+// representAPIOffice is a single office record inside a representative item.
+type representAPIOffice struct {
+	Postal string `json:"postal"`
+	Type   string `json:"type"`
+}
+
+// representAPIExtra holds optional extra fields returned by the API.
+type representAPIExtra struct {
+	Roles []string `json:"roles"`
+}
+
+// provinceAbbrevRe matches a two-letter Canadian province/territory code that
+// appears on a word boundary, e.g. "Ottawa ON  K1A 0A6".
+var provinceAbbrevRe = regexp.MustCompile(`\b(AB|BC|MB|NB|NL|NS|NT|NU|ON|PE|QC|SK|YT)\b`)
+
+// provinceNames maps two-letter codes to full province/territory names.
+var provinceNames = map[string]string{
+	"AB": "Alberta",
+	"BC": "British Columbia",
+	"MB": "Manitoba",
+	"NB": "New Brunswick",
+	"NL": "Newfoundland and Labrador",
+	"NS": "Nova Scotia",
+	"NT": "Northwest Territories",
+	"NU": "Nunavut",
+	"ON": "Ontario",
+	"PE": "Prince Edward Island",
+	"QC": "Quebec",
+	"SK": "Saskatchewan",
+	"YT": "Yukon",
+}
+
+// extractProvinceFromOffices infers the MP's home province from the postal
+// address of their constituency office.
+func extractProvinceFromOffices(offices []representAPIOffice) string {
+	// Prefer constituency office; fall back to any office.
+	for _, pass := range []string{"constituency", ""} {
+		for _, o := range offices {
+			if pass != "" && o.Type != pass {
+				continue
+			}
+			if m := provinceAbbrevRe.FindString(o.Postal); m != "" {
+				if full, ok := provinceNames[m]; ok {
+					return full
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// ── Represent API ─────────────────────────────────────────────────────────────
+
+// CrawlMembersFromAPI fetches all current House of Commons members from the
+// Represent OpenNorth API and returns them as MemberProfile records. All
+// profile fields (name, party, riding, province, email, photo URL, etc.) are
+// populated directly from the API — no per-MP HTML requests are needed.
+//
+// If apiURL is empty, RepresentAPIURL is used. The function follows the API's
+// pagination links so it works correctly even when limit < total_count.
+func CrawlMembersFromAPI(apiURL string, client *http.Client) ([]MemberProfile, error) {
+	if apiURL == "" {
+		apiURL = RepresentAPIURL
+	}
+	if client == nil {
+		client = utils.NewHTTPClient()
+	}
+
+	base, err := url.Parse(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("members API: bad URL %q: %w", apiURL, err)
+	}
+
+	var profiles []MemberProfile
+	pageURL := apiURL
+	for pageURL != "" {
+		log.Printf("[members] fetching API page: %s", pageURL)
+
+		resp, err := client.Get(pageURL)
+		if err != nil {
+			return nil, fmt.Errorf("members API GET %s: %w", pageURL, err)
+		}
+
+		var page representAPIResponse
+		decodeErr := json.NewDecoder(resp.Body).Decode(&page)
+		resp.Body.Close()
+		if decodeErr != nil {
+			return nil, fmt.Errorf("members API decode: %w", decodeErr)
+		}
+
+		for _, item := range page.Objects {
+			memberID := utils.ExtractMemberID(item.URL)
+			if memberID == "" {
+				log.Printf("[members] skipping item with no extractable ID: url=%q", item.URL)
+				continue
+			}
+
+			role := "Member of Parliament"
+			for _, r := range item.Extra.Roles {
+				if r != "" {
+					role = r
+					break
+				}
+			}
+
+			profiles = append(profiles, MemberProfile{
+				ID:          memberID,
+				Name:        item.Name,
+				Party:       item.PartyName,
+				Riding:      item.DistrictName,
+				Province:    extractProvinceFromOffices(item.Offices),
+				Role:        role,
+				PhotoURL:    item.PhotoURL,
+				Email:       item.Email,
+				Website:     item.PersonalURL,
+				Chamber:     "commons",
+				Active:      true,
+				LastScraped: utils.NowISO(),
+			})
+		}
+
+		// Follow pagination — meta.next is a relative path on the same host.
+		pageURL = ""
+		if page.Meta.Next != "" {
+			nextRef, err := url.Parse(page.Meta.Next)
+			if err == nil {
+				pageURL = base.ResolveReference(nextRef).String()
+			}
+		}
+	}
+
+	log.Printf("[members] fetched %d members from Represent API", len(profiles))
+	return profiles, nil
 }
 
 // ── Members list ──────────────────────────────────────────────────────────────

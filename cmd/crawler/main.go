@@ -138,7 +138,7 @@ func main() {
 		tasks = append(tasks, task{"bills", func() error { return crawlBills(conn, client, delay, "", summaryRequests) }})
 	}
 	if *membersFlag || shouldRunAll {
-		tasks = append(tasks, task{"members", func() error { return crawlMembers(conn, client, delay, "", "") }})
+		tasks = append(tasks, task{"members", func() error { return crawlMembers(conn, client, delay, "") }})
 	}
 	if *votesFlag || shouldRunAll {
 		tasks = append(tasks, task{"votes", func() error { return crawlVotes(conn, client, delay, "") }})
@@ -297,27 +297,12 @@ func crawlBills(conn *sql.DB, client *http.Client, delay time.Duration, rssURL s
 	return nil
 }
 
-func crawlMembers(conn *sql.DB, client *http.Client, delay time.Duration, listURL, profileBaseURL string) error {
-	stubs, err := scraper.CrawlMembersList(listURL, client)
+func crawlMembers(conn *sql.DB, client *http.Client, delay time.Duration, apiURL string) error {
+	profiles, err := scraper.CrawlMembersFromAPI(apiURL, client)
 	if err != nil {
 		return err
 	}
-	for _, stub := range stubs {
-		profileURL := profileBaseURL // use override if set; otherwise CrawlMemberProfile constructs the real URL
-		profile, err := scraper.CrawlMemberProfile(stub.ID, profileURL, client)
-		if err != nil {
-			log.Printf("[members] profile error for %s: %v", stub.ID, err)
-		}
-		// Fill fallback fields from stub if profile is sparse
-		if profile.Party == "" {
-			profile.Party = stub.Party
-		}
-		if profile.Riding == "" {
-			profile.Riding = stub.Riding
-		}
-		if profile.Province == "" {
-			profile.Province = stub.Province
-		}
+	for _, profile := range profiles {
 		if err := db.UpsertMember(conn, db.Member{
 			ID:          profile.ID,
 			Name:        profile.Name,
@@ -332,7 +317,7 @@ func crawlMembers(conn *sql.DB, client *http.Client, delay time.Duration, listUR
 			Active:      profile.Active,
 			LastScraped: profile.LastScraped,
 		}); err != nil {
-			log.Printf("[members] upsert %s: %v", stub.ID, err)
+			log.Printf("[members] upsert %s: %v", profile.ID, err)
 		}
 		time.Sleep(delay)
 	}
@@ -444,7 +429,7 @@ func runAll(conn *sql.DB, client *http.Client, delay time.Duration, parallelism 
 	fns := []func(){
 		func() { crawlCalendar(conn, client, delay, "") },
 		func() { crawlBills(conn, client, delay, "", summaryRequests) },
-		func() { crawlMembers(conn, client, delay, "", "") },
+		func() { crawlMembers(conn, client, delay, "") },
 		func() { crawlVotes(conn, client, delay, "") },
 		func() { crawlSenate(conn, client, delay, "") },
 	}

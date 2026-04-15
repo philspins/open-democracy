@@ -44,6 +44,7 @@ func (t *uaTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 var (
 	legisinfoRe  = regexp.MustCompile(`(?i)/legisinfo/en/bill/(\d+)-(\d+)/([A-Za-z]+-?\d+)`)
 	memberRe     = regexp.MustCompile(`(?i)/Members/en/(\d+)`)
+	memberParenRe = regexp.MustCompile(`(?i)/Members/en/[^/(]+\((\d+)\)`)
 	billNumberRe = regexp.MustCompile(`(?i)\b([CS]-\d+)\b`)
 )
 
@@ -60,10 +61,15 @@ func ExtractBillID(rawURL string) string {
 
 // ExtractMemberID parses a member ID from an ourcommons.ca URL.
 //
-//	https://www.ourcommons.ca/Members/en/123006  →  "123006"
+//	https://www.ourcommons.ca/Members/en/parm-bains(111067)  →  "111067"
+//	https://www.ourcommons.ca/Members/en/123006              →  "123006"
 func ExtractMemberID(rawURL string) string {
-	m := memberRe.FindStringSubmatch(rawURL)
-	if len(m) == 2 {
+	// Prefer the current name(ID) format used by ourcommons.ca and the Represent API.
+	if m := memberParenRe.FindStringSubmatch(rawURL); len(m) == 2 {
+		return m[1]
+	}
+	// Fall back to the legacy numeric-only format.
+	if m := memberRe.FindStringSubmatch(rawURL); len(m) == 2 {
 		return m[1]
 	}
 	return ""

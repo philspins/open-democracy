@@ -173,31 +173,21 @@ func TestCrawlBills_EmitsSummaryRequest(t *testing.T) {
 
 // ── crawlMembers ──────────────────────────────────────────────────────────────
 
-const membersListBody = `<html><body>
-  <div class="ce-mip-mp-tile">
-    <a href="/Members/en/111">
-      <span class="ce-mip-mp-name">Jane Doe</span>
-    </a>
-    <span class="ce-mip-mp-party">Liberal</span>
-    <span class="ce-mip-mp-constituency">Ottawa Centre</span>
-    <span class="ce-mip-mp-province">Ontario</span>
-  </div>
-</body></html>`
+const membersAPIBody = `{"objects":[{"name":"Jane Doe","party_name":"Liberal","district_name":"Ottawa Centre","email":"jane.doe@parl.gc.ca","url":"https://www.ourcommons.ca/Members/en/jane-doe(111)","personal_url":"https://janedoe.ca","photo_url":"https://www.ourcommons.ca/photo/111.jpg","offices":[{"type":"constituency","postal":"Ottawa ON  K1A 0A6"}],"extra":{}}],"meta":{"next":null}}`
 
-const memberProfileBody = `<html><body>
-  <h1 class="ce-mip-mp-name">Jane Doe</h1>
-  <span class="ce-mip-mp-party">Liberal</span>
-  <span class="ce-mip-mp-constituency">Ottawa Centre</span>
-  <span class="ce-mip-mp-province">Ontario</span>
-  <a href="mailto:jane.doe@parl.gc.ca">jane.doe@parl.gc.ca</a>
-</body></html>`
+func serveJSON(body string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Write([]byte(body))
+	}))
+}
 
 func TestCrawlMembers_PersistsMember(t *testing.T) {
-	srv := serve(membersListBody + memberProfileBody)
+	srv := serveJSON(membersAPIBody)
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlMembers(conn, srv.Client(), noDelay, srv.URL, srv.URL); err != nil {
+	if err := crawlMembers(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlMembers: %v", err)
 	}
 
@@ -210,7 +200,7 @@ func TestCrawlMembers_PersistsMember(t *testing.T) {
 
 func TestCrawlMembers_ReturnsErrorOnBadServer(t *testing.T) {
 	conn := newDB(t)
-	err := crawlMembers(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server", "")
+	err := crawlMembers(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
 	if err == nil {
 		t.Error("expected error for unreachable server")
 	}
