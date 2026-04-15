@@ -114,7 +114,46 @@ func TestCrawlVotesIndex_ErrorWhenNoTable(t *testing.T) {
 
 // ── CrawlDivisionDetail ───────────────────────────────────────────────────────
 
+// sampleDivisionHTML reflects the current ourcommons.ca table layout
+// (45th Parliament onwards): a single ce-mip-table-mobile table with four
+// columns (Member link, Party, Vote, Paired).
 const sampleDivisionHTML = `<html><body>
+  <table class="table table-striped ce-mip-table-mobile">
+    <thead>
+      <tr><th>Member</th><th>Party</th><th>Member Voted</th><th>Paired</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="/members/en/111">Alice Smith</a></td>
+        <td>Liberal</td>
+        <td>Yea</td>
+        <td></td>
+      </tr>
+      <tr>
+        <td><a href="/members/en/222">Bob Jones</a></td>
+        <td>Conservative</td>
+        <td>Yea</td>
+        <td></td>
+      </tr>
+      <tr>
+        <td><a href="/members/en/333">Carol Brown</a></td>
+        <td>NDP</td>
+        <td>Nay</td>
+        <td></td>
+      </tr>
+      <tr>
+        <td><a href="/members/en/444">David White</a></td>
+        <td>Bloc</td>
+        <td>Paired</td>
+        <td>&#x2713;</td>
+      </tr>
+    </tbody>
+  </table>
+</body></html>`
+
+// sampleDivisionHTMLLegacy reflects the old ourcommons.ca layout used in
+// prior parliaments; it exercises the fallback selector path.
+const sampleDivisionHTMLLegacy = `<html><body>
   <div class="vote-yea">
     <ul>
       <li class="member-name"><a href="/Members/en/111">Alice Smith</a></li>
@@ -163,6 +202,22 @@ func TestCrawlDivisionDetail_ParsesNayVotes(t *testing.T) {
 	}
 }
 
+func TestCrawlDivisionDetail_ParsesPairedVotes(t *testing.T) {
+	srv := newTestServer(sampleDivisionHTML)
+	defer srv.Close()
+
+	votes, _ := scraper.CrawlDivisionDetail("45-1-892", srv.URL, srv.Client())
+	var paired []scraper.MemberVote
+	for _, v := range votes {
+		if v.Vote == "Paired" {
+			paired = append(paired, v)
+		}
+	}
+	if len(paired) != 1 || paired[0].MemberID != "444" {
+		t.Errorf("paired member_id mismatch: %+v", paired)
+	}
+}
+
 func TestCrawlDivisionDetail_AllHaveDivisionID(t *testing.T) {
 	srv := newTestServer(sampleDivisionHTML)
 	defer srv.Close()
@@ -172,6 +227,31 @@ func TestCrawlDivisionDetail_AllHaveDivisionID(t *testing.T) {
 		if v.DivisionID != "45-1-892" {
 			t.Errorf("DivisionID=%q want 45-1-892", v.DivisionID)
 		}
+	}
+}
+
+func TestCrawlDivisionDetail_LegacyFallback(t *testing.T) {
+	srv := newTestServer(sampleDivisionHTMLLegacy)
+	defer srv.Close()
+
+	votes, err := scraper.CrawlDivisionDetail("45-1-892", srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlDivisionDetail legacy: %v", err)
+	}
+	var yeas, nays int
+	for _, v := range votes {
+		switch v.Vote {
+		case "Yea":
+			yeas++
+		case "Nay":
+			nays++
+		}
+	}
+	if yeas != 2 {
+		t.Errorf("legacy yeas=%d want 2", yeas)
+	}
+	if nays != 1 {
+		t.Errorf("legacy nays=%d want 1", nays)
 	}
 }
 

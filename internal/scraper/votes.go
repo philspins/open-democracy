@@ -164,7 +164,7 @@ func CrawlVotesIndex(
 // ── Division detail ───────────────────────────────────────────────────────────
 
 // voteSelectors maps canonical vote types to the CSS selectors used on the
-// ourcommons.ca division detail page.
+// legacy ourcommons.ca division detail page layout (kept as fallback).
 var voteSelectors = map[string][]string{
 	"Yea": {
 		".vote-yea .member-name a",
@@ -185,6 +185,14 @@ var voteSelectors = map[string][]string{
 	},
 }
 
+// normaliseVoteText maps the free-form vote text from the current
+// ourcommons.ca table layout to a canonical vote value.
+var normaliseVoteText = map[string]string{
+	"yea":    "Yea",
+	"nay":    "Nay",
+	"paired": "Paired",
+}
+
 // CrawlDivisionDetail scrapes how each MP voted on a single division.
 func CrawlDivisionDetail(divisionID, url string, client *http.Client) ([]MemberVote, error) {
 	if client == nil {
@@ -198,24 +206,59 @@ func CrawlDivisionDetail(divisionID, url string, client *http.Client) ([]MemberV
 	}
 
 	var votes []MemberVote
-	for voteType, selectors := range voteSelectors {
-		for _, sel := range selectors {
-			members := doc.Find(sel)
-			if members.Length() == 0 {
-				continue
-			}
-			members.Each(func(_ int, a *goquery.Selection) {
-				href, _ := a.Attr("href")
-				memberID := utils.ExtractMemberID(href)
-				if memberID != "" {
-					votes = append(votes, MemberVote{
-						DivisionID: divisionID,
-						MemberID:   memberID,
-						Vote:       voteType,
-					})
+
+	// ── Current layout (45th Parliament onwards) ─────────────────────────────
+	// The page renders a single table with class "ce-mip-table-mobile".
+	// Each tbody row has four columns:
+	//   col 1: member link  (<a href="/members/en/{id}">Name</a>)
+	//   col 2: party
+	//   col 3: vote value   (Yea / Nay / — / empty)
+	//   col 4: paired flag
+	doc.Find("table.ce-mip-table-mobile tbody tr").Each(func(_ int, row *goquery.Selection) {
+		cols := row.Find("td")
+		if cols.Length() < 3 {
+			return
+		}
+		href, _ := cols.Eq(0).Find("a").Attr("href")
+		memberID := utils.ExtractMemberID(href)
+		if memberID == "" {
+			return
+		}
+		rawVote := strings.ToLower(strings.TrimSpace(cols.Eq(2).Text()))
+		canonical, ok := normaliseVoteText[rawVote]
+		if !ok {
+			return // abstained / empty — skip
+		}
+		votes = append(votes, MemberVote{
+			DivisionID: divisionID,
+			MemberID:   memberID,
+			Vote:       canonical,
+		})
+	})
+
+	// ── Legacy / fallback layout ──────────────────────────────────────────────
+	// If the table selector matched nothing, try the old selector-map approach
+	// so that previously cached test fixtures and older page snapshots still work.
+	if len(votes) == 0 {
+		for voteType, selectors := range voteSelectors {
+			for _, sel := range selectors {
+				members := doc.Find(sel)
+				if members.Length() == 0 {
+					continue
 				}
-			})
-			break // found a working selector; skip the rest
+				members.Each(func(_ int, a *goquery.Selection) {
+					href, _ := a.Attr("href")
+					memberID := utils.ExtractMemberID(href)
+					if memberID != "" {
+						votes = append(votes, MemberVote{
+							DivisionID: divisionID,
+							MemberID:   memberID,
+							Vote:       voteType,
+						})
+					}
+				})
+				break // found a working selector; skip the rest
+			}
 		}
 	}
 
