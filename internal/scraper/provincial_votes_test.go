@@ -189,3 +189,115 @@ func TestCrawlPrinceEdwardIslandVotes_HandlesCaptcha(t *testing.T) {
 	}
 }
 
+func TestParseBCVotesDivisions_ParsesDivisionTableYeasNays(t *testing.T) {
+	// HTML fixture modelled on a real BC VP document from the 43rd Parliament, 1st Session.
+	// The <table class="division"> format lists Yeas first, then Nays, each spanning four
+	// 25%-width columns with member surnames separated by <br> elements.
+	html := `<html><body>
+<p>Motion agreed to on the following division:</p>
+<table width="600" cellpadding="0" cellspacing="0" class="division">
+<tr>
+<td valign="top" class="head" colspan="4">Yeas &#8212; 48</td>
+</tr>
+<tr>
+<td valign="top" width="25%">Eby <br>Farnworth <br>Sharma <br></td>
+<td valign="top" width="25%">Dix <br>Beare <br>Boyle <br></td>
+<td valign="top" width="25%">Kahlon <br>Bailey <br>Gibson <br></td>
+<td valign="top" width="25%">Glumac <br>Arora <br>Shah <br></td>
+</tr>
+<tr>
+<td valign="top" class="head" colspan="4">Nays &#8212; 40</td>
+</tr>
+<tr>
+<td valign="top" width="25%">Rustad <br>Milobar <br>Halford <br></td>
+<td valign="top" width="25%">Dew <br>Clare <br>Rattee <br></td>
+<td valign="top" width="25%">Bird <br>Stamer <br>Day <br></td>
+<td valign="top" width="25%">Doerkson <br>Luck <br>Block <br></td>
+</tr>
+</table>
+</body></html>`
+
+	divs := scraper.ParseBCVotesDivisionsForTest(html, "https://example.com/v251201.htm", "2025-12-01", 43, 1, 1)
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	d := divs[0]
+	if d.Division.Yeas != 48 || d.Division.Nays != 40 {
+		t.Fatalf("counts=(%d,%d), want (48,40)", d.Division.Yeas, d.Division.Nays)
+	}
+	if d.Division.Result != "Carried" {
+		t.Fatalf("result=%q, want Carried", d.Division.Result)
+	}
+	if len(d.Votes) < 24 {
+		t.Fatalf("len(votes)=%d, want >=24", len(d.Votes))
+	}
+	// Verify at least one yea and one nay vote recorded.
+	yeaCount, nayCount := 0, 0
+	for _, v := range d.Votes {
+		if v.Vote == "yea" {
+			yeaCount++
+		} else if v.Vote == "nay" {
+			nayCount++
+		}
+	}
+	if yeaCount == 0 || nayCount == 0 {
+		t.Fatalf("yeaCount=%d nayCount=%d, want both >0", yeaCount, nayCount)
+	}
+}
+
+func TestParseBCVotesDivisions_NaysExceedYeadsIsNegatived(t *testing.T) {
+	html := `<html><body>
+<p>Amendment was defeated on the following division:</p>
+<table width="600" cellpadding="0" cellspacing="0" class="division">
+<tr><td valign="top" class="head" colspan="4">Nays &#8212; 6</td></tr>
+<tr>
+<td valign="top" width="25%">Smith <br>Jones <br></td>
+<td valign="top" width="25%">Brown <br>Davis <br></td>
+<td valign="top" width="25%">Wilson <br>Taylor <br></td>
+<td valign="top" width="25%"></td>
+</tr>
+<tr><td valign="top" class="head" colspan="4">Yeas &#8212; 3</td></tr>
+<tr>
+<td valign="top" width="25%">Allen <br></td>
+<td valign="top" width="25%">Foster <br></td>
+<td valign="top" width="25%">Mok <br></td>
+<td valign="top" width="25%"></td>
+</tr>
+</table>
+</body></html>`
+
+	divs := scraper.ParseBCVotesDivisionsForTest(html, "https://example.com/v251202.htm", "2025-12-02", 43, 1, 1)
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	if divs[0].Division.Result != "Negatived" {
+		t.Fatalf("result=%q, want Negatived", divs[0].Division.Result)
+	}
+	if divs[0].Division.Yeas != 3 || divs[0].Division.Nays != 6 {
+		t.Fatalf("counts=(%d,%d), want (3,6)", divs[0].Division.Yeas, divs[0].Division.Nays)
+	}
+}
+
+func TestParliamentOrdinal(t *testing.T) {
+	cases := []struct {
+		n    int
+		want string
+	}{
+		{1, "1st"},
+		{2, "2nd"},
+		{3, "3rd"},
+		{4, "4th"},
+		{11, "11th"},
+		{12, "12th"},
+		{13, "13th"},
+		{21, "21st"},
+		{43, "43rd"},
+	}
+	for _, c := range cases {
+		got := scraper.ParliamentOrdinalForTest(c.n)
+		if got != c.want {
+			t.Errorf("parliamentOrdinal(%d)=%q, want %q", c.n, got, c.want)
+		}
+	}
+}
+

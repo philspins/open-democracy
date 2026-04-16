@@ -45,6 +45,12 @@ type uaTransport struct {
 func (t *uaTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone := req.Clone(req.Context())
 	clone.Header.Set("User-Agent", AppUserAgent)
+	// Some servers (e.g. nslegislature.ca) require an Accept header and drop the
+	// connection with EOF when it is absent. Use a broadly-accepting value that
+	// works for both HTML pages and JSON APIs.
+	if clone.Header.Get("Accept") == "" {
+		clone.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,application/json,*/*;q=0.8")
+	}
 	return t.base.RoundTrip(clone)
 }
 

@@ -1281,10 +1281,10 @@ templ RepComparison(federalRep, provincialRep Member, overlapPct int) {
 
 **Implementation Status:**
 - AB: ✅ Implemented — dedicated PDF scraper (`crawlAlbertaVotesFromPDF`)
-- BC: 🔲 Blocked — pending URL discovery (docstring updated)
-- MB: ✅ Implemented — two-level PDF crawl (`crawlManitobaVotesFromPDF`)
+- BC: ✅ Implemented — LIMS document-store REST API scraper (`crawlBritishColumbiaVotesFromLIMS`); endpoint discovered 2026-04 via browser DevTools on `dyn.leg.bc.ca`
+- MB: ✅ Implemented — two-level PDF crawl (`crawlManitobaVotesFromPDF`); regex fix applied to `mbSessionPageLinkRe` (added ordinal suffix to session number)
 - NL: ✅ Implemented — outcome-only journal parser (`parseNLJournalDivisions`)
-- NS: ✅ Implemented — 45s timeout + journal PDF scraper (`crawlNovaScotiaVotesFromPDF`)
+- NS: ✅ Implemented — 45s timeout + journal PDF scraper (`crawlNovaScotiaVotesFromPDF`); `Accept` header fix applied globally to `uaTransport` (fixes NS EOF)
 - PE: ✅ Implemented — browser-header bypass with CAPTCHA detection (`peiTransport`)
 
 ---

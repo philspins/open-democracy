@@ -100,19 +100,33 @@ func TestCrawlAlbertaVotes_ReturnsZeroWhenNoPDFLinks(t *testing.T) {
 	_ = divs // graceful empty result is expected
 }
 
-func TestCrawlBritishColumbiaVotes_UsesProvinceMatcher(t *testing.T) {
+func TestCrawlBritishColumbiaVotes_UsesLIMSAPI(t *testing.T) {
+	// The BC scraper uses the LIMS document-store REST API.
+	// The indexURL parameter becomes the LIMS base URL for testing.
+	vpHTML := `<!DOCTYPE html><html><body>
+<p>Motion agreed to on the following division:</p>
+<table class="division">
+<tr><td class="head" colspan="4">Yeas &#8212; 11</td></tr>
+<tr><td>Eby <br>Farnworth <br>Sharma <br></td><td>Dix <br>Beare <br>Boyle <br></td><td>Kahlon <br>Bailey <br>Gibson <br></td><td>Glumac <br>Arora <br></td></tr>
+<tr><td class="head" colspan="4">Nays &#8212; 4</td></tr>
+<tr><td>Rustad <br></td><td>Milobar <br></td><td>Halford <br></td><td>Dew <br></td></tr>
+</table>
+</body></html>`
+
+	limsJSON := `{"allParliamentaryFileAttributes":{"nodes":[{"fileName":"v260407.htm","filePath":"/ldp/43rd2nd/votes/","published":true,"date":"2026-04-07T00:00:00","votesAttributesByFileId":{"nodes":[{"voteNumbers":"38"}]}}]}}`
+
 	mux := http.NewServeMux()
+	mux.HandleFunc("/pdms/votes-and-proceedings/43rd2nd", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(limsJSON))
+	})
+	mux.HandleFunc("/pdms/ldp/43rd2nd/votes/v260407.htm", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(vpHTML))
+	})
+
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(`<html><body><a href="/votes-and-proceedings/2026-04-07">Votes and Proceedings</a></body></html>`))
-	})
-	mux.HandleFunc("/votes-and-proceedings/2026-04-07", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(`<html><body><table><tr><td>Ayes: 11</td><td>Nays: 4</td></tr></table></body></html>`))
-	})
 
 	divs, err := scraper.CrawlBritishColumbiaVotes(srv.URL, 43, 2, srv.Client())
 	if err != nil {
@@ -120,6 +134,9 @@ func TestCrawlBritishColumbiaVotes_UsesProvinceMatcher(t *testing.T) {
 	}
 	if len(divs) == 0 {
 		t.Fatal("expected at least one parsed bc division")
+	}
+	if divs[0].Division.Yeas != 11 || divs[0].Division.Nays != 4 {
+		t.Fatalf("counts=(%d,%d), want (11,4)", divs[0].Division.Yeas, divs[0].Division.Nays)
 	}
 }
 
@@ -190,6 +207,17 @@ func TestProvinceSpecificBillCrawlerEntryPoints(t *testing.T) {
 func TestProvinceSpecificVoteCrawlerEntryPoints(t *testing.T) {
 	type voteCrawler func(string, int, int, *http.Client) ([]scraper.ProvincialDivisionResult, error)
 
+	vpHTML := `<!DOCTYPE html><html><body>
+<p>Motion agreed to:</p>
+<table class="division">
+<tr><td class="head" colspan="4">Yeas &#8212; 9</td></tr>
+<tr><td>Smith <br>Jones <br>Brown <br></td><td>Davis <br>Wilson <br>Taylor <br></td><td>Allen <br>Foster <br>Mok <br></td><td></td></tr>
+<tr><td class="head" colspan="4">Nays &#8212; 2</td></tr>
+<tr><td>Lee <br></td><td>Park <br></td><td></td><td></td></tr>
+</table></body></html>`
+
+	limsJSON := `{"allParliamentaryFileAttributes":{"nodes":[{"fileName":"test.htm","filePath":"/ldp/1st1st/votes/","published":true,"date":"2026-04-07T00:00:00","votesAttributesByFileId":{"nodes":[{"voteNumbers":"1"}]}}]}}`
+
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -201,6 +229,15 @@ func TestProvinceSpecificVoteCrawlerEntryPoints(t *testing.T) {
 	mux.HandleFunc("/votes/2026-04-07", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(`<html><body><table><tr><td>Yeas: 9</td><td>Nays: 2</td></tr></table></body></html>`))
+	})
+	// BC uses the LIMS document-store API; legislature=1, session=1 → "1st1st".
+	mux.HandleFunc("/pdms/votes-and-proceedings/1st1st", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(limsJSON))
+	})
+	mux.HandleFunc("/pdms/ldp/1st1st/votes/test.htm", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(vpHTML))
 	})
 
 	// AB and NS use dedicated PDF scrapers that require specific PDF link patterns;

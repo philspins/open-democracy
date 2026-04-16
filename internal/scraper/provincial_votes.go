@@ -1382,28 +1382,276 @@ func CrawlAlbertaVotes(indexURL string, legislature, session int, client *http.C
 	return crawlAlbertaVotesFromPDF(indexURL, legislature, session, client)
 }
 
-// CrawlBritishColumbiaVotes crawls BC votes/proceedings pages.
-//
-// Current status: BLOCKED — pending URL discovery (see plan § 5A.3).
-//
-// The V&P index page at leg.bc.ca embeds an <iframe> pointing to a React SPA
-// at dyn.leg.bc.ca/votes-and-proceedings?parliament=43rd&session=2nd. The SPA
-// fetches vote data from an internal API whose endpoint is not yet confirmed.
-// The LIMS GraphQL API (lims.leg.bc.ca/graphql) provides structural data only
-// (members, sessions, constituencies) — it has no votes tables.
-//
-// Investigation required: use browser DevTools on dyn.leg.bc.ca to capture the
-// XHR/Fetch calls that load per-day VP data, then implement a dedicated scraper
-// for the discovered endpoint.
-//
-// Interim: the generic HTML scraper is kept as a no-op fallback; it always
-// returns 0 divisions until the endpoint is discovered and a parser is written.
-func CrawlBritishColumbiaVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
-	if indexURL == "" {
-		indexURL = "https://www.leg.bc.ca/parliamentary-business/overview/43rd-parliament/2nd-session/votes-and-proceedings"
-	}
-	return crawlGenericProvincialVotesWithMatcher(indexURL, "bc", "british_columbia", legislature, session, client, bcVotesLinkRe)
+// ── 5A.3 British Columbia ─────────────────────────────────────────────────────
+
+// bcLIMSBase is the base URL for the BC LIMS document-store REST API.
+const bcLIMSBase = "https://lims.leg.bc.ca"
+
+// bcLIMSVotesFile describes a single V&P HTML document returned by the BC LIMS API.
+type bcLIMSVotesFile struct {
+	FileName  string `json:"fileName"`
+	FilePath  string `json:"filePath"`
+	Published bool   `json:"published"`
+	Date      string `json:"date"`
+	VotesAttributesByFileId struct {
+		Nodes []struct {
+			VoteNumbers string `json:"voteNumbers"`
+		} `json:"nodes"`
+	} `json:"votesAttributesByFileId"`
 }
+
+// bcLIMSVotesResponse is the JSON envelope from
+// https://lims.leg.bc.ca/pdms/votes-and-proceedings/{parliament}{session}.
+type bcLIMSVotesResponse struct {
+	AllParliamentaryFileAttributes struct {
+		Nodes []bcLIMSVotesFile `json:"nodes"`
+	} `json:"allParliamentaryFileAttributes"`
+}
+
+// parliamentOrdinal converts an integer to its English ordinal string (1→"1st",
+// 2→"2nd", 3→"3rd", 4→"4th", …).  Used to build the BC LIMS API path.
+func parliamentOrdinal(n int) string {
+	var suffix string
+	switch {
+	case n%100 >= 11 && n%100 <= 13:
+		suffix = "th"
+	case n%10 == 1:
+		suffix = "st"
+	case n%10 == 2:
+		suffix = "nd"
+	case n%10 == 3:
+		suffix = "rd"
+	default:
+		suffix = "th"
+	}
+	return fmt.Sprintf("%d%s", n, suffix)
+}
+
+// parseBCDivisionTable parses a single BC VP <table class="division"> element
+// and returns yea count, nay count, yea names, and nay names.
+//
+// The table layout is:
+//
+//	<tr><td class="head" colspan="4">Yeas — 48</td></tr>
+//	<tr><td>Name <br> Name <br></td> … (4 columns) </tr>
+//	<tr><td class="head" colspan="4">Nays — 40</td></tr>
+//	<tr><td>Name <br> Name <br></td> … (4 columns) </tr>
+func parseBCDivisionTable(table *goquery.Selection) (yeas, nays int, yeaNames, nayNames []string) {
+	var currentSide string // "yea" or "nay"
+	table.Find("tr").Each(func(_ int, row *goquery.Selection) {
+		headCell := row.Find("td.head")
+		if headCell.Length() > 0 {
+			headText := strings.TrimSpace(headCell.Text())
+			headLower := strings.ToLower(headText)
+			var count int
+			if m := genericYeaRe.FindStringSubmatch(headText); len(m) == 2 {
+				count, _ = strconv.Atoi(m[1])
+			} else if m := genericNayRe.FindStringSubmatch(headText); len(m) == 2 {
+				count, _ = strconv.Atoi(m[1])
+			}
+			if strings.Contains(headLower, "yea") || strings.Contains(headLower, "aye") {
+				currentSide = "yea"
+				yeas = count
+			} else if strings.Contains(headLower, "nay") {
+				currentSide = "nay"
+				nays = count
+			}
+			return
+		}
+		// Data row: collect member names from each <td> cell.
+		row.Find("td").Each(func(_ int, cell *goquery.Selection) {
+			// Names are separated by <br> elements; get raw HTML and split on <br>.
+			cellHTML, _ := cell.Html()
+			// Replace <br> variants with newline then strip any remaining tags.
+			brRe := regexp.MustCompile(`(?i)<br\s*/?>`)
+			tagRe := regexp.MustCompile(`<[^>]+>`)
+			cleaned := tagRe.ReplaceAllString(brRe.ReplaceAllString(cellHTML, "\n"), "")
+			for _, raw := range strings.Split(cleaned, "\n") {
+				name := strings.TrimSpace(raw)
+				if name == "" || name == "/" {
+					continue
+				}
+				switch currentSide {
+				case "yea":
+					yeaNames = append(yeaNames, name)
+				case "nay":
+					nayNames = append(nayNames, name)
+				}
+			}
+		})
+	})
+	return
+}
+
+// parseBCVotesDivisions parses all recorded divisions from a BC V&P HTML document.
+func parseBCVotesDivisions(doc *goquery.Document, sourceURL, date, province string, legislature, session, startDivNum int) []ProvincialDivisionResult {
+	var results []ProvincialDivisionResult
+	divNum := startDivNum
+
+	// Collect all <p> elements and <table class="division"> in document order.
+	doc.Find("p, table.division").Each(func(_ int, sel *goquery.Selection) {
+		if goquery.NodeName(sel) != "table" {
+			return
+		}
+		// Found a division table.  Grab the immediately-preceding <p> for the description.
+		desc := strings.TrimSpace(sel.Prev().Text())
+		desc = strings.Join(strings.Fields(desc), " ")
+
+		yeas, nays, yeaNames, nayNames := parseBCDivisionTable(sel)
+		if yeas == 0 && nays == 0 {
+			return // no recorded counts → skip (voice vote or committee)
+		}
+
+		result := "Carried"
+		if nays > yeas {
+			result = "Negatived"
+		}
+
+		divID := ProvincialDivisionID("bc", legislature, session, divNum, date)
+		mv := make([]ProvincialMemberVote, 0, len(yeaNames)+len(nayNames))
+		for _, name := range yeaNames {
+			mv = append(mv, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "yea"})
+		}
+		for _, name := range nayNames {
+			mv = append(mv, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "nay"})
+		}
+
+		results = append(results, ProvincialDivisionResult{
+			Division: DivisionStub{
+				ID:          divID,
+				Parliament:  legislature,
+				Session:     session,
+				Number:      divNum,
+				Date:        date,
+				Description: desc,
+				Yeas:        yeas,
+				Nays:        nays,
+				Result:      result,
+				Chamber:     "british_columbia",
+				DetailURL:   sourceURL,
+				LastScraped: utils.NowISO(),
+			},
+			Votes: mv,
+		})
+		divNum++
+	})
+	return results
+}
+
+// crawlBritishColumbiaVotesFromLIMS fetches the BC LIMS document index and then
+// parses each per-day VP HTML file for recorded divisions.
+//
+// limsBase is the base URL of the LIMS document store (normally bcLIMSBase).
+// API: GET {limsBase}/pdms/votes-and-proceedings/{parl}{sess}
+// Returns JSON listing all VP HTML files for the parliament/session pair.
+// Each file is at:  {limsBase}/pdms/ldp/{parl}{sess}/votes/{fileName}
+func crawlBritishColumbiaVotesFromLIMS(limsBase, parliament, session string, legislature, sessionNum int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	indexURL := fmt.Sprintf("%s/pdms/votes-and-proceedings/%s%s", limsBase, parliament, session)
+	log.Printf("[bc-votes] fetching LIMS index: %s", indexURL)
+
+	req, err := http.NewRequest("GET", indexURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("bc votes LIMS index: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("bc votes LIMS index: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bc votes LIMS index: status %d", resp.StatusCode)
+	}
+
+	var apiResp bcLIMSVotesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, fmt.Errorf("bc votes LIMS index JSON: %w", err)
+	}
+
+	files := apiResp.AllParliamentaryFileAttributes.Nodes
+	log.Printf("[bc-votes] LIMS index: %d VP files for %s%s", len(files), parliament, session)
+
+	var results []ProvincialDivisionResult
+	nextDivNum := 1
+
+	for _, f := range files {
+		if !f.Published {
+			continue
+		}
+		fileURL := fmt.Sprintf("%s/pdms/ldp/%s%s/votes/%s", limsBase, parliament, session, f.FileName)
+		date := ""
+		if len(f.Date) >= 10 {
+			date = f.Date[:10]
+		}
+		if date == "" {
+			date = extractDateFromURL(fileURL)
+		}
+		if date == "" {
+			date = utils.TodayISO()
+		}
+
+		fileResp, ferr := client.Get(fileURL)
+		if ferr != nil {
+			log.Printf("[bc-votes] skip %s: %v", fileURL, ferr)
+			continue
+		}
+		fileDoc, derr := goquery.NewDocumentFromReader(fileResp.Body)
+		fileResp.Body.Close()
+		if derr != nil {
+			log.Printf("[bc-votes] parse error %s: %v", fileURL, derr)
+			continue
+		}
+
+		divs := parseBCVotesDivisions(fileDoc, fileURL, date, "british_columbia", legislature, sessionNum, nextDivNum)
+		if len(divs) > 0 {
+			log.Printf("[bc-votes] %s: parsed %d divisions", date, len(divs))
+			results = append(results, divs...)
+			nextDivNum += len(divs)
+		}
+	}
+
+	log.Printf("[bc-votes] parsed %d divisions from %d files", len(results), len(files))
+	return results, nil
+}
+
+// CrawlBritishColumbiaVotes crawls BC V&P data from the LIMS document-store API.
+//
+// Discovery (completed 2026-04):
+//   - The V&P index page at leg.bc.ca embeds an <iframe> pointing to the React SPA
+//     dyn.leg.bc.ca/votes-and-proceedings?parliament=43rd&session=2nd.
+//   - The SPA fetches its data from https://lims.leg.bc.ca/pdms/votes-and-proceedings/{parl}{sess}
+//     (a plain JSON REST endpoint, no authentication required).
+//   - Each VP file is at https://lims.leg.bc.ca/pdms/ldp/{parl}{sess}/votes/{fileName}.htm
+//   - Recorded divisions appear as <table class="division"> with Yeas/Nays headers.
+//
+// indexURL, when non-empty, overrides the LIMS base URL. This is used in tests to
+// point the scraper at a local HTTP server instead of lims.leg.bc.ca.
+func CrawlBritishColumbiaVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	if client == nil {
+		client = utils.NewHTTPClient()
+	}
+	limsBase := bcLIMSBase
+	if indexURL != "" {
+		limsBase = indexURL
+	}
+	parl := parliamentOrdinal(legislature)
+	sess := parliamentOrdinal(session)
+	return crawlBritishColumbiaVotesFromLIMS(limsBase, parl, sess, legislature, session, client)
+}
+
+// ParseBCVotesDivisionsForTest is test-only access to the BC VP HTML division parser.
+// It accepts a raw HTML string and parses it for recorded divisions.
+func ParseBCVotesDivisionsForTest(htmlContent, sourceURL, date string, legislature, session, startDivNum int) []ProvincialDivisionResult {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+	if err != nil {
+		return nil
+	}
+	return parseBCVotesDivisions(doc, sourceURL, date, "british_columbia", legislature, session, startDivNum)
+}
+
+// ParliamentOrdinalForTest is test-only access to the ordinal-suffix helper.
+func ParliamentOrdinalForTest(n int) string { return parliamentOrdinal(n) }
 
 // ── 5A.4 Manitoba ─────────────────────────────────────────────────────────────
 
@@ -1411,7 +1659,9 @@ func CrawlBritishColumbiaVotes(indexURL string, legislature, session int, client
 var mbVotesPDFLinkRe = regexp.MustCompile(`(?i)\d+(?:rd|th|st|nd)/votes_\d+\.pdf`)
 
 // mbSessionPageLinkRe matches session-index page links on the MB V&P index page.
-var mbSessionPageLinkRe = regexp.MustCompile(`(?i)\d+(?:rd|th|st|nd)/\d+(?:rd|th|st|nd)_\d+\.html`)
+// Links have the form "43rd/43rd_3rd.html" (ordinal suffix on both the legislature
+// and session components), so the session number must also end with an ordinal.
+var mbSessionPageLinkRe = regexp.MustCompile(`(?i)\d+(?:rd|th|st|nd)/\d+(?:rd|th|st|nd)_\d+(?:rd|th|st|nd)\.html`)
 
 // crawlManitobaVotesFromPDF performs a two-level crawl:
 //
