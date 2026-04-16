@@ -117,3 +117,12 @@ type BillReactionCounts struct {
 	TotalReactions int
 	RefreshedAt    string
 }
+
+// CategoryScore holds an MP's voting tendency on bills in a given category.
+type CategoryScore struct {
+	Category string
+	Total    int
+	Yeas     int
+	Nays     int
+	YeaPct   int // 0–100, rounded
+}

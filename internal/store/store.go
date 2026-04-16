@@ -568,6 +568,44 @@ func (s *Store) GetMemberStats(id string) (MemberStats, error) {
 	return stats, nil
 }
 
+// GetMemberCategoryScores returns a breakdown of an MP's Yea/Nay votes grouped
+// by bill category. Only categories with at least one recorded Yea or Nay vote
+// are returned, ordered by most-voted category first.
+func (s *Store) GetMemberCategoryScores(id string) ([]CategoryScore, error) {
+	rows, err := s.db.Query(`
+		SELECT
+			b.category,
+			COUNT(*) AS total,
+			COALESCE(SUM(CASE WHEN mv.vote = 'Yea' THEN 1 ELSE 0 END), 0) AS yeas,
+			COALESCE(SUM(CASE WHEN mv.vote = 'Nay' THEN 1 ELSE 0 END), 0) AS nays
+		FROM member_votes mv
+		JOIN divisions d ON d.id = mv.division_id
+		JOIN bills b ON b.id = d.bill_id
+		WHERE mv.member_id = ?
+		  AND mv.vote IN ('Yea', 'Nay')
+		  AND b.category IS NOT NULL
+		  AND b.category != ''
+		GROUP BY b.category
+		ORDER BY total DESC`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var scores []CategoryScore
+	for rows.Next() {
+		var cs CategoryScore
+		if err := rows.Scan(&cs.Category, &cs.Total, &cs.Yeas, &cs.Nays); err != nil {
+			return nil, err
+		}
+		if cs.Total > 0 {
+			cs.YeaPct = (cs.Yeas * 100) / cs.Total
+		}
+		scores = append(scores, cs)
+	}
+	return scores, rows.Err()
+}
+
 // CompareMemberVotes returns the count of divisions where both MPs voted the same way,
 // and the total number of divisions where both voted.
 func (s *Store) CompareMemberVotes(id1, id2 string) (overlap int, total int, err error) {
