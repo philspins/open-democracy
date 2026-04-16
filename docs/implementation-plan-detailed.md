@@ -1279,6 +1279,14 @@ templ RepComparison(federalRep, provincialRep Member, overlapPct int) {
 | **Nova Scotia (NS)** | NS journals page is extremely slow (Drupal, 368KB response); only 2021 and earlier sessions are published in static PDF format; newer assembly data is not in the accessible static files | Parse available historical sessions (58-3 through 63-3) from existing static PDFs; mark post-63rd assembly as pending until NS publishes accessible data | Low |
 | **Prince Edward Island (PE)** | `assembly.pe.ca` returns a Radware bot-manager CAPTCHA page for all automated requests | Implement exponential-backoff retry with randomized User-Agent headers and a short artificial delay; if CAPTCHA persists, document as blocked and escalate to a headless-browser option | Low (attempt) / High (headless) |
 
+**Implementation Status:**
+- AB: ✅ Implemented — dedicated PDF scraper (`crawlAlbertaVotesFromPDF`)
+- BC: 🔲 Blocked — pending URL discovery (docstring updated)
+- MB: ✅ Implemented — two-level PDF crawl (`crawlManitobaVotesFromPDF`)
+- NL: ✅ Implemented — outcome-only journal parser (`parseNLJournalDivisions`)
+- NS: ✅ Implemented — 45s timeout + journal PDF scraper (`crawlNovaScotiaVotesFromPDF`)
+- PE: ✅ Implemented — browser-header bypass with CAPTCHA detection (`peiTransport`)
+
 ---
 
 ### 5A.2 Alberta (AB) — Dedicated PDF Scraper

@@ -446,7 +446,9 @@ func CrawlProvinceSource(conn *sql.DB, client *http.Client, delay time.Duration,
 		case "ns":
 			parsed, err = CrawlNovaScotiaVotes(src.VotesURL, legislature, session, client)
 		case "pe":
-			parsed, err = CrawlPrinceEdwardIslandVotes(src.VotesURL, legislature, session, client)
+			// Pass nil so CrawlPrinceEdwardIslandVotes creates a browser-header client
+			// to bypass the Radware bot-manager CAPTCHA on assembly.pe.ca.
+			parsed, err = CrawlPrinceEdwardIslandVotes(src.VotesURL, legislature, session, nil)
 		case "qc":
 			parsed, err = CrawlQuebecVotes(src.VotesURL, legislature, session, client)
 		default:

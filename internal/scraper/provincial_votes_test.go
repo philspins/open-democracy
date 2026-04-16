@@ -111,3 +111,81 @@ func TestParseNewBrunswickPDFDivisions_ParsesMemberNamesFromVoteBlock(t *testing
 		t.Fatalf("len(votes)=%d, want >=18", len(divs[0].Votes))
 	}
 }
+
+func TestParseAlbertaVPDivisions_ForAgainstFormat(t *testing.T) {
+	text := `VOTES AND PROCEEDINGS No. 7 DIVISION 1 On Bill 37 amendment For the amendment: 31 Al-Guneid Elmeligi Kayande Arcand-Paul Eremenko Against the amendment: 28 Amery Johnson Rowswell`
+	divs := scraper.ParseAlbertaVPDivisionsForTest(text, "https://example.com/vp.pdf", 31, 2, 1, "2025-05-14")
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	if divs[0].Division.Yeas != 31 || divs[0].Division.Nays != 28 {
+		t.Fatalf("counts=(%d,%d), want (31,28)", divs[0].Division.Yeas, divs[0].Division.Nays)
+	}
+	if divs[0].Division.Result != "Carried" {
+		t.Fatalf("result=%q, want Carried", divs[0].Division.Result)
+	}
+	if len(divs[0].Votes) < 5 {
+		t.Fatalf("len(votes)=%d, want >=5", len(divs[0].Votes))
+	}
+}
+
+func TestParseAlbertaVPDivisions_MultiDivision(t *testing.T) {
+	text := `DIVISION 1 On the motion For the motion: 20 Smith Jones Brown Against the motion: 15 Davis Wilson DIVISION 2 On third reading For the bill: 35 Taylor Morgan Against the bill: 10 Allen Foster`
+	divs := scraper.ParseAlbertaVPDivisionsForTest(text, "https://example.com/vp.pdf", 31, 2, 1, "2025-05-14")
+	if len(divs) != 2 {
+		t.Fatalf("len(divs)=%d, want 2", len(divs))
+	}
+	if divs[0].Division.Yeas != 20 || divs[0].Division.Nays != 15 {
+		t.Fatalf("div1 counts=(%d,%d), want (20,15)", divs[0].Division.Yeas, divs[0].Division.Nays)
+	}
+	if divs[1].Division.Yeas != 35 || divs[1].Division.Nays != 10 {
+		t.Fatalf("div2 counts=(%d,%d), want (35,10)", divs[1].Division.Yeas, divs[1].Division.Nays)
+	}
+}
+
+func TestParsePDFDivisionsYeasNays_ManitobaStyle(t *testing.T) {
+	text := `VOTES AND PROCEEDINGS 43rd Legislature 3rd Session YEAS - 37 Balser Bailey Bereza Brar Bushie Clarke Cook NAYS - 18 Balcaen Byram Eichler Ewasko Goertzen`
+	divs := scraper.ParsePDFDivisionsYeasNaysForTest(text, "https://example.com/votes_041.pdf", "mb", "manitoba", 43, 3, 1, "2024-02-20")
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	if divs[0].Division.Yeas != 37 || divs[0].Division.Nays != 18 {
+		t.Fatalf("counts=(%d,%d), want (37,18)", divs[0].Division.Yeas, divs[0].Division.Nays)
+	}
+	if divs[0].Division.Result != "Carried" {
+		t.Fatalf("result=%q, want Carried", divs[0].Division.Result)
+	}
+	if len(divs[0].Votes) < 5 {
+		t.Fatalf("len(votes)=%d, want >=5", len(divs[0].Votes))
+	}
+}
+
+func TestParseNLJournalDivisions_OutcomeOnly(t *testing.T) {
+	text := `The house considered Bill 3. On the motion that the bill be read a third time, the question was put, and the motion was agreed to. On the amendment to the bill, the question was put, and the amendment was defeated.`
+	divs := scraper.ParseNLJournalDivisionsForTest(text, "https://example.com/26-04-14.pdf", 51, 1, 1, "2026-04-14")
+	if len(divs) == 0 {
+		t.Fatal("expected at least one division")
+	}
+	for _, d := range divs {
+		if d.Division.Result != "Carried" && d.Division.Result != "Negatived" {
+			t.Fatalf("unexpected result: %q", d.Division.Result)
+		}
+		if len(d.Votes) != 0 {
+			t.Fatalf("expected no member votes for NL outcome-only, got %d", len(d.Votes))
+		}
+	}
+}
+
+func TestCrawlPrinceEdwardIslandVotes_HandlesCaptcha(t *testing.T) {
+	srv := newTestServer(`<html><body><link rel="stylesheet" href="https://captcha.perfdrive.com/challenge.css"></body></html>`)
+	defer srv.Close()
+
+	divs, err := scraper.CrawlPrinceEdwardIslandVotes(srv.URL, 68, 1, srv.Client())
+	if err != nil {
+		t.Fatalf("expected no error on CAPTCHA, got: %v", err)
+	}
+	if len(divs) != 0 {
+		t.Fatalf("expected 0 divisions on CAPTCHA, got %d", len(divs))
+	}
+}
+

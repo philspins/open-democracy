@@ -28,6 +28,15 @@ func NewHTTPClient() *http.Client {
 	}
 }
 
+// NewHTTPClientWithTimeout returns an *http.Client with a custom timeout and
+// the project User-Agent injected via a transport wrapper.
+func NewHTTPClientWithTimeout(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: &uaTransport{base: http.DefaultTransport},
+	}
+}
+
 // uaTransport injects the User-Agent header on every request.
 type uaTransport struct {
 	base http.RoundTripper

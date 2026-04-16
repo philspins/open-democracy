@@ -54,10 +54,12 @@ func TestCrawlProvinceSource_PersistsBillsAndDivisions(t *testing.T) {
 	})
 
 	conn := newScraperDB(t)
+	// Use "bc" instead of "ab": BC still falls back to the generic HTML scraper,
+	// while AB now requires docs.assembly.ab.ca PDF links.
 	src := scraper.ProvincialSource{
-		Code:     "ab",
-		Province: "Alberta",
-		Chamber:  "alberta",
+		Code:     "bc",
+		Province: "British Columbia",
+		Chamber:  "british_columbia",
 		BillsURL: srv.URL + "/bills",
 		VotesURL: srv.URL + "/votes",
 	}
@@ -67,18 +69,19 @@ func TestCrawlProvinceSource_PersistsBillsAndDivisions(t *testing.T) {
 	}
 
 	var billCount int
-	if err := conn.QueryRow(`SELECT COUNT(1) FROM bills WHERE id='ab-31-1-12'`).Scan(&billCount); err != nil {
+	if err := conn.QueryRow(`SELECT COUNT(1) FROM bills WHERE id='bc-31-1-12'`).Scan(&billCount); err != nil {
 		t.Fatalf("bill count query: %v", err)
 	}
 	if billCount != 1 {
-		t.Fatalf("expected bill ab-31-1-12, count=%d", billCount)
+		t.Fatalf("expected bill bc-31-1-12, count=%d", billCount)
 	}
 
 	var divCount int
-	if err := conn.QueryRow(`SELECT COUNT(1) FROM divisions WHERE chamber='alberta'`).Scan(&divCount); err != nil {
+	if err := conn.QueryRow(`SELECT COUNT(1) FROM divisions WHERE chamber='british_columbia'`).Scan(&divCount); err != nil {
 		t.Fatalf("division count query: %v", err)
 	}
 	if divCount == 0 {
-		t.Fatal("expected at least one alberta division")
+		t.Fatal("expected at least one british_columbia division")
 	}
 }
+
