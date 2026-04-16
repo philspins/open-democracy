@@ -46,7 +46,7 @@ type provincialCrawlStats struct {
 // ProvincialSources is the default source matrix used by CrawlProvincial.
 var ProvincialSources = []ProvincialSource{
 	{Code: "ab", Province: "Alberta", Chamber: "alberta", BillsURL: "https://www.assembly.ab.ca/assembly-business", VotesURL: "https://www.assembly.ab.ca/assembly-business/assembly-records/votes-and-proceedings"},
-	{Code: "bc", Province: "British Columbia", Chamber: "british_columbia", BillsURL: "https://www.leg.bc.ca/parliamentary-business/bills-and-legislation", VotesURL: "https://www.leg.bc.ca/parliamentary-business/overview/43rd-parliament/2nd-session/votes-and-proceedings"},
+	{Code: "bc", Province: "British Columbia", Chamber: "british_columbia", BillsURL: "https://www.leg.bc.ca/parliamentary-business/bills-and-legislation", VotesURL: ""},
 	{Code: "mb", Province: "Manitoba", Chamber: "manitoba", BillsURL: "https://www.gov.mb.ca/legislature/business/index.html", VotesURL: "https://www.gov.mb.ca/legislature/business/votes_proceedings.html"},
 	{Code: "nb", Province: "New Brunswick", Chamber: "new_brunswick", BillsURL: "https://www.legnb.ca/en/legislation/bills", VotesURL: "https://www.legnb.ca/en/house-business/journals"},
 	{Code: "nl", Province: "Newfoundland and Labrador", Chamber: "newfoundland_labrador", BillsURL: "https://www.assembly.nl.ca/HouseBusiness/Bills/", VotesURL: "https://www.assembly.nl.ca/HouseBusiness/Journals/"},
