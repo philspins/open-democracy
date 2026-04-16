@@ -11,6 +11,7 @@
 - [Phase 3 — AI Summarization](#phase-3--ai-summarization)
 - [Phase 4 — User Features](#phase-4--user-features)
 - [Phase 5 — Provincial Bills & Votes Crawlers](#phase-5--provincial-bills--votes-crawlers)
+- [Phase 5 Addendum — Provincial Scraper Fixes (Remaining Six Provinces)](#phase-5-addendum--provincial-scraper-fixes-remaining-six-provinces)
 - [Phase 6 — Accountability Layer](#phase-6--accountability-layer)
 
 ---
@@ -1256,3 +1257,293 @@ templ RepComparison(federalRep, provincialRep Member, overlapPct int) {
 // The overlap percentage is computed server-side in the Go handler
 // before rendering and passed directly to the template.
 ```
+
+---
+
+## Phase 5 Addendum — Provincial Scraper Fixes (Remaining Six Provinces)
+
+**Turn zero-return crawlers into working data pipelines · 3–4 weeks**
+
+**Context:** Ontario (`on`) and Saskatchewan (`sk`) already have dedicated working scrapers. Quebec (`qc`) uses a JSON-based vote registry that is fully functional. New Brunswick (`nb`) has a working PDF-based journal scraper. The following six provinces still return **zero divisions** from the nightly crawl: Alberta, British Columbia, Manitoba, Newfoundland and Labrador, Nova Scotia, and Prince Edward Island. This addendum documents exactly why each fails and provides a precise, actionable fix plan.
+
+---
+
+### 5A.1 Status Matrix
+
+| Province | Root Cause | Fix Approach | Complexity |
+|----------|-----------|--------------|------------|
+| **Alberta (AB)** | Generic scraper finds PDF links but misses them due to backslash-escaped hrefs; no PDF parser exists for AB format | Dedicate a PDF scraper reusing NB PDF extraction; fix URL unescaping | Medium |
+| **British Columbia (BC)** | V&P index page loads per-day links via a React SPA (`dyn.leg.bc.ca`) with no static HTML fallback | Call the public LIMS GraphQL API for member/structural data; fetch per-day VP PDF/HTML files from the `lims.leg.bc.ca/pdms/ldp/` path tree | Medium-High |
+| **Manitoba (MB)** | `manitobaVotesLinkRe` does not match `43rd/43rd_3rd.html` session-index links; session pages link to `votes_NNN.pdf` but there is no PDF parser | Update regex to match `\d+(?:rd\|th\|st\|nd)/` session paths; build MB PDF parser (same format as NB) | Medium |
+| **Newfoundland & Labrador (NL)** | `newfoundlandVotesLinkRe` matches `ga\d+session\d+/` correctly, but NL Journals PDFs contain only proceedings minutes — per-member recorded votes are not present in those PDFs | Parse "Carried/Negatived" outcomes from Journal text for division-level results (no per-member data); flag per-member votes as unavailable | Low-Medium |
+| **Nova Scotia (NS)** | NS journals page is extremely slow (Drupal, 368KB response); only 2021 and earlier sessions are published in static PDF format; newer assembly data is not in the accessible static files | Parse available historical sessions (58-3 through 63-3) from existing static PDFs; mark post-63rd assembly as pending until NS publishes accessible data | Low |
+| **Prince Edward Island (PE)** | `assembly.pe.ca` returns a Radware bot-manager CAPTCHA page for all automated requests | Implement exponential-backoff retry with randomized User-Agent headers and a short artificial delay; if CAPTCHA persists, document as blocked and escalate to a headless-browser option | Low (attempt) / High (headless) |
+
+---
+
+### 5A.2 Alberta (AB) — Dedicated PDF Scraper
+
+**Why it fails today:** `CrawlAlbertaVotes` calls `crawlGenericProvincialVotesWithMatcher` which follows links whose `href` attributes match `albertaVotesLinkRe`. The AB votes-and-proceedings page returns PDF links with **backslash-escaped paths** in the HTML:
+
+```
+href="https://docs.assembly.ab.ca/LADDAR_files\docs\houserecords\vp\legislature_31\session_1\20250514_1200_01_vp.pdf"
+```
+
+The `goquery` link parser keeps the backslashes, so the resulting URL is invalid. Even if fixed, there is no PDF parser in the codebase for Alberta's format.
+
+**Source structure (verified):**
+- Index page: `https://www.assembly.ab.ca/assembly-business/assembly-records/votes-and-proceedings?legl={N}&session={N}`
+- Per-day PDF: `https://docs.assembly.ab.ca/LADDAR_files/docs/houserecords/vp/legislature_{N}/session_{N}/{YYYYMMDD}_1200_01_vp.pdf`
+- Vote format inside PDF (extracted text):
+  ```
+  For the amendment: 31
+  Al-Guneid  Elmeligi  Kayande
+  Arcand-Paul  Eremenko  Metz  ...
+  Against the amendment: 41
+  Amery  Johnson  Rowswell  ...
+  ```
+
+**Fix plan:**
+
+1. **Fix href unescaping** — In `crawlGenericProvincialVotesWithMatcher` (or in a new `CrawlAlbertaVotes`), replace `\` with `/` in extracted `href` values before constructing absolute URLs. This is a one-line `strings.ReplaceAll` fix.
+
+2. **Build `crawlAlbertaVP`** — New function parallel to `crawlNewBrunswickVotesFromPDF`:
+   - Accepts the `?legl=N&session=N` session index URL
+   - Fetches the page HTML, extracts all `docs.assembly.ab.ca/LADDAR_files/…_vp.pdf` links (after backslash→slash normalization)
+   - For each PDF link, calls `crawlAlbertaVPPDF(pdfURL, …)` which reuses `extractNewBrunswickPDFText` verbatim (both use pdfcpu content extraction)
+   - Parses the Alberta-specific text format
+
+3. **`parseAlbertaVPDivisions(text, …)`** — Text splitting logic:
+   - Split on `No. \d+\s+VOTES AND PROCEEDINGS` or on line patterns like `With .+ in the Chair, the names being called for were taken as follows:` to find each division boundary
+   - Capture the motion description from text preceding the division listing
+   - Extract "For the motion/amendment: N" count and names, then "Against: N" count and names
+   - Map: yea→"For", nay→"Against"; canonical `Carried`/`Negatived` from surrounding text (e.g. `the amendment was agreed to` or `the motion was defeated`)
+   - Member names in AB PDFs are space-separated surname tokens on consecutive lines; collect until the opposing keyword is found
+
+4. **Add to `cmd/crawler/main.go`** — Replace the existing `CrawlAlbertaVotes` call with the new dedicated `crawlAlbertaVP` function; pass `?legl=31&session=2` (current 31st Legislature, 2nd Session as of 2026).
+
+5. **Tests** — Save one fixture PDF (`testdata/ab_vp_31_1_20250514.pdf`) or its extracted text, and add `TestParseAlbertaVPDivisions` covering:
+   - Amendment vote (For/Against format)
+   - Third Reading vote (For the motion / Against the motion)
+   - Voice vote (no recorded names → skip)
+
+---
+
+### 5A.3 British Columbia (BC) — LIMS GraphQL + PDF Discovery
+
+**Why it fails today:** `CrawlBritishColumbiaVotes` calls the generic scraper on the V&P index page. That page embeds an `<iframe src="https://dyn.leg.bc.ca/votes-and-proceedings?parliament=43rd&session=2nd">` which is a **React SPA**. The static HTML response has zero vote-day links; all content is loaded at runtime by the React bundle.
+
+**Source structure (verified):**
+- LIMS GraphQL API: `https://lims.leg.bc.ca/graphql` (public, POST, PostgREST-style)
+  - Schema includes `allParliaments`, `allSessions`, `allMembers`, `allConstituencies` — structural data only; **no votes tables** in this schema
+- LIMS document store: `https://lims.leg.bc.ca/pdms/ldp/{parliament}{session}/`
+  - Known file: `43rd2nd-votes-completed.html` (Committee of Supply table — not per-member votes)
+  - Per-day VP PDF format: **not yet discovered** (per-day path pattern unknown; all guesses returned 404)
+- React SPA `dyn.leg.bc.ca` fetches its data from an unknown internal API (the 23MB minified bundle obfuscates the endpoint)
+
+**Fix plan:**
+
+1. **Discover the per-day VP PDF/HTML path** (prerequisite — required before implementing the scraper):
+   - Use a browser devtools session on `dyn.leg.bc.ca/votes-and-proceedings?parliament=43rd&session=2nd` and capture all XHR/Fetch requests. The React app must be loading vote data from somewhere; the network tab will reveal the endpoint.
+   - **Likely candidates** based on the `pdms/ldp/` document tree:
+     - `https://lims.leg.bc.ca/pdms/ldp/43rd2nd/{YYYYMMDD}-vp.html`
+     - `https://lims.leg.bc.ca/pdms/ldp/43rd2nd/Votes/{YYYYMMDD}.html`
+   - Alternatively, check if BC publishes a session-level document index (similar to NL's `ga50session2/` directory listing).
+   - A confirmed URL pattern is the **gate** for this province — do not start coding the parser until the endpoint is verified.
+
+2. **Once URL pattern is confirmed**, implement `CrawlBritishColumbiaVotes`:
+   - Fetch the session document index to get the list of per-day VP URLs
+   - For each day, fetch the HTML or PDF and parse with the same `extractNewBrunswickPDFText` + a BC-specific division parser
+   - BC votes use a table format listing members' names under "YEAS" and "NAYS" columns — verify the exact HTML structure from one real document
+
+3. **Structural (member) data** — The LIMS GraphQL `allMembers` query can supply canonical member names and constituency mappings. Use this to normalise the name strings extracted from the VP documents.
+
+4. **Current interim action** — Update the `CrawlBritishColumbiaVotes` docstring to document the discovered iframe URL (`dyn.leg.bc.ca`) and the GraphQL base URL. This provides a clear starting point for the engineer implementing this province.
+
+---
+
+### 5A.4 Manitoba (MB) — Regex Fix + PDF Parser
+
+**Why it fails today:** Two separate problems:
+
+1. `manitobaVotesLinkRe = (?i)(recorded_votes|votes|journals?|hansard)` does not match paths like `43rd/43rd_3rd.html` or `42nd/42nd_3rd.html`. These are the actual session-index URLs on `votes_proceedings.html`.
+
+2. Once the session-index page is reached (e.g. `https://www.gov.mb.ca/legislature/business/43rd/43rd_3rd.html`), it lists individual sitting-day PDFs at paths like `3rd/votes_041.pdf`. No PDF parser exists for MB.
+
+**Source structure (verified):**
+- Index: `https://www.gov.mb.ca/legislature/business/votes_proceedings.html` — links to `43rd/43rd_3rd.html`
+- Session index: `https://www.gov.mb.ca/legislature/business/43rd/43rd_3rd.html` — lists `3rd/votes_041.pdf` etc.
+- PDF base: `https://www.gov.mb.ca/legislature/business/43rd/3rd/votes_041.pdf`
+- PDF format: Manitoba Votes and Proceedings — similar structure to NB (YEAS/NAYS with member name columns)
+
+**Fix plan:**
+
+1. **Update `VotesURL`** in `crawler_tasks.go` — Change Manitoba's `VotesURL` from `https://www.gov.mb.ca/legislature/business/votes_proceedings.html` (which is correct as the entry point) to ensure the crawler follows `43rd/` → `43rd_3rd.html` → `3rd/votes_041.pdf`.
+
+2. **Update `manitobaVotesLinkRe`** — Extend it to also match legislature-session directory patterns:
+   ```go
+   var manitobaVotesLinkRe = regexp.MustCompile(
+       `(?i)(recorded_votes|votes|journals?|hansard|\d+(?:rd|th|st|nd)/\d+(?:rd|th|st|nd)_\d+\.html|/\d+(?:rd|th|st|nd)/votes_\d+\.pdf)`)
+   ```
+   This matches: `43rd/43rd_3rd.html`, `3rd/votes_041.pdf`, existing `recorded_votes` links.
+
+3. **Build `crawlManitobaVotesFromPDF`** — MB journal PDFs use a format similar to NB:
+   - Reuse `extractNewBrunswickPDFText` verbatim (same PDF content extraction code)
+   - Write `parseManitobaVPDivisions(text, …)` adapting `parseNewBrunswickPDFDivisions`:
+     - Detect section starts with `DIVISION` keyword or `YEAS\s*[-–]\s*\d+`
+     - Extract member name columns under YEAS and NAYS headers
+     - Parse yea/nay counts and `Carried`/`Negatived` result from surrounding text
+
+4. **Fix `CrawlManitobaVotes`** — Replace the `crawlGenericProvincialVotesWithMatcher` call with a two-level crawl:
+   ```
+   votes_proceedings.html → 43rd/43rd_3rd.html → 3rd/votes_NNN.pdf → parseManitobaVPDivisions
+   ```
+
+5. **Tests** — Download and commit one fixture PDF (`testdata/mb_votes_43_3_041.pdf`), add `TestParseManitobaVPDivisions` covering a carried and a negatived vote.
+
+---
+
+### 5A.5 Newfoundland and Labrador (NL) — Division Outcomes from Journal Text
+
+**Why it fails today:** `newfoundlandVotesLinkRe` correctly matches `ga\d+session\d+/` links from `https://www.assembly.nl.ca/HouseBusiness/Journals/`. The scraper successfully follows these links and finds per-day PDF files (e.g. `ga50session2/22-10-05.pdf`). However, the NL Journals PDFs contain **proceedings minutes** (who spoke, what was moved, procedural notes) — they do not contain per-member YEAS/NAYS name lists. NL does not appear to publish a separate per-member vote record in an accessible static format.
+
+**What NL journals do contain:**
+- Motion text and result: `the motion was agreed to` / `the amendment was defeated`
+- Voice vote outcomes (no names)
+- When a recorded division was called, the Journal may state `The following Members voted: [names]` in exceptional cases, but this is not the standard format
+
+**Fix plan:**
+
+1. **Verify NL recorded-vote format** — Download 5–10 more Journal PDFs from a session with known hotly-contested votes (e.g. a budget vote, a third reading with opposition). If recorded-member lists appear in the PDF text in any consistent pattern, write a parser for them.
+
+2. **If no per-member data** — Implement a **division-outcome-only** parser for NL:
+   - Parse motion description from the surrounding text
+   - Extract `Carried` / `Negatived` result
+   - Store `yea_count = NULL`, `nay_count = NULL` and zero `member_votes` rows
+   - This at least records that a division occurred with a known outcome, which is more useful than zero rows
+
+3. **Update `CrawlNewfoundlandAndLabradorVotes`** — Replace the `crawlGenericProvincialVotesWithMatcher` call with a two-level crawl:
+   ```
+   /HouseBusiness/Journals/ → ga51session1/ → YYYY-MM-DD.pdf → parseNLJournalDivisions
+   ```
+   The PDF text extraction reuses `extractNewBrunswickPDFText`.
+
+4. **Implement `parseNLJournalDivisions(text, …)`:**
+   - Split on `\f` (form feed / page break) to isolate pages
+   - Find motion descriptions using patterns like: `On the motion that .*?, the question was put`
+   - Capture result: `the (?:motion|amendment|bill) (?:was )?(?:agreed to|carried|defeated|negatived)` → `Carried` or `Negatived`
+   - For each outcome found, emit one `ProvincialDivisionResult` with `MemberVotes: nil`
+
+5. **Tests** — Add `TestParseNLJournalDivisions` with extracted text fixture from a sitting day that had at least one motion vote.
+
+---
+
+### 5A.6 Nova Scotia (NS) — Historical PDF Harvest
+
+**Why it fails today:** The NS journals page (`nslegislature.ca/legislative-business/journals`) is a 368KB Drupal page that times out on the 15s HTTP client. Even when reachable, it only links to sessions through 63-3 (April 2021). The 64th Assembly (elected Nov 2021) and 65th Assembly (elected Nov 2024) journals are not available in the accessible static PDF format — newer content appears to be behind Drupal's dynamic loading layer.
+
+**Source structure (verified):**
+- Session PDF base: `https://nslegislature.ca/sites/default/files/pdfs/proceedings/journals/{assembly}-{session}/{NNN}%20{YYYY}{Mon}{DD}.pdf`
+- Known sessions: 58-3, 59-1, 60-1, 60-2, 61-1 through 61-5, 62-1, 63-2, 63-3
+- PDF format: NS Journals contain YEAS/NAYS recorded divisions with member name columns (same family of format as NB/MB)
+
+**Fix plan:**
+
+1. **Hard-code session list** — Rather than relying on the slow index page, hard-code the known session paths and known date ranges:
+   ```go
+   var nsHistoricalSessions = []struct{ Slug, StartDate, EndDate string }{
+       {"63-3", "2021-03-09", "2021-04-30"},
+       {"63-2", "2020-09-17", "2021-01-14"},
+       // ... back to 58-3
+   }
+   ```
+   For each session, construct the PDF list URL using a predictable pattern (or crawl the session index page with increased timeout).
+
+2. **Increase HTTP timeout** for NS requests only — Use a dedicated `http.Client` with a 45s timeout when fetching NS session index pages. The `utils.NewHTTPClient()` default is 15s, which is too short for the 368KB Drupal response.
+
+3. **Implement `CrawlNovaScotiaVotes`** with a dedicated flow:
+   - For each known session, build the URL of that session's journal list page
+   - Fetch with 45s timeout; parse PDF links matching `\d{3}%20\d{4}\w+\d+\.pdf`
+   - For each PDF, call `crawlNovaScotiaPDF(…)` using `extractNewBrunswickPDFText` + `parseNovaScotiaDivisions`
+
+4. **`parseNovaScotiaDivisions`** — NS Journal vote sections use:
+   ```
+   YEAS — 24          NAYS — 19
+   Balser  ...        Andersen  ...
+   ```
+   This is close to the NB format. Adapt `parseNewBrunswickPDFDivisions` with NS-specific heading patterns.
+
+5. **Current assembly gap** — Document that the 64th and 65th Assembly data is not currently accessible via automated scraping. Add a note to the scraper log output and the `CrawlNovaScotiaVotes` docstring. Revisit when NS updates its public data publishing.
+
+6. **Tests** — Fixture test using one known NS PDF from 63-3 session.
+
+---
+
+### 5A.7 Prince Edward Island (PE) — Bot-Protection Bypass
+
+**Why it fails today:** `assembly.pe.ca` serves a **Radware bot-manager CAPTCHA challenge** (`captcha.perfdrive.com`) to all automated HTTP clients. The only content in the response body is a CAPTCHA CSS link. No vote or bill data is returned.
+
+**Fix plan (in order of preference):**
+
+1. **Randomized User-Agent + delay (try first — low effort)**:
+   - Try cycling through 3–4 real browser `User-Agent` strings (Chrome/Firefox variants)
+   - Add a 2–3s artificial delay before the request
+   - Set `Accept`, `Accept-Language`, `Sec-Fetch-*` headers to look like a real browser
+   - The Radware CAPTCHA may be triggered by bot signals; a convincing header set sometimes passes
+   - If `assembly.pe.ca` returns actual HTML, implement a normal goquery scraper for PEI V&P PDFs
+
+2. **If randomized headers fail — headless Chromium** (higher effort):
+   - Add `github.com/chromedp/chromedp` dependency
+   - Implement `crawlPEIWithChrome(ctx)` that launches headless Chrome, navigates to the PEI V&P page, and extracts PDF links from the rendered DOM
+   - This guarantees JavaScript execution and real browser fingerprinting
+   - **Use only as a last resort** — headless Chrome in a cron job is fragile and resource-intensive
+
+3. **Data source alternative**:
+   - PEI publishes a PDF of votes and proceedings for each sitting day. If the web scraper continues to fail, consider implementing a **manual fixture loader** that an operator runs periodically, downloading PDFs by hand and placing them in a watched directory that the crawler processes
+   - This is operationally burdensome but ensures data coverage during scraper downtime
+
+4. **Tests** — Add a test that confirms the scraper gracefully handles CAPTCHA (HTTP 200 with captcha body) by returning zero results and logging a warning, rather than crashing or returning an error that aborts the crawl.
+
+---
+
+### 5A.8 Rollout Priority & Sequencing
+
+| Priority | Province | Reason |
+|----------|----------|--------|
+| 1 | **Manitoba (MB)** | Fix is entirely in-codebase (regex + PDF parser). No external unknowns. Highest confidence of quick win. |
+| 2 | **Alberta (AB)** | URL unescaping fix is trivial; PDF format is well-understood from NB precedent. One new parser function. |
+| 3 | **Nova Scotia (NS)** | Historical data only, but large corpus. Reuses NB PDF parsing logic. Requires timeout tuning. |
+| 4 | **Newfoundland & Labrador (NL)** | Worth implementing division-outcome-only parser for partial coverage. Low data value (no per-member votes) but shows up in the DB. |
+| 5 | **British Columbia (BC)** | Requires browser devtools session to discover the VP document path pattern. Block on discovery before writing code. |
+| 6 | **Prince Edward Island (PE)** | Entirely blocked by bot protection. Try header spoofing first; escalate to headless browser only if needed. |
+
+---
+
+### 5A.9 Cross-Province Shared Utilities
+
+All six province fixes benefit from the following shared changes:
+
+1. **`normalizeHref(rawHref string) string`** — New utility in `internal/scraper/` that:
+   - Replaces `\` with `/` in raw `href` attribute values (fixes AB)
+   - Strips trailing `#` fragments
+   - Ensures the URL is properly URL-encoded
+
+2. **`newHTTPClientWithTimeout(timeout time.Duration) *http.Client`** — New helper in `internal/utils/` that constructs a variant of `NewHTTPClient` with a custom timeout. Needed for NS (45s) without changing the default 15s used everywhere else.
+
+3. **Shared PDF text extractor** — `extractProvincialPDFText(pdfPath string) (string, error)` — rename/export the existing `extractNewBrunswickPDFText` function so it can be called from AB, MB, NL, and NS parsers without duplication. Currently it is a private function in `provincial_votes.go`.
+
+4. **Per-province parse-error logging** — Each province parser should log `[province-code] parse error: <url>: <reason>` using the existing `log.Printf` pattern. This makes it easy to detect parser breakage in the nightly crawl log.
+
+---
+
+### 5A.10 Definition of Done (Per Province)
+
+A province is considered "done" when all of the following are true:
+
+- ✅ At least **50 historical divisions** are present in the database for the province
+- ✅ The scraper runs without errors in the nightly full crawl
+- ✅ Division records have: `id`, `chamber`, `date`, `description`, `yea_count`, `nay_count`, `result`, `source_url`
+- ✅ Member-vote rows exist for at least one division (or are explicitly documented as unavailable)
+- ✅ At least one unit test validates the parser against a real fixture (HTML or PDF text)
+- ✅ Province-prefixed IDs are stable across re-runs (idempotent upsert passes)
+- ○ Per-member vote coverage ≥ 80% of all divisions with recorded names (not required for NL or voice-vote-only provinces)
