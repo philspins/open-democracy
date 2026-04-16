@@ -30,6 +30,10 @@ const (
 	OntarioSession    = 1
 
 	// Saskatchewan
+	// NOTE: The archive URL currently returns HTTP 500. The new SK minutes-votes page
+	// (/legislative-business/minutes-votes/) loads document links via JavaScript and
+	// has no static HTML equivalents. CrawlSaskatchewanMinutesLinks will fail; the
+	// error is now logged as a warning and the crawl continues with 0 divisions.
 	SaskatchewanArchiveURL  = "https://www.legassembly.sk.ca/legislative-business/archive/?Start=&End=&Type=Assembly"
 	SaskatchewanLegislature = 30
 	SaskatchewanSession     = 2
@@ -1004,7 +1008,7 @@ var bcVotesLinkRe = regexp.MustCompile(`(?i)(votes-and-proceedings|journals?|/vo
 var quebecVotesLinkRe = regexp.MustCompile(`(?i)(registre-des-votes|registre-votes|votes-nominaux|votes\.html|votes-appels-nominaux|/votes(?:/|$))`)
 var manitobaVotesLinkRe = regexp.MustCompile(`(?i)(recorded_votes|votes|journals?|hansard)`)
 var newBrunswickVotesLinkRe = regexp.MustCompile(`(?i)(journals?(?:-e\.asp|/)|house-business/journals|votes|legis)`)
-var newfoundlandVotesLinkRe = regexp.MustCompile(`(?i)(/business/votes|housebusiness|votes\.aspx|/votes(?:/|$))`)
+var newfoundlandVotesLinkRe = regexp.MustCompile(`(?i)(/business/votes|housebusiness|ga\d+session\d+|votes\.aspx|/votes(?:/|$))`)
 var novaScotiaVotesLinkRe = regexp.MustCompile(`(?i)(journals?|proceedings|votes|hansard-debates)`)
 var peiVotesLinkRe = regexp.MustCompile(`(?i)(legislative-business|votes|proceedings)`)
 
@@ -1017,6 +1021,11 @@ func CrawlAlbertaVotes(indexURL string, legislature, session int, client *http.C
 }
 
 // CrawlBritishColumbiaVotes crawls BC votes/proceedings pages.
+// NOTE: The leg.bc.ca votes-and-proceedings index page loads per-day vote links via
+// JavaScript (Drupal/AJAX). The static HTML has no individual vote-day links, so the
+// generic HTML scraper will always return 0 divisions. Fixing this requires either a
+// headless-browser approach or discovering the LIMS (lims.leg.bc.ca) per-day HTML
+// file pattern through a JS-capable client.
 func CrawlBritishColumbiaVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	if indexURL == "" {
 		indexURL = "https://www.leg.bc.ca/parliamentary-business/overview/43rd-parliament/2nd-session/votes-and-proceedings"
@@ -1123,9 +1132,14 @@ func CrawlQuebecVotes(indexURL string, legislature, session int, client *http.Cl
 }
 
 // CrawlManitobaVotes crawls Manitoba recorded votes/journal pages.
+// NOTE: The votes_proceedings.html index page links to session-specific sub-pages
+// (e.g. 43rd/43rd_3rd.html) whose URLs do not match manitobaVotesLinkRe, so those
+// sub-pages are never discovered. Even if they were, the per-day votes are in PDFs
+// (e.g. 3rd/votes_041.pdf) that the generic HTML parser cannot read. Fixing this
+// requires a dedicated PDF scraper for the MB Votes and Proceedings format.
 func CrawlManitobaVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	if indexURL == "" {
-		indexURL = "https://www.gov.mb.ca/legislature/house/recorded_votes.html"
+		indexURL = "https://www.gov.mb.ca/legislature/business/votes_proceedings.html"
 	}
 	return crawlGenericProvincialVotesWithMatcher(indexURL, "mb", "manitoba", legislature, session, client, manitobaVotesLinkRe)
 }
@@ -1142,14 +1156,24 @@ func CrawlNewBrunswickVotes(indexURL string, legislature, session int, client *h
 }
 
 // CrawlNewfoundlandAndLabradorVotes crawls NL votes pages.
+// The journal index at /HouseBusiness/Journals/ links to per-GA session directories
+// (e.g. ga50session2/) which in turn contain per-day PDF files (e.g. 26-04-14.pdf).
+// Those PDFs use a two-column AYES/NAYS layout; the generic HTML parser will discover
+// the session directories and PDF links but cannot parse vote totals from PDFs.
+// Fixing this requires a dedicated PDF scraper similar to the NB implementation.
 func CrawlNewfoundlandAndLabradorVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	if indexURL == "" {
-		indexURL = "https://www.assembly.nl.ca/business/votes"
+		indexURL = "https://www.assembly.nl.ca/HouseBusiness/Journals/"
 	}
 	return crawlGenericProvincialVotesWithMatcher(indexURL, "nl", "newfoundland_labrador", legislature, session, client, newfoundlandVotesLinkRe)
 }
 
 // CrawlNovaScotiaVotes crawls NS journals/proceedings pages.
+// NOTE: The journals index at nslegislature.ca currently serves only PDFs from 2021
+// (63rd Assembly, 3rd session). Current assembly data appears to be loaded dynamically
+// via JavaScript. The generic HTML parser finds old PDF links but cannot parse them,
+// so this function returns 0 divisions until the NS site exposes static HTML links for
+// the current session or a dedicated PDF parser is implemented.
 func CrawlNovaScotiaVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	if indexURL == "" {
 		indexURL = "https://nslegislature.ca/legislative-business/journals-votes-proceedings"
@@ -1158,6 +1182,10 @@ func CrawlNovaScotiaVotes(indexURL string, legislature, session int, client *htt
 }
 
 // CrawlPrinceEdwardIslandVotes crawls PEI votes/proceedings pages.
+// NOTE: assembly.pe.ca is protected by Radware bot-manager. All automated HTTP requests
+// receive a 302 redirect to a JavaScript CAPTCHA challenge, so no legislative content
+// is accessible without a browser-level client. This function will always return 0
+// divisions until PEI exposes a bot-accessible data source or an alternative API is used.
 func CrawlPrinceEdwardIslandVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	if indexURL == "" {
 		indexURL = "https://www.assembly.pe.ca/legislative-business"

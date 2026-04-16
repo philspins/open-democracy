@@ -49,7 +49,7 @@ var ProvincialSources = []ProvincialSource{
 	{Code: "bc", Province: "British Columbia", Chamber: "british_columbia", BillsURL: "https://www.leg.bc.ca/parliamentary-business/bills-and-legislation", VotesURL: "https://www.leg.bc.ca/parliamentary-business/overview/43rd-parliament/2nd-session/votes-and-proceedings"},
 	{Code: "mb", Province: "Manitoba", Chamber: "manitoba", BillsURL: "https://www.gov.mb.ca/legislature/business/index.html", VotesURL: "https://www.gov.mb.ca/legislature/business/votes_proceedings.html"},
 	{Code: "nb", Province: "New Brunswick", Chamber: "new_brunswick", BillsURL: "https://www.legnb.ca/en/legislation/bills", VotesURL: "https://www.legnb.ca/en/house-business/journals"},
-	{Code: "nl", Province: "Newfoundland and Labrador", Chamber: "newfoundland_labrador", BillsURL: "https://www.assembly.nl.ca/HouseBusiness/Bills/", VotesURL: "https://www.assembly.nl.ca/business/votes"},
+	{Code: "nl", Province: "Newfoundland and Labrador", Chamber: "newfoundland_labrador", BillsURL: "https://www.assembly.nl.ca/HouseBusiness/Bills/", VotesURL: "https://www.assembly.nl.ca/HouseBusiness/Journals/"},
 	{Code: "ns", Province: "Nova Scotia", Chamber: "nova_scotia", BillsURL: "https://nslegislature.ca/legislative-business", VotesURL: "https://nslegislature.ca/legislative-business/journals-votes-proceedings"},
 	{Code: "on", Province: "Ontario", Chamber: "ontario", BillsURL: "https://www.ola.org/en/legislative-business", VotesURL: OntarioVPIndexURL, Special: "on"},
 	{Code: "pe", Province: "Prince Edward Island", Chamber: "pei", BillsURL: "https://www.assembly.pe.ca/legislative-business", VotesURL: "https://www.assembly.pe.ca/legislative-business"},
@@ -411,8 +411,11 @@ func CrawlProvinceSource(conn *sql.DB, client *http.Client, delay time.Duration,
 	case "sk":
 		links, err := CrawlSaskatchewanMinutesLinks(src.VotesURL, client)
 		if err != nil {
+			// The SK archive URL may be temporarily unavailable or the site has changed.
+			// Log the error and continue with 0 divisions rather than aborting.
 			stats.Errors++
-			return fmt.Errorf("saskatchewan links: %w", err)
+			log.Printf("[provincial] sk: cannot discover minutes links (archive URL may have changed): %v", err)
+			break
 		}
 		for _, link := range links {
 			dayDivs, derr := CrawlSaskatchewanMinutes(link, legislature, session, client)
