@@ -395,6 +395,99 @@ func nameToSlug(name string) string {
 	return strings.Trim(slug, "-")
 }
 
+// ── New Brunswick member scraper ──────────────────────────────────────────────
+
+// NBMembersURL is the canonical URL for current NB MLAs.
+const NBMembersURL = "https://www.legnb.ca/en/members/current"
+
+// CrawlNewBrunswickMembersFromWebsite scrapes current MLA profiles from the
+// New Brunswick Legislative Assembly website. It is used as a fallback when
+// the Represent OpenNorth API returns an empty result set for "nb-legislature".
+//
+// The page lists members in "LastName, FirstName" format; names are converted
+// to "FirstName LastName" for storage so that the surname-based vote-matching
+// logic in resolveProvincialMemberID works correctly.
+func CrawlNewBrunswickMembersFromWebsite(indexURL string, client *http.Client) ([]MemberProfile, error) {
+	if indexURL == "" {
+		indexURL = NBMembersURL
+	}
+	if client == nil {
+		client = utils.NewHTTPClient()
+	}
+	doc, err := fetchDoc(indexURL, client)
+	if err != nil {
+		return nil, fmt.Errorf("nb members website: %w", err)
+	}
+
+	var profiles []MemberProfile
+	doc.Find("div.member-card").Each(func(_ int, card *goquery.Selection) {
+		nameEl := card.Find("li.member-card-description-name a[href]")
+		href, _ := nameEl.Attr("href")
+		rawName := strings.TrimSpace(nameEl.Find("h3").Text())
+		if rawName == "" || href == "" {
+			return
+		}
+
+		// Convert "LastName, FirstName" → "FirstName LastName".
+		name := nbConvertMemberName(rawName)
+
+		// Build a deterministic ID from the URL's last path segment,
+		// matching the pattern used by extractProvincialMemberID.
+		nameSlug := urlLastSegment(href)
+		if nameSlug == "" {
+			nameSlug = nameToSlug(name)
+		}
+		memberID := "nb-legislature-" + nameSlug
+
+		// Party: text node inside the li, after the colour-dot div.
+		partyLi := card.Find("li.member-card-description-party")
+		partyLi.Find("div").Remove()
+		party := strings.TrimSpace(partyLi.Text())
+
+		// Riding: text inside the span.
+		riding := strings.TrimSpace(card.Find("li.member-card-description-riding span").Text())
+
+		// Photo URL: src attribute of the avatar image, resolved to absolute.
+		photoSrc := strings.TrimSpace(card.Find("div.member-card-avatar img").AttrOr("src", ""))
+		photoSrc = strings.ReplaceAll(photoSrc, "\\", "/")
+		var photoURL string
+		if photoSrc != "" {
+			photoURL = resolveRelativeURL(indexURL, photoSrc)
+		}
+
+		profiles = append(profiles, MemberProfile{
+			ID:              memberID,
+			Name:            name,
+			Party:           party,
+			Riding:          riding,
+			Province:        "New Brunswick",
+			Role:            "MLA",
+			PhotoURL:        photoURL,
+			Chamber:         "legislature",
+			Active:          true,
+			LastScraped:     utils.NowISO(),
+			GovernmentLevel: "provincial",
+		})
+	})
+
+	log.Printf("[members] fetched %d NB members from website", len(profiles))
+	return profiles, nil
+}
+
+// nbConvertMemberName converts a name in "LastName, FirstName" format (as used
+// by the NB legislature website) to "FirstName LastName" for consistent storage.
+// Names that don't contain a comma are returned unchanged.
+func nbConvertMemberName(raw string) string {
+	if idx := strings.Index(raw, ", "); idx >= 0 {
+		last := strings.TrimSpace(raw[:idx])
+		first := strings.TrimSpace(raw[idx+2:])
+		if first != "" {
+			return first + " " + last
+		}
+	}
+	return raw
+}
+
 // ── Members list ──────────────────────────────────────────────────────────────
 
 // CrawlMembersList scrapes the ourcommons.ca member search page for stubs.

@@ -139,6 +139,17 @@ func CrawlMembers(conn *sql.DB, client *http.Client, delay time.Duration, apiURL
 			log.Printf("[members] provincial set %s: %v", setSlug, perr)
 			continue
 		}
+		// The Represent API for nb-legislature currently returns 0 members.
+		// Fall back to scraping the NB legislature website directly.
+		if len(provProfiles) == 0 && setSlug == "nb-legislature" {
+			log.Printf("[members] nb-legislature: Represent API returned 0 members; falling back to NB website scraper")
+			nbProfiles, nberr := CrawlNewBrunswickMembersFromWebsite("", client)
+			if nberr != nil {
+				log.Printf("[members] nb-legislature website fallback: %v", nberr)
+			} else {
+				provProfiles = nbProfiles
+			}
+		}
 		db.UpsertProfiles(conn, toDBMembers(provProfiles), delay)
 	}
 	return nil
@@ -299,6 +310,64 @@ func CrawlProvincial(conn *sql.DB, client *http.Client, delay time.Duration, par
 	return nil
 }
 
+// crawlBillsForSource dispatches to the correct province-specific bill crawler.
+func crawlBillsForSource(src ProvincialSource, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
+	switch src.Code {
+	case "ab":
+		return CrawlAlbertaBills(src.BillsURL, legislature, session, client)
+	case "bc":
+		return CrawlBritishColumbiaBills(src.BillsURL, legislature, session, client)
+	case "mb":
+		return CrawlManitobaBills(src.BillsURL, legislature, session, client)
+	case "nb":
+		return CrawlNewBrunswickBills(src.BillsURL, legislature, session, client)
+	case "nl":
+		return CrawlNewfoundlandAndLabradorBills(src.BillsURL, legislature, session, client)
+	case "ns":
+		return CrawlNovaScotiaBills(src.BillsURL, legislature, session, client)
+	case "on":
+		return CrawlOntarioBills(src.BillsURL, legislature, session, client)
+	case "pe":
+		// Pass nil so the callee creates a browser-header client to bypass
+		// the Radware bot-manager on assembly.pe.ca.
+		return CrawlPrinceEdwardIslandBills(src.BillsURL, legislature, session, nil)
+	case "qc":
+		return CrawlQuebecBills(src.BillsURL, legislature, session, client)
+	case "sk":
+		return CrawlSaskatchewanBills(src.BillsURL, legislature, session, client)
+	default:
+		return CrawlProvincialBillsFromIndex(src.BillsURL, src.Code, legislature, session, src.Chamber, client)
+	}
+}
+
+// crawlDivisionsForSource dispatches to the correct province-specific votes crawler
+// for all non-special provinces (i.e. excluding ON and SK which use their own multi-step
+// logic in CrawlProvinceSource).
+func crawlDivisionsForSource(src ProvincialSource, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	switch src.Code {
+	case "ab":
+		return CrawlAlbertaVotes(src.VotesURL, legislature, session, client)
+	case "bc":
+		return CrawlBritishColumbiaVotes(src.VotesURL, legislature, session, client)
+	case "mb":
+		return CrawlManitobaVotes(src.VotesURL, legislature, session, client)
+	case "nb":
+		return CrawlNewBrunswickVotes(src.VotesURL, legislature, session, client)
+	case "nl":
+		return CrawlNewfoundlandAndLabradorVotes(src.VotesURL, legislature, session, client)
+	case "ns":
+		return CrawlNovaScotiaVotes(src.VotesURL, legislature, session, client)
+	case "pe":
+		// Pass nil so the callee creates a browser-header client to bypass
+		// the Radware bot-manager CAPTCHA on assembly.pe.ca.
+		return CrawlPrinceEdwardIslandVotes(src.VotesURL, legislature, session, nil)
+	case "qc":
+		return CrawlQuebecVotes(src.VotesURL, legislature, session, client)
+	default:
+		return CrawlGenericProvincialVotes(src.VotesURL, src.Code, src.Chamber, legislature, session, client)
+	}
+}
+
 // CrawlProvinceSource crawls bills and votes for one province source and upserts
 // normalized records into bills/divisions/member_votes tables.
 func CrawlProvinceSource(conn *sql.DB, client *http.Client, delay time.Duration, src ProvincialSource, enqueueSummary BillSummaryEnqueue) error {
@@ -331,31 +400,16 @@ func CrawlProvinceSource(conn *sql.DB, client *http.Client, delay time.Duration,
 		bills []ProvincialBillStub
 		berr  error
 	)
-	switch src.Code {
-	case "ab":
-		bills, berr = CrawlAlbertaBills(src.BillsURL, legislature, session, client)
-	case "bc":
-		bills, berr = CrawlBritishColumbiaBills(src.BillsURL, legislature, session, client)
-	case "mb":
-		bills, berr = CrawlManitobaBills(src.BillsURL, legislature, session, client)
-	case "nb":
-		bills, berr = CrawlNewBrunswickBills(src.BillsURL, legislature, session, client)
-	case "nl":
-		bills, berr = CrawlNewfoundlandAndLabradorBills(src.BillsURL, legislature, session, client)
-	case "ns":
-		bills, berr = CrawlNovaScotiaBills(src.BillsURL, legislature, session, client)
-	case "on":
-		bills, berr = CrawlOntarioBills(src.BillsURL, legislature, session, client)
-	case "pe":
-		// Pass nil so CrawlPrinceEdwardIslandBills creates a browser-header client
-		// to bypass the Radware bot-manager on assembly.pe.ca.
-		bills, berr = CrawlPrinceEdwardIslandBills(src.BillsURL, legislature, session, nil)
-	case "qc":
-		bills, berr = CrawlQuebecBills(src.BillsURL, legislature, session, client)
-	case "sk":
-		bills, berr = CrawlSaskatchewanBills(src.BillsURL, legislature, session, client)
-	default:
-		bills, berr = CrawlProvincialBillsFromIndex(src.BillsURL, src.Code, legislature, session, src.Chamber, client)
+	bills, berr = crawlBillsForSource(src, legislature, session, client)
+	// If the current session returned no bills and the DB has no bills at all for
+	// this province (fresh install or brand-new session), retry with the previous
+	// session so the database is seeded with the most recent available data.
+	if berr == nil && len(bills) == 0 && session > 1 && provinceBillCountInDB(conn, src.Code) == 0 {
+		log.Printf("[provincial][%s] 0 bills for session %d; retrying with previous session %d to seed DB", src.Code, session, session-1)
+		bills, berr = crawlBillsForSource(src, legislature, session-1, client)
+		if berr == nil && len(bills) > 0 {
+			session = session - 1
+		}
 	}
 	if berr != nil {
 		stats.Errors++
@@ -434,31 +488,20 @@ func CrawlProvinceSource(conn *sql.DB, client *http.Client, delay time.Duration,
 			parsed []ProvincialDivisionResult
 			err    error
 		)
-		switch src.Code {
-		case "ab":
-			parsed, err = CrawlAlbertaVotes(src.VotesURL, legislature, session, client)
-		case "bc":
-			parsed, err = CrawlBritishColumbiaVotes(src.VotesURL, legislature, session, client)
-		case "mb":
-			parsed, err = CrawlManitobaVotes(src.VotesURL, legislature, session, client)
-		case "nb":
-			parsed, err = CrawlNewBrunswickVotes(src.VotesURL, legislature, session, client)
-		case "nl":
-			parsed, err = CrawlNewfoundlandAndLabradorVotes(src.VotesURL, legislature, session, client)
-		case "ns":
-			parsed, err = CrawlNovaScotiaVotes(src.VotesURL, legislature, session, client)
-		case "pe":
-			// Pass nil so CrawlPrinceEdwardIslandVotes creates a browser-header client
-			// to bypass the Radware bot-manager CAPTCHA on assembly.pe.ca.
-			parsed, err = CrawlPrinceEdwardIslandVotes(src.VotesURL, legislature, session, nil)
-		case "qc":
-			parsed, err = CrawlQuebecVotes(src.VotesURL, legislature, session, client)
-		default:
-			parsed, err = CrawlGenericProvincialVotes(src.VotesURL, src.Code, src.Chamber, legislature, session, client)
-		}
+		parsed, err = crawlDivisionsForSource(src, legislature, session, client)
 		if err != nil {
 			stats.Errors++
 			return err
+		}
+		// If no divisions were found for the current session and the DB has no
+		// divisions at all for this province, retry with the previous session to
+		// ensure the database is seeded with the most recent available data.
+		if len(parsed) == 0 && session > 1 && provinceDivisionCountInDB(conn, src.Code) == 0 {
+			log.Printf("[provincial][%s] 0 divisions for session %d; retrying with previous session %d to seed DB", src.Code, session, session-1)
+			prevParsed, prevErr := crawlDivisionsForSource(src, legislature, session-1, client)
+			if prevErr == nil && len(prevParsed) > 0 {
+				parsed = prevParsed
+			}
 		}
 		divs = parsed
 	}
@@ -662,6 +705,26 @@ func latestLegislatureSessionFromDB(conn *sql.DB, provinceCode string) (int, int
 		return 0, 0, false
 	}
 	return legislature, session, true
+}
+
+// provinceBillCountInDB returns the number of bills in the DB for the given province code prefix.
+func provinceBillCountInDB(conn *sql.DB, provinceCode string) int {
+	if conn == nil {
+		return 0
+	}
+	var n int
+	_ = conn.QueryRow(`SELECT COUNT(1) FROM bills WHERE id LIKE ?`, provinceCode+"-%").Scan(&n)
+	return n
+}
+
+// provinceDivisionCountInDB returns the number of divisions in the DB for the given province code prefix.
+func provinceDivisionCountInDB(conn *sql.DB, provinceCode string) int {
+	if conn == nil {
+		return 0
+	}
+	var n int
+	_ = conn.QueryRow(`SELECT COUNT(1) FROM divisions WHERE id LIKE ?`, provinceCode+"-%").Scan(&n)
+	return n
 }
 
 func provincialBillIDFromDescription(conn *sql.DB, provinceCode string, legislature, session int, description string) string {

@@ -92,3 +92,63 @@ func TestCrawlProvinceSource_PersistsBillsAndDivisions(t *testing.T) {
 	}
 }
 
+// TestCrawlProvinceSource_FallsBackToPreviousSessionWhenDBEmpty verifies that when
+// the current session returns 0 divisions and the DB has no divisions for the
+// province, CrawlProvinceSource retries with (legislature, session-1) and stores
+// the previous session's data.
+func TestCrawlProvinceSource_FallsBackToPreviousSessionWhenDBEmpty(t *testing.T) {
+	vpHTML := `<!DOCTYPE html><html><body>
+<p>Bill 5 carried on the following division:</p>
+<table class="division">
+<tr><td class="head" colspan="4">Yeas &#8212; 4</td></tr>
+<tr><td>Alpha <br>Beta <br></td><td>Gamma <br>Delta <br></td><td></td><td></td></tr>
+<tr><td class="head" colspan="4">Nays &#8212; 2</td></tr>
+<tr><td>Zeta <br></td><td>Eta <br></td><td></td><td></td></tr>
+</table></body></html>`
+
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	// Bills page detects session 2 but returns no bill links.
+	mux.HandleFunc("/bills", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><body>
+		  <h2>5th Legislature 2nd Session</h2>
+		</body></html>`))
+	})
+
+	// Votes: first request (session 2) returns no divisions; second (session 1 fallback) has data.
+	voteCalls := 0
+	mux.HandleFunc("/votes", func(w http.ResponseWriter, _ *http.Request) {
+		voteCalls++
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if voteCalls <= 1 {
+			_, _ = w.Write([]byte(`<html><body><p>No recorded divisions.</p></body></html>`))
+		} else {
+			_, _ = w.Write([]byte(vpHTML))
+		}
+	})
+
+	conn := newScraperDB(t)
+	src := scraper.ProvincialSource{
+		Code:     "nb",
+		Province: "New Brunswick",
+		Chamber:  "new_brunswick",
+		BillsURL: srv.URL + "/bills",
+		VotesURL: srv.URL + "/votes",
+	}
+
+	if err := scraper.CrawlProvinceSource(conn, srv.Client(), noDelay, src, nil); err != nil {
+		t.Fatalf("CrawlProvinceSource: %v", err)
+	}
+
+	var divCount int
+	if err := conn.QueryRow(`SELECT COUNT(1) FROM divisions WHERE id LIKE 'nb-%'`).Scan(&divCount); err != nil {
+		t.Fatalf("division count query: %v", err)
+	}
+	if divCount == 0 {
+		t.Fatal("expected at least one NB division from the previous-session fallback, got 0")
+	}
+}
+

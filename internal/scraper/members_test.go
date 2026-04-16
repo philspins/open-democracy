@@ -521,3 +521,110 @@ func TestCrawlProvincialMembersFromAPI_IDFromQueryStringURL(t *testing.T) {
 		t.Errorf("ID=%q must not contain a '?' character", id)
 	}
 }
+
+// ── CrawlNewBrunswickMembersFromWebsite ───────────────────────────────────────
+
+const sampleNBWebsitePage = `<!DOCTYPE html><html><body>
+<div class="member-card ">
+  <div class="member-card-avatar">
+    <img alt="Ames, Richard" src="/content/members/portraits/61-1/Richard_Ames_sm.jpg" />
+  </div>
+  <ul class="member-card-description">
+    <li class="member-card-description-name">
+      <a href="/en/members/current/165/ames-richard"><h3>Ames, Richard</h3></a>
+    </li>
+    <li class="member-card-description-party">
+      <div class="member-card-party-dot" style="background-color:#005DAC"></div>Progressive Conservative Party
+    </li>
+    <li class="member-card-description-riding">
+      <i class="fas fa-map-marker-alt"></i><span>Carleton-York</span>
+    </li>
+  </ul>
+</div>
+<div class="member-card ">
+  <div class="member-card-avatar">
+    <img alt="Boudreau, Lyne Chantal" src="/content/members/portraits/61-1/Lyne_Boudreau_sm.jpg" />
+  </div>
+  <ul class="member-card-description">
+    <li class="member-card-description-name">
+      <a href="/en/members/current/208/boudreau-lyne-chantal"><h3>Boudreau, Lyne Chantal</h3></a>
+    </li>
+    <li class="member-card-description-party">
+      <div class="member-card-party-dot" style="background-color:#C0161D"></div>Liberal Party
+    </li>
+    <li class="member-card-description-riding">
+      <i class="fas fa-map-marker-alt"></i><span>Champdoré-Irishtown</span>
+    </li>
+  </ul>
+</div>
+</body></html>`
+
+func newHTMLTestServer(body string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(body))
+	}))
+}
+
+func TestCrawlNewBrunswickMembersFromWebsite_ReturnsTwoProfiles(t *testing.T) {
+	srv := newHTMLTestServer(sampleNBWebsitePage)
+	defer srv.Close()
+
+	profiles, err := scraper.CrawlNewBrunswickMembersFromWebsite(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlNewBrunswickMembersFromWebsite: %v", err)
+	}
+	if len(profiles) != 2 {
+		t.Fatalf("len=%d, want 2", len(profiles))
+	}
+}
+
+func TestCrawlNewBrunswickMembersFromWebsite_ParsesFirstMember(t *testing.T) {
+	srv := newHTMLTestServer(sampleNBWebsitePage)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlNewBrunswickMembersFromWebsite(srv.URL, srv.Client())
+	p := profiles[0]
+
+	if p.ID != "nb-legislature-ames-richard" {
+		t.Errorf("ID=%q, want nb-legislature-ames-richard", p.ID)
+	}
+	if p.Name != "Richard Ames" {
+		t.Errorf("Name=%q, want Richard Ames", p.Name)
+	}
+	if p.Party != "Progressive Conservative Party" {
+		t.Errorf("Party=%q, want Progressive Conservative Party", p.Party)
+	}
+	if p.Riding != "Carleton-York" {
+		t.Errorf("Riding=%q, want Carleton-York", p.Riding)
+	}
+	if p.Province != "New Brunswick" {
+		t.Errorf("Province=%q, want New Brunswick", p.Province)
+	}
+	if p.GovernmentLevel != "provincial" {
+		t.Errorf("GovernmentLevel=%q, want provincial", p.GovernmentLevel)
+	}
+}
+
+func TestCrawlNewBrunswickMembersFromWebsite_MultiWordFirstName(t *testing.T) {
+	// "Boudreau, Lyne Chantal" should become "Lyne Chantal Boudreau"
+	srv := newHTMLTestServer(sampleNBWebsitePage)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlNewBrunswickMembersFromWebsite(srv.URL, srv.Client())
+	p := profiles[1]
+
+	if p.Name != "Lyne Chantal Boudreau" {
+		t.Errorf("Name=%q, want 'Lyne Chantal Boudreau'", p.Name)
+	}
+	if p.ID != "nb-legislature-boudreau-lyne-chantal" {
+		t.Errorf("ID=%q, want nb-legislature-boudreau-lyne-chantal", p.ID)
+	}
+}
+
+func TestCrawlNewBrunswickMembersFromWebsite_ErrorOnBadServer(t *testing.T) {
+	_, err := scraper.CrawlNewBrunswickMembersFromWebsite("http://localhost:0/no-server", nil)
+	if err == nil {
+		t.Error("expected error for bad server")
+	}
+}
