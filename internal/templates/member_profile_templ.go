@@ -361,7 +361,7 @@ func MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []st
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "% Yea</span></div><div class=\"w-full bg-gray-100 rounded-full h-2\"><div class=\"bg-green-500 h-2 rounded-full\" style=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "% Yea</span></div><div class=\"w-full bg-red-200 rounded-full h-2\"><div class=\"bg-green-500 h-2 rounded-full\" style=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
