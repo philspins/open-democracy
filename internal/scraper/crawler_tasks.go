@@ -47,7 +47,7 @@ type provincialCrawlStats struct {
 var ProvincialSources = []ProvincialSource{
 	{Code: "ab", Province: "Alberta", Chamber: "alberta", BillsURL: "https://www.assembly.ab.ca/assembly-business", VotesURL: "https://www.assembly.ab.ca/assembly-business/assembly-records/votes-and-proceedings"},
 	{Code: "bc", Province: "British Columbia", Chamber: "british_columbia", BillsURL: "https://www.leg.bc.ca/parliamentary-business/bills-and-legislation", VotesURL: "https://www.leg.bc.ca/parliamentary-business/overview/43rd-parliament/2nd-session/votes-and-proceedings"},
-	{Code: "mb", Province: "Manitoba", Chamber: "manitoba", BillsURL: "https://www.gov.mb.ca/legislature/businessofthehouse/index.html", VotesURL: "https://www.gov.mb.ca/legislature/house/recorded_votes.html"},
+	{Code: "mb", Province: "Manitoba", Chamber: "manitoba", BillsURL: "https://www.gov.mb.ca/legislature/business/index.html", VotesURL: "https://www.gov.mb.ca/legislature/business/votes_proceedings.html"},
 	{Code: "nb", Province: "New Brunswick", Chamber: "new_brunswick", BillsURL: "https://www.legnb.ca/en/legislation/bills", VotesURL: "https://www.legnb.ca/en/house-business/journals"},
 	{Code: "nl", Province: "Newfoundland and Labrador", Chamber: "newfoundland_labrador", BillsURL: "https://www.assembly.nl.ca/HouseBusiness/Bills/", VotesURL: "https://www.assembly.nl.ca/business/votes"},
 	{Code: "ns", Province: "Nova Scotia", Chamber: "nova_scotia", BillsURL: "https://nslegislature.ca/legislative-business", VotesURL: "https://nslegislature.ca/legislative-business/journals-votes-proceedings"},
@@ -308,6 +308,15 @@ func CrawlProvinceSource(conn *sql.DB, client *http.Client, delay time.Duration,
 
 	stats := provincialCrawlStats{}
 	defer func() {
+		if stats.MemberVotesSeen > 0 && stats.MemberVotesUpserted == 0 && stats.MemberVotesUnmatched == stats.MemberVotesSeen {
+			var memberCount int
+			_ = conn.QueryRow(
+				`SELECT COUNT(1) FROM members WHERE government_level='provincial' AND lower(province)=lower(?)`,
+				src.Province).Scan(&memberCount)
+			if memberCount == 0 {
+				log.Printf("[provincial][%s] hint: 0 provincial members in DB for %q — run --members first to enable vote matching", src.Code, src.Province)
+			}
+		}
 		log.Printf("[provincial][%s] summary bills=%d/%d divisions=%d/%d votes=%d/%d unmatched=%d errors=%d",
 			src.Code,
 			stats.BillsUpserted, stats.BillsSeen,

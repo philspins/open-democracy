@@ -959,6 +959,9 @@ func parseNewBrunswickVoteNames(blockText string) []string {
 			continue
 		}
 		name = strings.TrimSpace(strings.TrimPrefix(name, "Hon. "))
+		name = strings.TrimSpace(strings.TrimPrefix(name, "Mr. "))
+		name = strings.TrimSpace(strings.TrimPrefix(name, "Ms. "))
+		name = strings.TrimSpace(strings.TrimPrefix(name, "Dr. "))
 		key := strings.ToLower(name)
 		if seen[key] {
 			continue
