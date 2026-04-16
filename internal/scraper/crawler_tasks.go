@@ -48,12 +48,12 @@ var ProvincialSources = []ProvincialSource{
 	{Code: "ab", Province: "Alberta", Chamber: "alberta", BillsURL: "https://www.assembly.ab.ca/assembly-business", VotesURL: "https://www.assembly.ab.ca/assembly-business/assembly-records/votes-and-proceedings"},
 	{Code: "bc", Province: "British Columbia", Chamber: "british_columbia", BillsURL: "https://www.leg.bc.ca/parliamentary-business/bills-and-legislation", VotesURL: "https://www.leg.bc.ca/parliamentary-business/overview/43rd-parliament/2nd-session/votes-and-proceedings"},
 	{Code: "mb", Province: "Manitoba", Chamber: "manitoba", BillsURL: "https://www.gov.mb.ca/legislature/businessofthehouse/index.html", VotesURL: "https://www.gov.mb.ca/legislature/house/recorded_votes.html"},
-	{Code: "nb", Province: "New Brunswick", Chamber: "new_brunswick", BillsURL: "https://www.gnb.ca/legis/legis-e.asp", VotesURL: "https://www.gnb.ca/legis/1/hoa/e/journals-e.asp"},
-	{Code: "nl", Province: "Newfoundland and Labrador", Chamber: "newfoundland_labrador", BillsURL: "https://www.assembly.nl.ca/HouseBusiness/", VotesURL: "https://www.assembly.nl.ca/business/votes"},
+	{Code: "nb", Province: "New Brunswick", Chamber: "new_brunswick", BillsURL: "https://www.legnb.ca/en/legislation/bills", VotesURL: "https://www.legnb.ca/en/house-business/journals"},
+	{Code: "nl", Province: "Newfoundland and Labrador", Chamber: "newfoundland_labrador", BillsURL: "https://www.assembly.nl.ca/HouseBusiness/Bills/", VotesURL: "https://www.assembly.nl.ca/business/votes"},
 	{Code: "ns", Province: "Nova Scotia", Chamber: "nova_scotia", BillsURL: "https://nslegislature.ca/legislative-business", VotesURL: "https://nslegislature.ca/legislative-business/journals-votes-proceedings"},
 	{Code: "on", Province: "Ontario", Chamber: "ontario", BillsURL: "https://www.ola.org/en/legislative-business", VotesURL: OntarioVPIndexURL, Special: "on"},
-	{Code: "pe", Province: "Prince Edward Island", Chamber: "pei", BillsURL: "https://www.assembly.pe.ca/legislative-business", VotesURL: "https://www.assembly.pe.ca/legislative-business/votes-and-proceedings"},
-	{Code: "qc", Province: "Quebec", Chamber: "quebec", BillsURL: "https://www.assnat.qc.ca/en/travaux-parlementaires/", VotesURL: "https://www.assnat.qc.ca/en/travaux-parlementaires/registre-votes/registre-votes-resume.html"},
+	{Code: "pe", Province: "Prince Edward Island", Chamber: "pei", BillsURL: "https://www.assembly.pe.ca/legislative-business", VotesURL: "https://www.assembly.pe.ca/legislative-business"},
+	{Code: "qc", Province: "Quebec", Chamber: "quebec", BillsURL: "https://www.assnat.qc.ca/en/travaux-parlementaires/", VotesURL: "https://www.assnat.qc.ca/en/travaux-parlementaires/registre-des-votes/index.html"},
 	{Code: "sk", Province: "Saskatchewan", Chamber: "saskatchewan", BillsURL: "https://www.legassembly.sk.ca/legislative-business", VotesURL: SaskatchewanArchiveURL, Special: "sk"},
 }
 
@@ -388,6 +388,10 @@ func CrawlProvinceSource(conn *sql.DB, client *http.Client, delay time.Duration,
 			dayURL := OntarioVPDayURL(legislature, session, d)
 			dayDivs, derr := CrawlOntarioVPDay(dayURL, legislature, session, d, client)
 			if derr != nil {
+				if strings.Contains(derr.Error(), "status 404") {
+					log.Printf("[provincial] on day %s: no votes-proceedings page; skipping", d)
+					continue
+				}
 				stats.Errors++
 				log.Printf("[provincial] on day %s: %v", d, derr)
 				continue

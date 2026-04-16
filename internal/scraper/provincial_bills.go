@@ -164,14 +164,14 @@ func CrawlManitobaBills(indexURL string, legislature, session int, client *http.
 
 func CrawlNewBrunswickBills(indexURL string, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
 	if indexURL == "" {
-		indexURL = "https://www.gnb.ca/legis/legis-e.asp"
+		indexURL = "https://www.legnb.ca/en/legislation/bills"
 	}
 	return crawlProvincialBillsFromIndexWithMatcher(indexURL, "nb", legislature, session, "new_brunswick", client, newBrunswickBillLinkRe)
 }
 
 func CrawlNewfoundlandAndLabradorBills(indexURL string, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
 	if indexURL == "" {
-		indexURL = "https://www.assembly.nl.ca/HouseBusiness/"
+		indexURL = "https://www.assembly.nl.ca/HouseBusiness/Bills/"
 	}
 	return crawlProvincialBillsFromIndexWithMatcher(indexURL, "nl", legislature, session, "newfoundland_labrador", client, newfoundlandBillLinkRe)
 }

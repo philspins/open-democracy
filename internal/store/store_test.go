@@ -561,12 +561,12 @@ func TestListMembers_Filters(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		search         string
-		party          string
-		province       string
+		name            string
+		search          string
+		party           string
+		province        string
 		governmentLevel string
-		wantIDs        []string
+		wantIDs         []string
 	}{
 		{"no filter returns all", "", "", "", "", []string{"m1", "m2", "m3"}},
 		{"name search exact", "Alice Smith", "", "", "", []string{"m1"}},

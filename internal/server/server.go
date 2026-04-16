@@ -20,11 +20,11 @@ import (
 
 // Server holds application dependencies.
 type Server struct {
-	store      *store.Store
-	mux        *http.ServeMux
-	auth       *auth.Service
-	riding     *riding.Service
-	baseURL    string
+	store   *store.Store
+	mux     *http.ServeMux
+	auth    *auth.Service
+	riding  *riding.Service
+	baseURL string
 	// baseHost is the hostname extracted from baseURL at construction time.
 	// It is used for the HTTP→HTTPS redirect to prevent host-header injection.
 	// Empty when baseURL cannot be parsed or contains no host.
