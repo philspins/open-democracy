@@ -184,7 +184,7 @@ func parseOntarioVPDoc(doc *goquery.Document, parliament, session int, date stri
 		// Description: English text from the preceding sibling table, with the
 		// "Carried on the following division:" tail stripped.
 		desc := ""
-		wrapper.Closest("table").PrevAll("table").First().Each(func(_ int, t *goquery.Selection) {
+		wrapper.Closest("table").PrevAll().Filter("table").First().Each(func(_ int, t *goquery.Selection) {
 			t.Find("td[lang='en']").Each(func(_ int, cell *goquery.Selection) {
 				text := strings.TrimSpace(cell.Text())
 				if i := strings.Index(text, "Carried on the following division:"); i >= 0 {
@@ -259,6 +259,7 @@ func CrawlSaskatchewanMinutesLinks(archiveURL string, client *http.Client) ([]st
 
 var skDateFromURLRe = regexp.MustCompile(`/(\d{8})Minutes-HTML\.htm`)
 var skCountRe = regexp.MustCompile(`(?:YEAS|NAYS)[^\d]*(\d+)`)
+var isoDateFromURLRe = regexp.MustCompile(`(\d{4}-\d{2}-\d{2}|\d{8})`)
 
 // CrawlSaskatchewanMinutes scrapes a single Saskatchewan Assembly Minutes HTML document.
 // legislature and session are used to build division IDs.
@@ -362,7 +363,7 @@ func parseSaskatchewanMinutesDoc(doc *goquery.Document, legislature, session int
 		// Description: English text from the nearest preceding paragraph that
 		// mentions a bill number or motion.
 		desc := ""
-		t.PrevAll("p").Each(func(_ int, p *goquery.Selection) {
+		t.PrevAll().Filter("p").Each(func(_ int, p *goquery.Selection) {
 			if desc != "" {
 				return
 			}
@@ -398,4 +399,287 @@ func parseSaskatchewanMinutesDoc(doc *goquery.Document, legislature, session int
 
 	log.Printf("[sk-votes] %s: parsed %d divisions", date, len(results))
 	return results
+}
+
+// ── Generic provincial votes parser (remaining provinces) ──────────────────
+
+var genericVotesLinkRe = regexp.MustCompile(`(?i)(votes|proceedings|journal|journals|registre-votes|recorded_votes|minutes)`)
+var genericYeaRe = regexp.MustCompile(`(?i)(?:yeas?|ayes?|pour)\D*(\d+)`)
+var genericNayRe = regexp.MustCompile(`(?i)(?:nays?|contre)\D*(\d+)`)
+var albertaVotesLinkRe = regexp.MustCompile(`(?i)(assembly-records/votes-and-proceedings|votes-and-proceedings|/votes(?:/|$))`)
+var bcVotesLinkRe = regexp.MustCompile(`(?i)(votes-and-proceedings|journals?|/votes(?:/|$))`)
+var quebecVotesLinkRe = regexp.MustCompile(`(?i)(registre-votes|votes-nominaux|votes\.html|votes-appels-nominaux|/votes(?:/|$))`)
+var manitobaVotesLinkRe = regexp.MustCompile(`(?i)(recorded_votes|votes|journals?|hansard)`)
+var newBrunswickVotesLinkRe = regexp.MustCompile(`(?i)(journals?-e\.asp|votes|legis)`)
+var newfoundlandVotesLinkRe = regexp.MustCompile(`(?i)(/business/votes|housebusiness|votes\.aspx|/votes(?:/|$))`)
+var novaScotiaVotesLinkRe = regexp.MustCompile(`(?i)(journals?|proceedings|votes|hansard-debates)`)
+var peiVotesLinkRe = regexp.MustCompile(`(?i)(legislative-business|votes|proceedings)`)
+
+// CrawlAlbertaVotes crawls Alberta votes/proceedings pages.
+func CrawlAlbertaVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	if indexURL == "" {
+		indexURL = "https://www.assembly.ab.ca/assembly-business/assembly-records/votes-and-proceedings"
+	}
+	return crawlGenericProvincialVotesWithMatcher(indexURL, "ab", "alberta", legislature, session, client, albertaVotesLinkRe)
+}
+
+// CrawlBritishColumbiaVotes crawls BC votes/proceedings pages.
+func CrawlBritishColumbiaVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	if indexURL == "" {
+		indexURL = "https://www.leg.bc.ca/parliamentary-business/overview/43rd-parliament/2nd-session/votes-and-proceedings"
+	}
+	return crawlGenericProvincialVotesWithMatcher(indexURL, "bc", "british_columbia", legislature, session, client, bcVotesLinkRe)
+}
+
+// CrawlQuebecVotes crawls Quebec registre/votes pages.
+func CrawlQuebecVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	if indexURL == "" {
+		indexURL = "https://www.assnat.qc.ca/en/travaux-parlementaires/registre-votes/registre-votes-resume.html"
+	}
+	return crawlGenericProvincialVotesWithMatcher(indexURL, "qc", "quebec", legislature, session, client, quebecVotesLinkRe)
+}
+
+// CrawlManitobaVotes crawls Manitoba recorded votes/journal pages.
+func CrawlManitobaVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	if indexURL == "" {
+		indexURL = "https://www.gov.mb.ca/legislature/house/recorded_votes.html"
+	}
+	return crawlGenericProvincialVotesWithMatcher(indexURL, "mb", "manitoba", legislature, session, client, manitobaVotesLinkRe)
+}
+
+// CrawlNewBrunswickVotes crawls NB journals/votes pages.
+func CrawlNewBrunswickVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	if indexURL == "" {
+		indexURL = "https://www.gnb.ca/legis/1/hoa/e/journals-e.asp"
+	}
+	return crawlGenericProvincialVotesWithMatcher(indexURL, "nb", "new_brunswick", legislature, session, client, newBrunswickVotesLinkRe)
+}
+
+// CrawlNewfoundlandAndLabradorVotes crawls NL votes pages.
+func CrawlNewfoundlandAndLabradorVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	if indexURL == "" {
+		indexURL = "https://www.assembly.nl.ca/business/votes"
+	}
+	return crawlGenericProvincialVotesWithMatcher(indexURL, "nl", "newfoundland_labrador", legislature, session, client, newfoundlandVotesLinkRe)
+}
+
+// CrawlNovaScotiaVotes crawls NS journals/proceedings pages.
+func CrawlNovaScotiaVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	if indexURL == "" {
+		indexURL = "https://nslegislature.ca/legislative-business/journals-votes-proceedings"
+	}
+	return crawlGenericProvincialVotesWithMatcher(indexURL, "ns", "nova_scotia", legislature, session, client, novaScotiaVotesLinkRe)
+}
+
+// CrawlPrinceEdwardIslandVotes crawls PEI votes/proceedings pages.
+func CrawlPrinceEdwardIslandVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	if indexURL == "" {
+		indexURL = "https://www.assembly.pe.ca/legislative-business/votes-and-proceedings"
+	}
+	return crawlGenericProvincialVotesWithMatcher(indexURL, "pe", "pei", legislature, session, client, peiVotesLinkRe)
+}
+
+// CrawlGenericProvincialVotes fetches a provincial votes/proceedings index page,
+// discovers likely per-day links, then parses divisions from each page using
+// resilient heuristics that work across multiple legislature layouts.
+func CrawlGenericProvincialVotes(indexURL, provinceCode, chamber string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	return crawlGenericProvincialVotesWithMatcher(indexURL, provinceCode, chamber, legislature, session, client, genericVotesLinkRe)
+}
+
+func crawlGenericProvincialVotesWithMatcher(indexURL, provinceCode, chamber string, legislature, session int, client *http.Client, linkMatcher *regexp.Regexp) ([]ProvincialDivisionResult, error) {
+	if client == nil {
+		client = utils.NewHTTPClient()
+	}
+	log.Printf("[%s-votes] fetching index: %s", provinceCode, indexURL)
+
+	doc, err := fetchDoc(indexURL, client)
+	if err != nil {
+		return nil, fmt.Errorf("%s generic index: %w", provinceCode, err)
+	}
+
+	links := discoverProvincialVoteLinksWithMatcher(doc, indexURL, linkMatcher)
+	if len(links) == 0 {
+		links = []string{indexURL}
+	}
+
+	results := make([]ProvincialDivisionResult, 0)
+	for _, link := range links {
+		dayDoc, derr := fetchDoc(link, client)
+		if derr != nil {
+			log.Printf("[%s-votes] skip day link %s: %v", provinceCode, link, derr)
+			continue
+		}
+		date := extractDateFromURL(link)
+		parsed := parseGenericProvincialVotesDoc(dayDoc, provinceCode, chamber, legislature, session, date)
+		results = append(results, parsed...)
+	}
+
+	log.Printf("[%s-votes] parsed %d divisions", provinceCode, len(results))
+	return results, nil
+}
+
+func discoverProvincialVoteLinks(doc *goquery.Document, indexURL string) []string {
+	return discoverProvincialVoteLinksWithMatcher(doc, indexURL, genericVotesLinkRe)
+}
+
+func discoverProvincialVoteLinksWithMatcher(doc *goquery.Document, indexURL string, matcher *regexp.Regexp) []string {
+	if matcher == nil {
+		matcher = genericVotesLinkRe
+	}
+	seen := make(map[string]bool)
+	links := make([]string, 0)
+
+	doc.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
+		href, _ := a.Attr("href")
+		if href == "" {
+			return
+		}
+		text := a.Text() + " " + href
+		if !matcher.MatchString(text) {
+			return
+		}
+		full := resolveRelativeURL(indexURL, href)
+		if seen[full] {
+			return
+		}
+		seen[full] = true
+		links = append(links, full)
+	})
+
+	sort.Strings(links)
+	// Keep the most recent slice for speed/safety on very large archives.
+	if len(links) > 40 {
+		links = links[len(links)-40:]
+	}
+	return links
+}
+
+func parseGenericProvincialVotesDoc(doc *goquery.Document, provinceCode, chamber string, legislature, session int, fallbackDate string) []ProvincialDivisionResult {
+	results := make([]ProvincialDivisionResult, 0)
+	divNum := 0
+
+	seenFingerprint := make(map[string]bool)
+	doc.Find("table, section, article, div").Each(func(_ int, node *goquery.Selection) {
+		text := strings.Join(strings.Fields(strings.ReplaceAll(node.Text(), "\u00a0", " ")), " ")
+		if text == "" {
+			return
+		}
+		if !genericYeaRe.MatchString(text) || !genericNayRe.MatchString(text) {
+			return
+		}
+
+		fingerprint := text
+		if len(fingerprint) > 200 {
+			fingerprint = fingerprint[:200]
+		}
+		if seenFingerprint[fingerprint] {
+			return
+		}
+		seenFingerprint[fingerprint] = true
+
+		yeas := firstCount(genericYeaRe, text)
+		nays := firstCount(genericNayRe, text)
+		if yeas == 0 && nays == 0 {
+			return
+		}
+
+		divNum++
+		date := fallbackDate
+		if d := utils.FindDateInText(text); d != "" {
+			date = d
+		}
+		if date == "" {
+			date = utils.TodayISO()
+		}
+
+		desc := strings.TrimSpace(node.PrevAll().Filter("h1,h2,h3,h4,h5,p").First().Text())
+		if desc == "" {
+			desc = text
+			if len(desc) > 200 {
+				desc = desc[:200]
+			}
+		}
+
+		result := "Carried"
+		if nays > yeas {
+			result = "Negatived"
+		}
+
+		divID := ProvincialDivisionID(provinceCode, legislature, session, divNum, date)
+		results = append(results, ProvincialDivisionResult{
+			Division: DivisionStub{
+				ID:          divID,
+				Parliament:  legislature,
+				Session:     session,
+				Number:      divNum,
+				Date:        date,
+				Description: desc,
+				Yeas:        yeas,
+				Nays:        nays,
+				Result:      result,
+				Chamber:     chamber,
+				LastScraped: utils.NowISO(),
+			},
+			Votes: parseGenericProvincialMemberVotes(node, divID),
+		})
+	})
+
+	return results
+}
+
+func parseGenericProvincialMemberVotes(node *goquery.Selection, divisionID string) []ProvincialMemberVote {
+	results := make([]ProvincialMemberVote, 0)
+	seen := make(map[string]bool)
+
+	node.Find("li, td, p").Each(func(_ int, s *goquery.Selection) {
+		name := strings.TrimSpace(strings.Join(strings.Fields(strings.ReplaceAll(s.Text(), "\u00a0", " ")), " "))
+		if name == "" || len(name) < 3 {
+			return
+		}
+		upper := strings.ToUpper(name)
+		if strings.Contains(upper, "YEA") || strings.Contains(upper, "NAY") || strings.Contains(upper, "POUR") || strings.Contains(upper, "CONTRE") {
+			return
+		}
+
+		context := strings.ToUpper(strings.Join(strings.Fields(strings.ReplaceAll(s.Parent().Text(), "\u00a0", " ")), " "))
+		vote := ""
+		switch {
+		case strings.Contains(context, "YEA"), strings.Contains(context, "AYE"), strings.Contains(context, "POUR"):
+			vote = "Yea"
+		case strings.Contains(context, "NAY"), strings.Contains(context, "CONTRE"):
+			vote = "Nay"
+		default:
+			return
+		}
+
+		key := vote + "|" + strings.ToLower(name)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		results = append(results, ProvincialMemberVote{DivisionID: divisionID, MemberName: name, Vote: vote})
+	})
+
+	return results
+}
+
+func firstCount(re *regexp.Regexp, text string) int {
+	m := re.FindStringSubmatch(text)
+	if len(m) < 2 {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+func extractDateFromURL(rawURL string) string {
+	m := isoDateFromURLRe.FindStringSubmatch(rawURL)
+	if len(m) < 2 {
+		return ""
+	}
+	raw := m[1]
+	if len(raw) == 8 && raw[4] != '-' {
+		return fmt.Sprintf("%s-%s-%s", raw[:4], raw[4:6], raw[6:8])
+	}
+	return raw
 }

@@ -86,6 +86,7 @@ type BillFilter struct {
 	Stage    string
 	Category string
 	Chamber  string
+	Level    string // "" | "federal" | "provincial"
 	Page     int
 	PerPage  int
 }

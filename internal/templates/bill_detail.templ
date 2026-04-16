@@ -15,6 +15,7 @@ templ BillDetail(ps store.ParliamentStatus, bill store.BillRow, stages []store.B
 				</div>
 				<div class="flex items-start gap-3">
 					<span class="font-mono font-bold text-2xl text-blue-700">{ bill.Number }</span>
+						<span class={ BillLevelBadgeClass(bill) }>{ BillLevelLabel(bill) }</span>
 					if bill.Category != "" {
 						<span class="mt-1 text-sm px-2 py-0.5 rounded-full text-white" style={ CategoryBadgeStyle(bill.Category) }>{ bill.Category }</span>
 					}

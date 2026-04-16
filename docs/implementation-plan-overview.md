@@ -2,7 +2,7 @@
 
 > A Canadian civic transparency platform built almost entirely on existing open government data.
 
-**5 phases · 10–13 weeks total · 0 paid APIs required for MVP**
+**6 phases · 12–16 weeks total · 0 paid APIs required for MVP**
 
 ---
 
@@ -20,7 +20,8 @@ The government has already done the hard work. `ourcommons.ca` and `parl.ca/legi
 | 2 | Read-Only Frontend | The No-Login MVP | 2–3 weeks | Medium |
 | 3 | AI Summarization | Make Bills Human-Readable | 1 week | Low |
 | 4 | User Features | Accounts, Subscriptions & Feedback | 3–4 weeks | High |
-| 5 | Accountability Layer | Patterns, Scorecards & Long-Term Tracking | 2 weeks | Medium |
+| 5 | Provincial Bills & Votes Crawlers | Remaining Provincial Coverage (No Territories) | 2–3 weeks | Medium |
+| 6 | Accountability Layer | Patterns, Scorecards & Long-Term Tracking | 2 weeks | Medium |
 
 > **Minimum viable version:** Phase 1 + Phase 2 alone give you something genuinely useful — a clean, searchable view of every bill and every MP vote, auto-updated nightly from public sources. That's publishable in ~5 weeks with one developer.
 
@@ -104,7 +105,22 @@ The government has already done the hard work. `ourcommons.ca` and `parl.ca/legi
 
 ---
 
-## Phase 5 — Accountability Layer
+## Phase 5 — Provincial Bills & Votes Crawlers
+*Remaining Provincial Coverage (No Territories) · 2–3 weeks · Medium effort*
+
+### Provincial crawler implementation scope
+
+| Tag | Name | Detail |
+|-----|------|--------|
+| `Coverage` | **Remaining provinces** | Add bills + votes crawlers for Alberta, British Columbia, Manitoba, New Brunswick, Newfoundland and Labrador, Nova Scotia, Prince Edward Island, and Quebec. |
+| `Sources` | **Per-province legislative pages** | Use each legislature's official votes/proceedings and bills pages as canonical sources; keep one parser module per province to isolate markup differences. |
+| `Data` | **Normalized ingest** | Map all crawled records into existing tables: bills, divisions, member_votes, bill_stages, with province-prefixed IDs. |
+| `Reliability` | **Idempotent reruns** | Upsert bills/divisions/member-votes safely so reruns do not duplicate data and can recover after partial failures. |
+| `Ops` | **Scheduled crawling** | Run nightly full provincial crawls and weekday incremental vote crawls for active sessions with per-province metrics and parser error tracking. |
+
+---
+
+## Phase 6 — Accountability Layer
 *Patterns, Scorecards & Long-Term Tracking · 2 weeks · Medium effort*
 
 ### Voting accountability features

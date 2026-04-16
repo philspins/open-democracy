@@ -25,6 +25,12 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 func (s *Store) ListBills(f BillFilter) ([]BillRow, int, error) {
 	where := []string{"1=1"}
 	args := []interface{}{}
+	provincialPredicate := `( 
+		(b.chamber NOT IN ('commons','senate') AND b.chamber <> '')
+		OR b.id LIKE 'ab-%' OR b.id LIKE 'bc-%' OR b.id LIKE 'mb-%' OR b.id LIKE 'nb-%'
+		OR b.id LIKE 'nl-%' OR b.id LIKE 'ns-%' OR b.id LIKE 'on-%' OR b.id LIKE 'pe-%'
+		OR b.id LIKE 'qc-%' OR b.id LIKE 'sk-%'
+	)`
 
 	if f.Search != "" {
 		where = append(where, "(b.title LIKE ? OR b.number LIKE ? OR b.short_title LIKE ?)")
@@ -42,6 +48,12 @@ func (s *Store) ListBills(f BillFilter) ([]BillRow, int, error) {
 	if f.Chamber != "" {
 		where = append(where, "b.chamber = ?")
 		args = append(args, f.Chamber)
+	}
+	if f.Level == "provincial" {
+		where = append(where, provincialPredicate)
+	}
+	if f.Level == "federal" {
+		where = append(where, "NOT "+provincialPredicate)
 	}
 
 	whereClause := strings.Join(where, " AND ")

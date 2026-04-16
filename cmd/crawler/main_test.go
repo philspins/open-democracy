@@ -1,6 +1,6 @@
 package main
 
-// Tests for the domain crawler helper functions in cmd/crawler/main.go.
+// Tests for crawler orchestration and shared crawl task behavior.
 //
 // Each crawler helper accepts a *sql.DB and a *http.Client, making them
 // straightforwardly testable with a temporary SQLite database and an
@@ -45,7 +45,7 @@ func serve(body string) *httptest.Server {
 // noDelay is a zero-length delay for tests so they finish quickly.
 const noDelay = 0 * time.Millisecond
 
-// ── crawlCalendar ─────────────────────────────────────────────────────────────
+// ── CrawlCalendar ─────────────────────────────────────────────────────────────
 
 const calendarHTML = `<html><body>
   <table>
@@ -61,7 +61,7 @@ func TestCrawlCalendar_PersistsDates(t *testing.T) {
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlCalendar(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlCalendar(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlCalendar: %v", err)
 	}
 
@@ -76,7 +76,7 @@ func TestCrawlCalendar_PersistsDates(t *testing.T) {
 
 func TestCrawlCalendar_ReturnsErrorOnBadServer(t *testing.T) {
 	conn := newDB(t)
-	err := crawlCalendar(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
+	err := scraper.CrawlCalendar(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
 	if err == nil {
 		t.Error("expected error for unreachable server")
 	}
@@ -119,7 +119,7 @@ func TestCrawlBills_PersistsBill(t *testing.T) {
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlBills(conn, srv.Client(), noDelay, srv.URL+"/rss", nil); err != nil {
+	if err := scraper.CrawlBills(conn, srv.Client(), noDelay, srv.URL+"/rss", nil); err != nil {
 		t.Fatalf("crawlBills: %v", err)
 	}
 
@@ -133,7 +133,7 @@ func TestCrawlBills_PersistsBill(t *testing.T) {
 
 func TestCrawlBills_ReturnsErrorOnBadRSS(t *testing.T) {
 	conn := newDB(t)
-	err := crawlBills(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server", nil)
+	err := scraper.CrawlBills(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server", nil)
 	if err == nil {
 		t.Error("expected error for unreachable RSS feed")
 	}
@@ -154,7 +154,14 @@ func TestCrawlBills_EmitsSummaryRequest(t *testing.T) {
 
 	conn := newDB(t)
 	ch := make(chan summarizer.BillSummaryRequest, 4)
-	if err := crawlBills(conn, srv.Client(), noDelay, srv.URL+"/rss", ch); err != nil {
+	if err := scraper.CrawlBills(conn, srv.Client(), noDelay, srv.URL+"/rss", func(billID, billTitle, fullTextURL, lastActivityDate string) {
+		ch <- summarizer.BillSummaryRequest{
+			BillID:           billID,
+			BillTitle:        billTitle,
+			FullTextURL:      fullTextURL,
+			LastActivityDate: lastActivityDate,
+		}
+	}); err != nil {
 		t.Fatalf("crawlBills: %v", err)
 	}
 
@@ -187,7 +194,7 @@ func TestCrawlMembers_PersistsMember(t *testing.T) {
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlMembers(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlMembers(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlMembers: %v", err)
 	}
 
@@ -206,13 +213,13 @@ func TestCrawlMembers_PersistsMember(t *testing.T) {
 
 func TestCrawlMembers_ReturnsErrorOnBadServer(t *testing.T) {
 	conn := newDB(t)
-	err := crawlMembers(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
+	err := scraper.CrawlMembers(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
 	if err == nil {
 		t.Error("expected error for unreachable server")
 	}
 }
 
-// ── crawlVotes ────────────────────────────────────────────────────────────────
+// ── CrawlVotes ────────────────────────────────────────────────────────────────
 
 const votesIndexBody = `<html><body>
   <table class="table">
@@ -238,7 +245,7 @@ func TestCrawlVotes_PersistsDivision(t *testing.T) {
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlVotes: %v", err)
 	}
 
@@ -276,7 +283,7 @@ func TestCrawlVotes_StoresBillIDWhenBillExists(t *testing.T) {
 	// Pre-insert the referenced bill so FK constraint is satisfied.
 	db.UpsertBill(conn, db.Bill{ID: "45-1-c-47", Parliament: 45, Session: 1, Number: "C-47", Chamber: "commons"})
 
-	if err := crawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlVotes: %v", err)
 	}
 
@@ -289,7 +296,7 @@ func TestCrawlVotes_StoresBillIDWhenBillExists(t *testing.T) {
 
 func TestCrawlVotes_ReturnsErrorOnBadServer(t *testing.T) {
 	conn := newDB(t)
-	err := crawlVotes(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
+	err := scraper.CrawlVotes(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
 	if err == nil {
 		t.Error("expected error for unreachable server")
 	}
@@ -346,7 +353,7 @@ func TestCrawlVotes_BackfillsVotesForExistingDivision(t *testing.T) {
 		ID: "45-1-892", Parliament: 45, Session: 1, Number: 892, Chamber: "commons",
 	})
 
-	if err := crawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlVotes backfill: %v", err)
 	}
 
@@ -388,7 +395,7 @@ func TestCrawlSenate_PersistsDivision(t *testing.T) {
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlSenate: %v", err)
 	}
 
@@ -433,7 +440,7 @@ func TestCrawlSenate_StoresBillIDWhenBillExists(t *testing.T) {
 	// Pre-insert the referenced bill so FK constraint is satisfied.
 	db.UpsertBill(conn, db.Bill{ID: "45-1-s-209", Parliament: 45, Session: 1, Number: "S-209", Chamber: "senate"})
 
-	if err := crawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlSenate: %v", err)
 	}
 
@@ -446,7 +453,7 @@ func TestCrawlSenate_StoresBillIDWhenBillExists(t *testing.T) {
 
 func TestCrawlSenate_ReturnsErrorOnBadServer(t *testing.T) {
 	conn := newDB(t)
-	err := crawlSenate(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
+	err := scraper.CrawlSenate(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
 	if err == nil {
 		t.Error("expected error for unreachable server")
 	}
@@ -503,7 +510,7 @@ func TestCrawlSenate_BackfillsVotesForExistingDivision(t *testing.T) {
 		ID: "senate-45-1-42", Parliament: 45, Session: 1, Number: 42, Chamber: "senate",
 	})
 
-	if err := crawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlSenate backfill: %v", err)
 	}
 
@@ -530,7 +537,7 @@ func TestRunParallel_RunsAllFunctions(t *testing.T) {
 		}
 	}
 
-	runParallel(3, fns)
+	scraper.RunParallel(3, fns)
 
 	for i := range n {
 		if !called[i] {
@@ -565,7 +572,7 @@ func TestRunParallel_RespectsParallelismLimit(t *testing.T) {
 		}
 	}
 
-	runParallel(parallelism, fns)
+	scraper.RunParallel(parallelism, fns)
 
 	if maxConcurrent > parallelism {
 		t.Errorf("max concurrent goroutines=%d, want ≤%d", maxConcurrent, parallelism)
@@ -582,7 +589,7 @@ func TestRunParallel_SerialWhenParallelismOne(t *testing.T) {
 		func() { mu.Lock(); order = append(order, 3); mu.Unlock() },
 	}
 
-	runParallel(1, fns)
+	scraper.RunParallel(1, fns)
 
 	if len(order) != 3 {
 		t.Errorf("expected 3 calls, got %d", len(order))
@@ -595,7 +602,7 @@ func TestRunParallel_NilParallelismDefaultsToSerial(t *testing.T) {
 		func() { atomic.AddInt32(&called, 1) },
 		func() { atomic.AddInt32(&called, 1) },
 	}
-	runParallel(0, fns) // 0 treated as 1
+	scraper.RunParallel(0, fns) // 0 treated as 1
 	if atomic.LoadInt32(&called) != 2 {
 		t.Errorf("expected 2 calls, got %d", called)
 	}
@@ -603,48 +610,48 @@ func TestRunParallel_NilParallelismDefaultsToSerial(t *testing.T) {
 
 func TestRunParallel_EmptyFnsNoOp(t *testing.T) {
 	// Should not panic and should return immediately.
-	runParallel(5, nil)
+	scraper.RunParallel(5, nil)
 }
 
 // ── defaultParallelism ────────────────────────────────────────────────────────
 
 func TestDefaultParallelism_DefaultFive(t *testing.T) {
 	t.Setenv("CRAWLER_PARALLELISM", "")
-	got := defaultParallelism()
+	got := scraper.DefaultParallelism()
 	if got != 5 {
-		t.Errorf("defaultParallelism()=%d, want 5", got)
+		t.Errorf("DefaultParallelism()=%d, want 5", got)
 	}
 }
 
 func TestDefaultParallelism_ReadsEnvVar(t *testing.T) {
 	t.Setenv("CRAWLER_PARALLELISM", "3")
-	got := defaultParallelism()
+	got := scraper.DefaultParallelism()
 	if got != 3 {
-		t.Errorf("defaultParallelism()=%d, want 3", got)
+		t.Errorf("DefaultParallelism()=%d, want 3", got)
 	}
 }
 
 func TestDefaultParallelism_IgnoresInvalidEnvVar(t *testing.T) {
 	t.Setenv("CRAWLER_PARALLELISM", "not-a-number")
-	got := defaultParallelism()
+	got := scraper.DefaultParallelism()
 	if got != 5 {
-		t.Errorf("defaultParallelism()=%d, want 5 for invalid env", got)
+		t.Errorf("DefaultParallelism()=%d, want 5 for invalid env", got)
 	}
 }
 
 func TestDefaultParallelism_IgnoresZeroEnvVar(t *testing.T) {
 	t.Setenv("CRAWLER_PARALLELISM", "0")
-	got := defaultParallelism()
+	got := scraper.DefaultParallelism()
 	if got != 5 {
-		t.Errorf("defaultParallelism()=%d, want 5 for zero env", got)
+		t.Errorf("DefaultParallelism()=%d, want 5 for zero env", got)
 	}
 }
 
 func TestDefaultParallelism_IgnoresNegativeEnvVar(t *testing.T) {
 	t.Setenv("CRAWLER_PARALLELISM", "-2")
-	got := defaultParallelism()
+	got := scraper.DefaultParallelism()
 	if got != 5 {
-		t.Errorf("defaultParallelism()=%d, want 5 for negative env", got)
+		t.Errorf("DefaultParallelism()=%d, want 5 for negative env", got)
 	}
 }
 

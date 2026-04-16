@@ -158,6 +158,7 @@ func (s *Server) handleBills(w http.ResponseWriter, r *http.Request) {
 		Stage:    q.Get("stage"),
 		Category: q.Get("category"),
 		Chamber:  q.Get("chamber"),
+		Level:    q.Get("level"),
 		Page:     page,
 		PerPage:  20,
 	}

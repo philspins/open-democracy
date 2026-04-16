@@ -96,6 +96,43 @@ func TestListBills_ChamberFilter(t *testing.T) {
 	}
 }
 
+func TestListBills_LevelFilter(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, err := conn.Exec(`INSERT INTO bills (id, parliament, session, number, title, category, current_stage, chamber)
+		VALUES ('45-1-c-1', 45, 1, 'C-1', 'Federal Commons Bill', 'Housing', '1st_reading', 'commons'),
+		       ('45-1-s-1', 45, 1, 'S-1', 'Federal Senate Bill', 'Health', '1st_reading', 'senate'),
+		       ('on-43-1-12', 43, 1, '12', 'Ontario Bill', 'Housing', '1st_reading', 'ontario')`)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	bills, total, err := st.ListBills(store.BillFilter{Level: "federal", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListBills federal: %v", err)
+	}
+	if total != 2 || len(bills) != 2 {
+		t.Fatalf("expected 2 federal bills, total=%d len=%d", total, len(bills))
+	}
+	for _, b := range bills {
+		if b.ID == "on-43-1-12" {
+			t.Fatalf("provincial bill included in federal filter: %+v", b)
+		}
+	}
+
+	bills, total, err = st.ListBills(store.BillFilter{Level: "provincial", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListBills provincial: %v", err)
+	}
+	if total != 1 || len(bills) != 1 {
+		t.Fatalf("expected 1 provincial bill, total=%d len=%d", total, len(bills))
+	}
+	if bills[0].ID != "on-43-1-12" {
+		t.Fatalf("unexpected provincial result: %+v", bills[0])
+	}
+}
+
 func TestGetBill_NotFound(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)

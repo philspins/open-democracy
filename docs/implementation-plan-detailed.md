@@ -1,6 +1,6 @@
 # Open Democracy — Detailed Implementation Plan
 
-> 5 phases · 10–13 weeks · 0 paid APIs for MVP
+> 6 phases · 12–16 weeks · 0 paid APIs for MVP
 
 ---
 
@@ -10,7 +10,8 @@
 - [Phase 2 — Read-Only Frontend](#phase-2--read-only-frontend)
 - [Phase 3 — AI Summarization](#phase-3--ai-summarization)
 - [Phase 4 — User Features](#phase-4--user-features)
-- [Phase 5 — Accountability Layer](#phase-5--accountability-layer)
+- [Phase 5 — Provincial Bills & Votes Crawlers](#phase-5--provincial-bills--votes-crawlers)
+- [Phase 6 — Accountability Layer](#phase-6--accountability-layer)
 
 ---
 
@@ -967,7 +968,121 @@ function policyFormData(email, mpName, riding) {
 
 ---
 
-## Phase 5 — Accountability Layer
+## Phase 5 — Provincial Bills & Votes Crawlers
+
+**Complete provincial legislative coverage (excluding territories) · 2–3 weeks**
+
+**Stack:** Go · goquery · net/http · SQLite · robfig/cron
+
+This phase adds production crawlers for the remaining provincial legislatures so Open Democracy can ingest both bills and recorded votes across Canada (excluding NWT, Yukon, Nunavut). Ontario and Saskatchewan vote crawlers are already in place in `internal/scraper/provincial_votes.go`; this phase focuses on the remaining provinces and bill pipelines.
+
+---
+
+### 5.1 Scope & Definition of Done
+
+- ✅ Add crawler coverage for **Alberta, British Columbia, Manitoba, New Brunswick, Newfoundland and Labrador, Nova Scotia, Prince Edward Island, and Quebec**.
+- ✅ Ingest both:
+- Bills metadata (number, title, status/stage, sponsor when available, session/legislature, source URL, last activity date).
+- Recorded votes/divisions (division number or source key, date, motion text, yea/nay totals, result, per-member votes where published).
+- ✅ Reuse the existing normalized tables (`bills`, `divisions`, `member_votes`, `bill_stages`) with province-aware IDs and chamber values.
+- ✅ Integrate each new provincial crawler into `cmd/crawler/main.go` so it runs in the nightly full crawl.
+- ✅ Add parser unit tests per province using saved HTML fixtures to reduce breakage from markup changes.
+
+---
+
+### 5.2 Provincial Source Matrix (From Prior Research)
+
+Use the following as canonical starting points for implementation. Keep source-specific parsers isolated to avoid cross-province regressions.
+
+| Province | Votes / Proceedings Source | Bills / Legislative Business Source | Implementation Notes |
+|----------|----------------------------|-------------------------------------|----------------------|
+| Alberta | `https://www.assembly.ab.ca/assembly-business/assembly-records/votes-and-proceedings` | `https://www.assembly.ab.ca/assembly-business` | Votes pages are date-scoped; capture sitting date links first, then parse daily pages. |
+| British Columbia | `https://www.leg.bc.ca/parliamentary-business/overview/43rd-parliament/2nd-session/votes-and-proceedings` | `https://www.leg.bc.ca/parliamentary-business/bills-and-legislation` | Sessional overview contains stable links for votes and bills by parliament/session. |
+| Manitoba | `https://www.gov.mb.ca/legislature/house/recorded_votes.html` | `https://www.gov.mb.ca/legislature/businessofthehouse/index.html` | Recorded votes and bill pages are split; normalize date/session formats. |
+| New Brunswick | `https://www.gnb.ca/legis/1/hoa/e/journals-e.asp` | `https://www.gnb.ca/legis/legis-e.asp` | English/French variants exist; lock to one language for parser stability. |
+| Newfoundland and Labrador | `https://www.assembly.nl.ca/business/votes` | `https://www.assembly.nl.ca/HouseBusiness/` | House Business indexes both bill and vote artifacts; extract canonical IDs from links. |
+| Nova Scotia | `https://nslegislature.ca/legislative-business/journals-votes-proceedings` | `https://nslegislature.ca/legislative-business` | Journals/Votes are often combined pages; parse divisions from structured headings/tables. |
+| Prince Edward Island | `https://www.assembly.pe.ca/legislative-business/votes-and-proceedings` | `https://www.assembly.pe.ca/legislative-business` | Use session-specific pages when available; fall back to global listing crawl. |
+| Quebec | `https://www.assnat.qc.ca/en/travaux-parlementaires/registre-votes/registre-votes-resume.html` | `https://www.assnat.qc.ca/en/travaux-parlementaires/` | Use the Registre des votes summary/details flow; store vote detail URL for per-member crawl. |
+
+---
+
+### 5.3 Crawler Rollout Steps
+
+```go
+// Suggested package layout
+// internal/scraper/provincial/
+//   alberta.go
+//   british_columbia.go
+//   manitoba.go
+//   new_brunswick.go
+//   newfoundland_labrador.go
+//   nova_scotia.go
+//   pei.go
+//   quebec.go
+```
+
+1. Create one parser module per province with two entry points:
+- `Crawl<Province>Bills(...) ([]BillStub, error)`
+- `Crawl<Province>Votes(...) ([]ProvincialDivisionResult, error)`
+2. Add deterministic ID helpers for provincial entities:
+- Bill ID format: `{province}-{legislature}-{session}-{bill_number}`.
+- Division ID format: reuse existing `ProvincialDivisionID(...)` pattern.
+3. Build listing crawlers first (index pages), then detail crawlers:
+- Index crawlers discover session/day/doc links.
+- Detail crawlers parse normalized records from one page/document at a time.
+4. Upsert strategy in `cmd/crawler/main.go`:
+- For each province, upsert bill rows first.
+- Upsert divisions next.
+- Upsert member votes last, with idempotent conflict handling.
+5. Retry and resilience:
+- Continue on per-page parser failures.
+- Log source URL + province + parser step for fast triage.
+- Respect 0.5-1s delay between requests and shared HTTP client timeout.
+
+---
+
+### 5.4 Data Mapping & Normalization Rules
+
+- ✅ Set `government_level = 'provincial'` for all provincial members and records derived from these crawlers.
+- ✅ Store province code in IDs (`ab`, `bc`, `mb`, `nb`, `nl`, `ns`, `pe`, `qc`) and readable chamber labels in `divisions.chamber`.
+- ✅ Normalize vote labels to Open Democracy canonical values:
+- `Yea`, `Nay`, `Paired`, `Abstain` (where source supports them).
+- ✅ Normalize results to `Carried` / `Negatived` when possible; otherwise persist source wording in description notes.
+- ✅ Preserve source URLs for both list and detail pages for auditability and replay.
+
+---
+
+### 5.5 Test & Verification Plan
+
+- ✅ Add province parser tests in `internal/scraper/*_test.go` with HTML fixtures for:
+- At least one bills index page.
+- At least one vote summary page.
+- At least one vote-detail page with per-member records (where available).
+- ✅ Add integration tests validating DB writes:
+- Division row inserted once on rerun.
+- Member votes are upserted idempotently.
+- Province-prefixed IDs remain stable across recrawls.
+- ✅ Add a crawler smoke command (Make target) for provincial runs only, e.g.:
+- `make crawl-provinces PROVINCES=ab,bc,mb,nb,nl,ns,pe,qc`
+
+---
+
+### 5.6 Scheduling & Operations
+
+- ✅ Nightly full crawl (`0 2 * * *` UTC): run all provincial bill + vote crawlers.
+- ✅ Midday incremental crawl (`0 14 * * 1-5` UTC): run vote crawlers only for active sessions.
+- ✅ Track crawl metrics per province:
+- pages fetched
+- bills parsed/upserted
+- divisions parsed/upserted
+- member-vote rows parsed/upserted
+- parser errors by URL
+- ✅ Add alert threshold: if a province returns zero records for 3 consecutive scheduled runs during an active session, flag for parser review.
+
+---
+
+## Phase 6 — Accountability Layer
 
 **Patterns, scorecards & long-term tracking · 2 weeks**
 
@@ -977,7 +1092,7 @@ The highest-value features for civic transparency — not just "how did they vot
 
 ---
 
-### 5.1 Party-Line Analysis
+### 6.1 Party-Line Analysis
 
 ```sql
 -- For each MP, calculate how often they vote with vs against their party
@@ -1038,7 +1153,7 @@ ORDER BY rebel_pct DESC;
 
 ---
 
-### 5.2 Category Scorecards
+### 6.2 Category Scorecards
 
 ```sql
 -- How did an MP vote across bills in a given category?
@@ -1073,7 +1188,7 @@ ORDER BY votes_on_category DESC;
 
 ---
 
-### 5.3 Accountability Features Roadmap
+### 6.3 Accountability Features Roadmap
 
 | Feature | Description | Data Source | Complexity |
 |---------|-------------|-------------|------------|
@@ -1088,7 +1203,7 @@ ORDER BY votes_on_category DESC;
 
 ---
 
-### 5.4 Federal vs. Provincial Side-by-Side
+### 6.4 Federal vs. Provincial Side-by-Side
 
 ```go
 // internal/templates/rep_comparison.templ

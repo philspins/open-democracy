@@ -230,6 +230,44 @@ func ShortOrFullTitle(b store.BillRow) string {
 	return b.Title
 }
 
+// IsProvincialBill returns true when the bill is sourced from a provincial legislature.
+func IsProvincialBill(b store.BillRow) bool {
+	chamber := strings.ToLower(strings.TrimSpace(b.Chamber))
+	if chamber == "commons" || chamber == "senate" {
+		return false
+	}
+	id := strings.ToLower(strings.TrimSpace(b.ID))
+	if strings.HasPrefix(id, "on-") ||
+		strings.HasPrefix(id, "ab-") ||
+		strings.HasPrefix(id, "bc-") ||
+		strings.HasPrefix(id, "mb-") ||
+		strings.HasPrefix(id, "nb-") ||
+		strings.HasPrefix(id, "nl-") ||
+		strings.HasPrefix(id, "ns-") ||
+		strings.HasPrefix(id, "pe-") ||
+		strings.HasPrefix(id, "qc-") ||
+		strings.HasPrefix(id, "sk-") {
+		return true
+	}
+	return false
+}
+
+// BillLevelLabel returns the jurisdiction label for bill badges.
+func BillLevelLabel(b store.BillRow) string {
+	if IsProvincialBill(b) {
+		return "Provincial"
+	}
+	return "Federal"
+}
+
+// BillLevelBadgeClass returns Tailwind classes for federal/provincial bill badges.
+func BillLevelBadgeClass(b store.BillRow) string {
+	if IsProvincialBill(b) {
+		return "text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800"
+	}
+	return "text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-800"
+}
+
 // PartyClass returns a Tailwind text-color class for a party name.
 func PartyClass(party string) string {
 	switch {

@@ -7,6 +7,8 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite driver
 )
@@ -260,6 +262,17 @@ func UpsertMember(db *sql.DB, m Member) error {
 		m.Email, m.Website, chamber, active, m.LastScraped, govLevel,
 	)
 	return err
+}
+
+// UpsertProfiles persists a slice of members, logging individual row failures
+// and continuing to process the remaining records.
+func UpsertProfiles(db *sql.DB, members []Member, delay time.Duration) {
+	for _, m := range members {
+		if err := UpsertMember(db, m); err != nil {
+			log.Printf("[members] upsert %s: %v", m.ID, err)
+		}
+		time.Sleep(delay)
+	}
 }
 
 // Bill represents a row in the bills table.
