@@ -194,6 +194,12 @@ func CrawlPrinceEdwardIslandBills(indexURL string, legislature, session int, cli
 	if indexURL == "" {
 		indexURL = "https://www.assembly.pe.ca/legislative-business"
 	}
+	// assembly.pe.ca is protected by a Radware bot-manager CAPTCHA. Use the same
+	// browser-like transport used by CrawlPrinceEdwardIslandVotes when no client
+	// is provided by the caller.
+	if client == nil {
+		client = newPEIHTTPClient()
+	}
 	return crawlProvincialBillsFromIndexWithMatcher(indexURL, "pe", legislature, session, "pei", client, peiBillLinkRe)
 }
 

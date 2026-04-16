@@ -347,7 +347,9 @@ func CrawlProvinceSource(conn *sql.DB, client *http.Client, delay time.Duration,
 	case "on":
 		bills, berr = CrawlOntarioBills(src.BillsURL, legislature, session, client)
 	case "pe":
-		bills, berr = CrawlPrinceEdwardIslandBills(src.BillsURL, legislature, session, client)
+		// Pass nil so CrawlPrinceEdwardIslandBills creates a browser-header client
+		// to bypass the Radware bot-manager on assembly.pe.ca.
+		bills, berr = CrawlPrinceEdwardIslandBills(src.BillsURL, legislature, session, nil)
 	case "qc":
 		bills, berr = CrawlQuebecBills(src.BillsURL, legislature, session, client)
 	case "sk":

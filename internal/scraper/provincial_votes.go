@@ -2261,15 +2261,21 @@ func crawlPEIVotes(indexURL string, legislature, session int, client *http.Clien
 // logs a warning and returns 0 divisions with no error, preserving crawl continuity.
 // See docs/implementation-plan-detailed.md § 5A.7 for the escalation path
 // (headless Chromium) if header spoofing continues to fail.
+// newPEIHTTPClient returns an HTTP client with browser-like headers for assembly.pe.ca.
+// It is used by both the bills and votes crawlers for that province.
+func newPEIHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout:   20 * time.Second,
+		Transport: &peiTransport{base: http.DefaultTransport},
+	}
+}
+
 func CrawlPrinceEdwardIslandVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	if indexURL == "" {
 		indexURL = "https://www.assembly.pe.ca/legislative-business"
 	}
 	if client == nil {
-		client = &http.Client{
-			Timeout:   20 * time.Second,
-			Transport: &peiTransport{base: http.DefaultTransport},
-		}
+		client = newPEIHTTPClient()
 	}
 	return crawlPEIVotes(indexURL, legislature, session, client)
 }
