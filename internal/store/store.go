@@ -257,28 +257,32 @@ var provinceAbbrevToName = map[string]string{
 	"YT":  "Yukon",
 }
 
-// ListMembers returns members matching optional search/party/province/governmentLevel filters.
-func (s *Store) ListMembers(search, party, province, governmentLevel string) ([]MemberRow, error) {
+// ListMembers returns members matching optional search/party/province/riding/governmentLevel filters.
+// search matches against member name only.
+func (s *Store) ListMembers(search, party, province, riding, governmentLevel string) ([]MemberRow, error) {
 	where := []string{"1=1"}
 	args := []interface{}{}
 
 	if search != "" {
-		where = append(where, "(name LIKE ? OR riding LIKE ?)")
-		like := "%" + search + "%"
-		args = append(args, like, like)
+		where = append(where, "name LIKE ?")
+		args = append(args, "%"+search+"%")
 	}
 	if party != "" {
-		where = append(where, "party LIKE ?")
-		args = append(args, "%"+party+"%")
+		where = append(where, "party = ?")
+		args = append(args, party)
 	}
 	if province != "" {
 		// Expand common province abbreviations (e.g. "BC") to their full names
-		// (e.g. "British Columbia") so that the LIKE filter matches stored values.
+		// (e.g. "British Columbia") so that the filter matches stored values.
 		if full, ok := provinceAbbrevToName[strings.ToUpper(strings.TrimSpace(province))]; ok {
 			province = full
 		}
-		where = append(where, "province LIKE ?")
-		args = append(args, "%"+province+"%")
+		where = append(where, "province = ?")
+		args = append(args, province)
+	}
+	if riding != "" {
+		where = append(where, "riding = ?")
+		args = append(args, riding)
 	}
 	if governmentLevel != "" {
 		where = append(where, "government_level = ?")
@@ -332,6 +336,40 @@ func scanMemberRows(rows *sql.Rows) ([]MemberRow, error) {
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// listDistinctMemberStrings is a helper that returns sorted, non-empty distinct
+// values for a single column from the members table.
+func (s *Store) listDistinctMemberStrings(col string) ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT ` + col + ` FROM members WHERE ` + col + ` IS NOT NULL AND ` + col + ` <> '' ORDER BY ` + col)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// ListDistinctParties returns all distinct non-empty party values from the members table.
+func (s *Store) ListDistinctParties() ([]string, error) {
+	return s.listDistinctMemberStrings("party")
+}
+
+// ListDistinctProvinces returns all distinct non-empty province values from the members table.
+func (s *Store) ListDistinctProvinces() ([]string, error) {
+	return s.listDistinctMemberStrings("province")
+}
+
+// ListDistinctRidings returns all distinct non-empty riding values from the members table.
+func (s *Store) ListDistinctRidings() ([]string, error) {
+	return s.listDistinctMemberStrings("riding")
 }
 
 // GetMembersByRiding searches members by riding name (partial match).
