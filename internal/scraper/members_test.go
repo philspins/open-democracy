@@ -3,6 +3,7 @@ package scraper_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/philspins/open-democracy/internal/scraper"
@@ -439,5 +440,84 @@ func TestCrawlProvincialMembersFromAPI_ErrorOnUnknownSetWithNoURL(t *testing.T) 
 	_, err := scraper.CrawlProvincialMembersFromAPI("nonexistent-set", "", nil)
 	if err == nil {
 		t.Error("expected error for unknown set slug with no apiURL")
+	}
+}
+
+// ── urlLastSegment / province fallback ───────────────────────────────────────
+
+// sampleNBAPIResponse simulates a Represent API response for NB (no offices).
+const sampleNBAPIResponse = `{
+  "objects": [
+    {
+      "name": "Jane Doe",
+      "party_name": "Progressive Conservative Party",
+      "district_name": "Moncton Centre",
+      "email": "",
+      "url": "https://represent.opennorth.ca/representatives/nb-legislature/42/",
+      "personal_url": "",
+      "photo_url": "",
+      "elected_office": "MLA",
+      "offices": [],
+      "extra": {}
+    }
+  ],
+  "meta": {"next": null}
+}`
+
+// sampleQueryStringURLResponse simulates a member whose API URL has a query string.
+const sampleQueryStringURLResponse = `{
+  "objects": [
+    {
+      "name": "Bob Jones",
+      "party_name": "Progressive Conservative",
+      "district_name": "Calgary East",
+      "email": "",
+      "url": "https://www.assembly.ab.ca/members/mla?SpecificMember=42",
+      "personal_url": "",
+      "photo_url": "",
+      "elected_office": "MLA",
+      "offices": [
+        {"type": "constituency", "postal": "123 Main St\nCalgary AB  T2P 1E3"}
+      ],
+      "extra": {}
+    }
+  ],
+  "meta": {"next": null}
+}`
+
+func TestCrawlProvincialMembersFromAPI_ProvinceFromSetSlugWhenNoOffices(t *testing.T) {
+	srv := newJSONTestServer(sampleNBAPIResponse)
+	defer srv.Close()
+
+	profiles, err := scraper.CrawlProvincialMembersFromAPI("nb-legislature", srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlProvincialMembersFromAPI: %v", err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("len=%d, want 1", len(profiles))
+	}
+	if profiles[0].Province != "New Brunswick" {
+		t.Errorf("Province=%q want New Brunswick (derived from set slug)", profiles[0].Province)
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_IDFromQueryStringURL(t *testing.T) {
+	// When the member URL contains a query string the ID must not include it;
+	// the query-string segment after ? must be stripped.
+	srv := newJSONTestServer(sampleQueryStringURLResponse)
+	defer srv.Close()
+
+	profiles, err := scraper.CrawlProvincialMembersFromAPI("alberta-legislature", srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlProvincialMembersFromAPI: %v", err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("len=%d, want 1", len(profiles))
+	}
+	// The last path segment of the URL (before the query string) is "mla",
+	// not "mla?SpecificMember=42", so the ID must NOT contain "?".
+	id := profiles[0].ID
+	if strings.Contains(id, "?") {
+		t.Errorf("ID=%q must not contain a '?' character", id)
 	}
 }

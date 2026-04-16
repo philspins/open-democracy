@@ -38,6 +38,7 @@ var ProvincialLegislatureAPIs = map[string]string{
 	"alberta-legislature":                "https://represent.opennorth.ca/representatives/alberta-legislature/?format=json&limit=1000",
 	"bc-legislature":                     "https://represent.opennorth.ca/representatives/bc-legislature/?format=json&limit=1000",
 	"manitoba-legislature":               "https://represent.opennorth.ca/representatives/manitoba-legislature/?format=json&limit=1000",
+	"nb-legislature":                     "https://represent.opennorth.ca/representatives/nb-legislature/?format=json&limit=1000",
 	"newfoundland-labrador-legislature":  "https://represent.opennorth.ca/representatives/newfoundland-labrador-legislature/?format=json&limit=1000",
 	"nova-scotia-legislature":            "https://represent.opennorth.ca/representatives/nova-scotia-legislature/?format=json&limit=1000",
 	"northwest-territories-legislature":  "https://represent.opennorth.ca/representatives/northwest-territories-legislature/?format=json&limit=1000",
@@ -46,6 +47,24 @@ var ProvincialLegislatureAPIs = map[string]string{
 	"quebec-assemblee-nationale":         "https://represent.opennorth.ca/representatives/quebec-assemblee-nationale/?format=json&limit=1000",
 	"saskatchewan-legislature":           "https://represent.opennorth.ca/representatives/saskatchewan-legislature/?format=json&limit=1000",
 	"yukon-legislature":                  "https://represent.opennorth.ca/representatives/yukon-legislature/?format=json&limit=1000",
+}
+
+// setSlugToProvince maps each representative-set slug to its full province or
+// territory name. This is used as a fallback when a member's office records do
+// not contain a postal address with a recognisable province abbreviation.
+var setSlugToProvince = map[string]string{
+	"alberta-legislature":                "Alberta",
+	"bc-legislature":                     "British Columbia",
+	"manitoba-legislature":               "Manitoba",
+	"nb-legislature":                     "New Brunswick",
+	"newfoundland-labrador-legislature":  "Newfoundland and Labrador",
+	"nova-scotia-legislature":            "Nova Scotia",
+	"northwest-territories-legislature":  "Northwest Territories",
+	"ontario-legislature":                "Ontario",
+	"pei-legislature":                    "Prince Edward Island",
+	"quebec-assemblee-nationale":         "Quebec",
+	"saskatchewan-legislature":           "Saskatchewan",
+	"yukon-legislature":                  "Yukon",
 }
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -264,12 +283,19 @@ func fetchRepresentPages(apiURL, governmentLevel, setSlug string, client *http.C
 				chamber = "commons"
 			}
 
+			province := extractProvinceFromOffices(item.Offices)
+			if province == "" && setSlug != "" {
+				if prov, ok := setSlugToProvince[setSlug]; ok {
+					province = prov
+				}
+			}
+
 			profiles = append(profiles, MemberProfile{
 				ID:              memberID,
 				Name:            item.Name,
 				Party:           item.PartyName,
 				Riding:          item.DistrictName,
-				Province:        extractProvinceFromOffices(item.Offices),
+				Province:        province,
 				Role:            role,
 				PhotoURL:        item.PhotoURL,
 				Email:           item.Email,
@@ -311,10 +337,26 @@ func extractProvincialMemberID(setSlug string, item representAPIItem) string {
 }
 
 // urlLastSegment returns the last non-empty path segment of rawURL.
+// The URL is parsed properly so that query strings and fragments are
+// excluded from the result, and percent-encoded characters are decoded.
 func urlLastSegment(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	// Parse the URL so that query strings (e.g. ?id=42) and fragments (#foo)
+	// are stripped before we look at the path.
+	parsed, err := url.Parse(rawURL)
+	if err == nil && parsed.Path != "" {
+		rawURL = parsed.Path
+	}
 	rawURL = strings.TrimSuffix(rawURL, "/")
 	if i := strings.LastIndex(rawURL, "/"); i >= 0 {
-		return rawURL[i+1:]
+		rawURL = rawURL[i+1:]
+	}
+	// URL-decode the segment so that percent-encoded characters (e.g. %20)
+	// don't end up in member IDs where they would cause URL routing mismatches.
+	if decoded, derr := url.PathUnescape(rawURL); derr == nil {
+		rawURL = decoded
 	}
 	return rawURL
 }

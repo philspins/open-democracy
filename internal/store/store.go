@@ -235,6 +235,28 @@ func scanDivisionRows(rows *sql.Rows) ([]DivisionRow, error) {
 
 // ── member queries ────────────────────────────────────────────────────────────
 
+// provinceAbbrevToName maps common two-and-three letter Canadian
+// province/territory abbreviations to their full names. It is used to
+// expand search terms like "BC" to "British Columbia" so that the
+// province LIKE filter matches stored full-name values.
+var provinceAbbrevToName = map[string]string{
+	"AB":  "Alberta",
+	"BC":  "British Columbia",
+	"MB":  "Manitoba",
+	"NB":  "New Brunswick",
+	"NL":  "Newfoundland and Labrador",
+	"NS":  "Nova Scotia",
+	"NT":  "Northwest Territories",
+	"NWT": "Northwest Territories",
+	"NU":  "Nunavut",
+	"ON":  "Ontario",
+	"PE":  "Prince Edward Island",
+	"PEI": "Prince Edward Island",
+	"QC":  "Quebec",
+	"SK":  "Saskatchewan",
+	"YT":  "Yukon",
+}
+
 // ListMembers returns members matching optional search/party/province/governmentLevel filters.
 func (s *Store) ListMembers(search, party, province, governmentLevel string) ([]MemberRow, error) {
 	where := []string{"1=1"}
@@ -250,6 +272,11 @@ func (s *Store) ListMembers(search, party, province, governmentLevel string) ([]
 		args = append(args, "%"+party+"%")
 	}
 	if province != "" {
+		// Expand common province abbreviations (e.g. "BC") to their full names
+		// (e.g. "British Columbia") so that the LIKE filter matches stored values.
+		if full, ok := provinceAbbrevToName[strings.ToUpper(strings.TrimSpace(province))]; ok {
+			province = full
+		}
 		where = append(where, "province LIKE ?")
 		args = append(args, "%"+province+"%")
 	}
