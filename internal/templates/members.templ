@@ -2,18 +2,32 @@ package templates
 
 import "github.com/philspins/open-democracy/internal/store"
 
-templ MembersDirectory(ps store.ParliamentStatus, members []store.MemberRow, search, party, province, governmentLevel string) {
+templ MembersDirectory(ps store.ParliamentStatus, members []store.MemberRow, search, party, province, riding, governmentLevel string, parties, provinces, ridings []string) {
 	@Layout("Members of Parliament", ps) {
 		<div class="space-y-6">
 			<h1 class="page-title">Members of Parliament</h1>
 
 			<form method="GET" action="/members" class="filter-shell">
-				<input type="text" name="q" value={ search } placeholder="Search name or riding…"
+				<input type="text" name="q" value={ search } placeholder="Search by name…"
 					class="input-field w-48"/>
-				<input type="text" name="party" value={ party } placeholder="Party"
-					class="input-field w-32"/>
-				<input type="text" name="province" value={ province } placeholder="Province"
-					class="input-field w-24"/>
+				<select name="party" class="input-field w-44">
+					<option value="" selected?={ party == "" }>All parties</option>
+					for _, p := range parties {
+						<option value={ p } selected?={ party == p }>{ p }</option>
+					}
+				</select>
+				<select name="province" class="input-field w-48">
+					<option value="" selected?={ province == "" }>All provinces</option>
+					for _, pv := range provinces {
+						<option value={ pv } selected?={ province == pv }>{ pv }</option>
+					}
+				</select>
+				<select name="riding" class="input-field w-56">
+					<option value="" selected?={ riding == "" }>All ridings</option>
+					for _, rd := range ridings {
+						<option value={ rd } selected?={ riding == rd }>{ rd }</option>
+					}
+				</select>
 				<select name="level" class="input-field w-36">
 					<option value="" selected?={ governmentLevel == "" }>All levels</option>
 					<option value="federal" selected?={ governmentLevel == "federal" }>Federal</option>

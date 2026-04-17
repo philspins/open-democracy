@@ -565,33 +565,30 @@ func TestListMembers_Filters(t *testing.T) {
 		search          string
 		party           string
 		province        string
+		riding          string
 		governmentLevel string
 		wantIDs         []string
 	}{
-		{"no filter returns all", "", "", "", "", []string{"m1", "m2", "m3"}},
-		{"name search exact", "Alice Smith", "", "", "", []string{"m1"}},
-		{"name search partial", "alice", "", "", "", []string{"m1"}},
-		{"name search case insensitive", "ALICE", "", "", "", []string{"m1"}},
-		{"riding search partial", "ottawa", "", "", "", []string{"m1"}},
-		{"party exact match", "", "Liberal", "", "", []string{"m1"}},
-		{"party lowercase", "", "liberal", "", "", []string{"m1"}},
-		{"party partial match", "", "Lib", "", "", []string{"m1"}},
-		{"province exact match", "", "", "Ontario", "", []string{"m1"}},
-		{"province lowercase", "", "", "ontario", "", []string{"m1"}},
-		{"province partial match", "", "", "Ont", "", []string{"m1"}},
-		{"province abbreviation BC expands to British Columbia", "", "", "BC", "", []string{"m3"}},
-		{"province abbreviation bc lowercase", "", "", "bc", "", []string{"m3"}},
-		{"province abbreviation ON expands to Ontario", "", "", "ON", "", []string{"m1"}},
-		{"province abbreviation AB expands to Alberta", "", "", "AB", "", []string{"m2"}},
-		{"name and party combined", "alice", "Liberal", "", "", []string{"m1"}},
-		{"no match returns empty", "zzz", "", "", "", []string{}},
-		{"federal filter returns two", "", "", "", "federal", []string{"m1", "m2"}},
-		{"provincial filter returns one", "", "", "", "provincial", []string{"m3"}},
+		{"no filter returns all", "", "", "", "", "", []string{"m1", "m2", "m3"}},
+		{"name search exact", "Alice Smith", "", "", "", "", []string{"m1"}},
+		{"name search partial", "alice", "", "", "", "", []string{"m1"}},
+		{"name search case insensitive", "ALICE", "", "", "", "", []string{"m1"}},
+		{"party exact match", "", "Liberal", "", "", "", []string{"m1"}},
+		{"province exact match", "", "", "Ontario", "", "", []string{"m1"}},
+		{"province abbreviation BC expands to British Columbia", "", "", "BC", "", "", []string{"m3"}},
+		{"province abbreviation bc lowercase", "", "", "bc", "", "", []string{"m3"}},
+		{"province abbreviation ON expands to Ontario", "", "", "ON", "", "", []string{"m1"}},
+		{"province abbreviation AB expands to Alberta", "", "", "AB", "", "", []string{"m2"}},
+		{"riding exact match", "", "", "", "Ottawa Centre", "", []string{"m1"}},
+		{"name and party combined", "alice", "Liberal", "", "", "", []string{"m1"}},
+		{"no match returns empty", "zzz", "", "", "", "", []string{}},
+		{"federal filter returns two", "", "", "", "", "federal", []string{"m1", "m2"}},
+		{"provincial filter returns one", "", "", "", "", "provincial", []string{"m3"}},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			members, err := st.ListMembers(tc.search, tc.party, tc.province, tc.governmentLevel)
+			members, err := st.ListMembers(tc.search, tc.party, tc.province, tc.riding, tc.governmentLevel)
 			if err != nil {
 				t.Fatalf("ListMembers: %v", err)
 			}
