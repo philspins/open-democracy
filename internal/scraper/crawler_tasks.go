@@ -45,15 +45,15 @@ type provincialCrawlStats struct {
 
 // ProvincialSources is the default source matrix used by CrawlProvincial.
 var ProvincialSources = []ProvincialSource{
-	{Code: "ab", Province: "Alberta", Chamber: "alberta", BillsURL: "https://www.assembly.ab.ca/assembly-business", VotesURL: "https://www.assembly.ab.ca/assembly-business/assembly-records/votes-and-proceedings"},
+	{Code: "ab", Province: "Alberta", Chamber: "alberta", BillsURL: "https://www.assembly.ab.ca/assembly-business/bills/bill-status", VotesURL: "https://www.assembly.ab.ca/assembly-business/assembly-records/votes-and-proceedings"},
 	{Code: "bc", Province: "British Columbia", Chamber: "british_columbia", BillsURL: "https://www.leg.bc.ca/parliamentary-business/bills-and-legislation", VotesURL: ""},
-	{Code: "mb", Province: "Manitoba", Chamber: "manitoba", BillsURL: "https://www.gov.mb.ca/legislature/business/index.html", VotesURL: "https://www.gov.mb.ca/legislature/business/votes_proceedings.html"},
+	{Code: "mb", Province: "Manitoba", Chamber: "manitoba", BillsURL: "https://web2.gov.mb.ca/bills/sess/index.php", VotesURL: "https://www.gov.mb.ca/legislature/business/votes_proceedings.html"},
 	{Code: "nb", Province: "New Brunswick", Chamber: "new_brunswick", BillsURL: "https://www.legnb.ca/en/legislation/bills", VotesURL: "https://www.legnb.ca/en/house-business/journals"},
 	{Code: "nl", Province: "Newfoundland and Labrador", Chamber: "newfoundland_labrador", BillsURL: "https://www.assembly.nl.ca/HouseBusiness/Bills/", VotesURL: "https://www.assembly.nl.ca/HouseBusiness/Journals/"},
-	{Code: "ns", Province: "Nova Scotia", Chamber: "nova_scotia", BillsURL: "https://nslegislature.ca/legislative-business", VotesURL: "https://nslegislature.ca/legislative-business/journals-votes-proceedings"},
-	{Code: "on", Province: "Ontario", Chamber: "ontario", BillsURL: "https://www.ola.org/en/legislative-business", VotesURL: OntarioVPIndexURL, Special: "on"},
-	{Code: "pe", Province: "Prince Edward Island", Chamber: "pei", BillsURL: "https://www.assembly.pe.ca/legislative-business", VotesURL: "https://www.assembly.pe.ca/legislative-business"},
-	{Code: "qc", Province: "Quebec", Chamber: "quebec", BillsURL: "https://www.assnat.qc.ca/en/travaux-parlementaires/", VotesURL: "https://www.assnat.qc.ca/en/travaux-parlementaires/registre-des-votes/index.html"},
+	{Code: "ns", Province: "Nova Scotia", Chamber: "nova_scotia", BillsURL: "https://nslegislature.ca/legislative-business/bills-statutes/bills", VotesURL: "https://nslegislature.ca/legislative-business/journals"},
+	{Code: "on", Province: "Ontario", Chamber: "ontario", BillsURL: "https://www.ola.org/en/legislative-business/bills/current", VotesURL: OntarioVPIndexURL, Special: "on"},
+	{Code: "pe", Province: "Prince Edward Island", Chamber: "pei", BillsURL: "https://www.assembly.pe.ca/legislative-business/house-records/bills", VotesURL: "https://www.assembly.pe.ca/legislative-business/house-records/journals"},
+	{Code: "qc", Province: "Quebec", Chamber: "quebec", BillsURL: "https://www.assnat.qc.ca/en/travaux-parlementaires/projets-loi/index.html", VotesURL: "https://www.assnat.qc.ca/en/travaux-parlementaires/registre-des-votes/index.html"},
 	{Code: "sk", Province: "Saskatchewan", Chamber: "saskatchewan", BillsURL: "https://www.legassembly.sk.ca/legislative-business", VotesURL: SaskatchewanArchiveURL, Special: "sk"},
 }
 
@@ -506,6 +506,11 @@ func CrawlProvinceSource(conn *sql.DB, client *http.Client, delay time.Duration,
 		divs = parsed
 	}
 	stats.DivisionsSeen = len(divs)
+	if count := provinceMemberCountInDB(conn, src.Province); stats.DivisionsSeen > 0 && count < 10 {
+		if err := ensureProvincialMembersForSource(conn, client, delay, src); err != nil {
+			log.Printf("[provincial][%s] member seed: %v", src.Code, err)
+		}
+	}
 
 	for _, res := range divs {
 		billID := provincialBillIDFromDescription(conn, src.Code, legislature, session, res.Division.Description)
@@ -725,6 +730,70 @@ func provinceDivisionCountInDB(conn *sql.DB, provinceCode string) int {
 	var n int
 	_ = conn.QueryRow(`SELECT COUNT(1) FROM divisions WHERE id LIKE ?`, provinceCode+"-%").Scan(&n)
 	return n
+}
+
+func provinceMemberCountInDB(conn *sql.DB, province string) int {
+	if conn == nil {
+		return 0
+	}
+	var n int
+	_ = conn.QueryRow(
+		`SELECT COUNT(1) FROM members WHERE government_level='provincial' AND lower(province)=lower(?)`,
+		province,
+	).Scan(&n)
+	return n
+}
+
+func provincialSetSlugForCode(code string) string {
+	switch code {
+	case "ab":
+		return "alberta-legislature"
+	case "bc":
+		return "bc-legislature"
+	case "mb":
+		return "manitoba-legislature"
+	case "nb":
+		return "nb-legislature"
+	case "nl":
+		return "newfoundland-labrador-legislature"
+	case "ns":
+		return "nova-scotia-legislature"
+	case "on":
+		return "ontario-legislature"
+	case "pe":
+		return "pei-legislature"
+	case "qc":
+		return "quebec-assemblee-nationale"
+	case "sk":
+		return "saskatchewan-legislature"
+	default:
+		return ""
+	}
+}
+
+func ensureProvincialMembersForSource(conn *sql.DB, client *http.Client, delay time.Duration, src ProvincialSource) error {
+	if conn == nil {
+		return nil
+	}
+	setSlug := provincialSetSlugForCode(src.Code)
+	if setSlug == "" {
+		return nil
+	}
+	profiles, err := CrawlProvincialMembersFromAPI(setSlug, "", client)
+	if err != nil {
+		return err
+	}
+	if len(profiles) == 0 && setSlug == "nb-legislature" {
+		profiles, err = CrawlNewBrunswickMembersFromWebsite("", client)
+		if err != nil {
+			return err
+		}
+	}
+	if len(profiles) == 0 {
+		return nil
+	}
+	db.UpsertProfiles(conn, toDBMembers(profiles), delay)
+	return nil
 }
 
 func provincialBillIDFromDescription(conn *sql.DB, provinceCode string, legislature, session int, description string) string {
