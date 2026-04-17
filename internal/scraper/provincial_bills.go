@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/philspins/open-democracy/internal/utils"
@@ -351,8 +353,106 @@ func CrawlOntarioBills(indexURL string, legislature, session int, client *http.C
 	return crawlProvincialBillsFromIndexWithMatcher(indexURL, "on", legislature, session, "ontario", client, genericBillLinkRe)
 }
 
+// peiWorkflowBills is the WDF workflow name for the PEI legislative bill search.
+const peiWorkflowBills = "LegislativeAssemblyBillSearch"
+
+// peiWDFBillItem is one bill record from the WDF bill-search workflow response.
+// Field names match the camelCase JSON convention used by PEI's Vue.js WDF frontend.
+type peiWDFBillItem struct {
+	Title        string `json:"title"`
+	BillNumber   string `json:"billNumber"`
+	URL          string `json:"url"`
+	PDFUrl       string `json:"pdfUrl"`
+	Status       string `json:"status"`
+	Date         string `json:"date"`
+	LastActivity string `json:"lastActivityDate"`
+	Year         int    `json:"year"`
+}
+
+// peiWDFBillsResponse is the top-level JSON envelope from the WDF bill-search endpoint.
+type peiWDFBillsResponse struct {
+	Items []peiWDFBillItem `json:"items"`
+	Total int              `json:"totalCount"`
+}
+
+// crawlPEIBillsFromWorkflow queries the WDF bill-search workflow for PEI bill stubs.
+// wdfBase overrides the WDF service root URL (useful for tests); it defaults to
+// peiWDFAPIBase when empty. Returns (nil, nil) when the API is unavailable.
+func crawlPEIBillsFromWorkflow(wdfBase string, year, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
+	xReferer := "https://www.assembly.pe.ca/legislative-business/house-records/bills"
+	body, err := postPEIWorkflow(wdfBase, peiWorkflowBills, xReferer, year, client)
+	if err != nil || body == nil {
+		return nil, err
+	}
+
+	var data peiWDFBillsResponse
+	if err := json.Unmarshal(body, &data); err != nil {
+		log.Printf("[pe-bills] wdf json decode: %v; falling back to HTML", err)
+		return nil, nil
+	}
+
+	if len(data.Items) == 0 {
+		log.Printf("[pe-bills] wdf returned 0 bill items; falling back to HTML")
+		return nil, nil
+	}
+
+	seen := make(map[string]bool)
+	out := make([]ProvincialBillStub, 0, len(data.Items))
+	for _, item := range data.Items {
+		// Derive bill number from the dedicated field first, then fall back to
+		// extracting it from the title text.
+		billNumber := strings.ToUpper(strings.TrimSpace(item.BillNumber))
+		if billNumber == "" {
+			billNumber = ExtractProvincialBillNumber(item.Title)
+		}
+		if billNumber == "" {
+			continue
+		}
+
+		id := ProvincialBillID("pe", legislature, session, billNumber)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+
+		detailURL := resolveRelativeURL("https://www.assembly.pe.ca", item.URL)
+		if detailURL == "" {
+			detailURL = item.PDFUrl
+		}
+
+		title := strings.TrimSpace(item.Title)
+		if title == "" {
+			title = "Bill " + billNumber
+		}
+
+		lastActivity := item.LastActivity
+		if lastActivity == "" {
+			lastActivity = item.Date
+		}
+
+		out = append(out, ProvincialBillStub{
+			ID:               id,
+			ProvinceCode:     "pe",
+			Parliament:       legislature,
+			Session:          session,
+			Number:           billNumber,
+			Title:            title,
+			Chamber:          "pei",
+			DetailURL:        detailURL,
+			SourceURL:        strings.TrimRight(wdfBase, "/") + "/legislative-assembly/services/api/workflow",
+			LastActivityDate: lastActivity,
+			LastScraped:      utils.NowISO(),
+		})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	log.Printf("[pe-bills] wdf parsed %d bills", len(out))
+	return out, nil
+}
+
 func CrawlPrinceEdwardIslandBills(indexURL string, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
-	if indexURL == "" {
+	defaultURL := indexURL == ""
+	if defaultURL {
 		indexURL = "https://www.assembly.pe.ca/legislative-business/house-records/bills"
 	}
 	// assembly.pe.ca is protected by a Radware bot-manager CAPTCHA. Use the same
@@ -361,6 +461,23 @@ func CrawlPrinceEdwardIslandBills(indexURL string, legislature, session int, cli
 	if client == nil {
 		client = newPEIHTTPClient()
 	}
+
+	// Attempt the WDF workflow API first. In production (defaultURL), use the
+	// canonical WDF base. When a test server URL is passed, route the WDF call
+	// through the same server so tests can mock both paths via the same mux.
+	wdfBase := peiWDFAPIBase
+	if !defaultURL {
+		wdfBase = indexURL
+	}
+	year := time.Now().Year()
+	bills, werr := crawlPEIBillsFromWorkflow(wdfBase, year, legislature, session, client)
+	if werr == nil && len(bills) > 0 {
+		return bills, nil
+	}
+	if werr != nil {
+		log.Printf("[pe-bills] wdf api: %v; falling back to HTML", werr)
+	}
+
 	return crawlProvincialBillsFromIndexWithMatcher(indexURL, "pe", legislature, session, "pei", client, peiBillLinkRe)
 }
 

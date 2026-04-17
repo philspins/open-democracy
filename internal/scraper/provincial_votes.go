@@ -3,6 +3,7 @@ package scraper
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -2189,6 +2190,157 @@ func CrawlNovaScotiaVotes(indexURL string, legislature, session int, client *htt
 // returned by assembly.pe.ca for automated clients.
 const peiCaptchaSignature = "captcha.perfdrive.com"
 
+// peiWDFAPIBase is the base URL for the PEI Web Data Framework (WDF) service that
+// hosts the legislative assembly workflow API.
+const peiWDFAPIBase = "https://wdf.princeedwardisland.ca"
+
+// peiWorkflowJournals is the WDF workflow name for the PEI legislative journals search.
+const peiWorkflowJournals = "LegislativeAssemblyJournals"
+
+// peiWDFRequest is the JSON body for PEI WDF workflow POST requests.
+// workflowName selects the backend data query; filters narrows by year (and optionally
+// session). pageSize and page control pagination (1-based).
+type peiWDFRequest struct {
+	WorkflowName string                 `json:"workflowName"`
+	Filters      map[string]interface{} `json:"filters,omitempty"`
+	PageSize     int                    `json:"pageSize"`
+	Page         int                    `json:"page"`
+}
+
+// peiWDFJournalItem is one journal record from the WDF journals workflow response.
+// Field names are inferred from the browser's CORS preflight; adjust if the API changes.
+type peiWDFJournalItem struct {
+	Title   string `json:"title"`
+	Date    string `json:"date"`
+	URL     string `json:"url"`
+	PDFUrl  string `json:"pdfUrl"`
+	FileUrl string `json:"fileUrl"`
+}
+
+// peiWDFJournalsResponse is the top-level JSON envelope from the WDF journals endpoint.
+type peiWDFJournalsResponse struct {
+	Items []peiWDFJournalItem `json:"items"`
+	Total int                 `json:"totalCount"`
+}
+
+// postPEIWorkflow POSTs a workflow request to the PEI WDF API and returns the raw
+// response body. The client is wrapped with a no-redirect policy so that Radware
+// bot-manager 302 challenges are returned as-is rather than followed. Returns
+// (nil, nil) when the API is bot-challenged or otherwise unavailable.
+func postPEIWorkflow(wdfBase, workflowName, xReferer string, year int, client *http.Client) ([]byte, error) {
+	apiURL := strings.TrimRight(wdfBase, "/") + "/legislative-assembly/services/api/workflow"
+
+	payload := peiWDFRequest{
+		WorkflowName: workflowName,
+		Filters:      map[string]interface{}{"year": year},
+		PageSize:     100,
+		Page:         1,
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("pe wdf marshal: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("pe wdf request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Origin", "https://www.assembly.pe.ca")
+	req.Header.Set("Referer", "https://www.assembly.pe.ca/")
+	req.Header.Set("client-show-status", "false")
+	req.Header.Set("x-origin", "https://www.assembly.pe.ca")
+	req.Header.Set("x-referer", xReferer)
+	req.Header.Set("sec-fetch-site", "cross-site")
+	req.Header.Set("sec-fetch-mode", "cors")
+	req.Header.Set("sec-fetch-dest", "empty")
+
+	// Wrap with a no-redirect policy so Radware 302 challenges are visible as
+	// non-200 status codes instead of being silently followed.
+	noRedirect := &http.Client{
+		Transport:     client.Transport,
+		Timeout:       20 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+	}
+
+	resp, err := noRedirect.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("pe wdf do: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[pe-wdf] %s returned HTTP %d; will fall back to HTML", workflowName, resp.StatusCode)
+		return nil, nil
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, fmt.Errorf("pe wdf read: %w", err)
+	}
+
+	if strings.Contains(string(data), peiCaptchaSignature) {
+		log.Printf("[pe-wdf] %s: CAPTCHA page detected; will fall back to HTML", workflowName)
+		return nil, nil
+	}
+
+	return data, nil
+}
+
+// crawlPEIVotesFromWorkflow queries the WDF journals workflow for PEI journal links
+// and parses each linked HTML journal page for recorded divisions.
+// Returns (nil, nil) when the workflow API is unavailable or returns no items.
+func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	xReferer := "https://www.assembly.pe.ca/legislative-business/house-records/journals"
+	body, err := postPEIWorkflow(wdfBase, peiWorkflowJournals, xReferer, year, client)
+	if err != nil || body == nil {
+		return nil, err
+	}
+
+	var data peiWDFJournalsResponse
+	if err := json.Unmarshal(body, &data); err != nil {
+		log.Printf("[pe-votes] wdf json decode: %v; falling back to HTML", err)
+		return nil, nil
+	}
+
+	if len(data.Items) == 0 {
+		log.Printf("[pe-votes] wdf returned 0 journal items; falling back to HTML")
+		return nil, nil
+	}
+
+	var results []ProvincialDivisionResult
+	for _, item := range data.Items {
+		link := item.URL
+		if link == "" {
+			link = item.PDFUrl
+		}
+		if link == "" {
+			link = item.FileUrl
+		}
+		if link == "" {
+			continue
+		}
+
+		fullLink := resolveRelativeURL("https://www.assembly.pe.ca", link)
+		date := utils.FindDateInText(item.Date + " " + item.Title)
+		if date == "" {
+			date = extractDateFromURL(fullLink)
+		}
+
+		doc, derr := fetchDoc(fullLink, client)
+		if derr != nil {
+			log.Printf("[pe-votes] wdf journal %s: %v", fullLink, derr)
+			continue
+		}
+		parsed := parseGenericProvincialVotesDoc(doc, "pe", "pei", legislature, session, date)
+		results = append(results, parsed...)
+	}
+
+	log.Printf("[pe-votes] wdf parsed %d divisions from %d journals", len(results), len(data.Items))
+	return results, nil
+}
+
 // peiTransport adds browser-like request headers to bypass Radware bot-manager.
 type peiTransport struct {
 	base http.RoundTripper
@@ -2271,12 +2423,30 @@ func newPEIHTTPClient() *http.Client {
 }
 
 func CrawlPrinceEdwardIslandVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
-	if indexURL == "" {
-		indexURL = "https://www.assembly.pe.ca/legislative-business"
+	defaultURL := indexURL == ""
+	if defaultURL {
+		indexURL = "https://www.assembly.pe.ca/legislative-business/house-records/journals"
 	}
 	if client == nil {
 		client = newPEIHTTPClient()
 	}
+
+	// Attempt WDF workflow API first. In production (defaultURL), use the canonical
+	// WDF base. When a test server URL is passed, route the WDF call through the same
+	// server so tests can mock both paths.
+	wdfBase := peiWDFAPIBase
+	if !defaultURL {
+		wdfBase = indexURL
+	}
+	year := time.Now().Year()
+	divs, err := crawlPEIVotesFromWorkflow(wdfBase, year, legislature, session, client)
+	if err == nil && len(divs) > 0 {
+		return divs, nil
+	}
+	if err != nil {
+		log.Printf("[pe-votes] wdf api: %v; falling back to HTML", err)
+	}
+
 	return crawlPEIVotes(indexURL, legislature, session, client)
 }
 
