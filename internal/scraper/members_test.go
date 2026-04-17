@@ -382,6 +382,24 @@ const sampleProvincialAPIResponse = `{
   "meta": {"next": null}
 }`
 
+const sampleProvincialRelativePhotoAPIResponse = `{
+  "objects": [
+    {
+      "name": "Marc L",
+      "party_name": "Party",
+      "district_name": "District",
+      "email": "",
+      "url": "https://www.gov.mb.ca/legislature/members/mla_list_bios_details.html?constituency=lagasse",
+      "personal_url": "",
+      "photo_url": "/legislature/members/images/lagasse.jpg",
+      "elected_office": "MLA",
+      "offices": [],
+      "extra": {}
+    }
+  ],
+  "meta": {"next": null}
+}`
+
 func TestCrawlProvincialMembersFromAPI_ReturnsProfile(t *testing.T) {
 	srv := newJSONTestServer(sampleProvincialAPIResponse)
 	defer srv.Close()
@@ -433,6 +451,23 @@ func TestCrawlProvincialMembersFromAPI_ProvinceFromOffices(t *testing.T) {
 	profiles, _ := scraper.CrawlProvincialMembersFromAPI("ontario-legislature", srv.URL, srv.Client())
 	if profiles[0].Province != "Ontario" {
 		t.Errorf("Province=%q want Ontario", profiles[0].Province)
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_ResolvesRelativePhotoURL(t *testing.T) {
+	srv := newJSONTestServer(sampleProvincialRelativePhotoAPIResponse)
+	defer srv.Close()
+
+	profiles, err := scraper.CrawlProvincialMembersFromAPI("manitoba-legislature", srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlProvincialMembersFromAPI: %v", err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("len=%d, want 1", len(profiles))
+	}
+	want := "https://www.gov.mb.ca/legislature/members/images/lagasse.jpg"
+	if profiles[0].PhotoURL != want {
+		t.Errorf("PhotoURL=%q want %q", profiles[0].PhotoURL, want)
 	}
 }
 

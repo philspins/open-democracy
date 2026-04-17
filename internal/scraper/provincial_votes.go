@@ -1101,10 +1101,6 @@ func extractPlainVoteNames(blockText string) []string {
 		if allDigit {
 			continue
 		}
-		// Skip all-uppercase tokens > 3 chars (headings / acronyms).
-		if len(tok) > 3 && strings.ToUpper(tok) == tok {
-			continue
-		}
 		key := strings.ToLower(tok)
 		if seen[key] {
 			continue

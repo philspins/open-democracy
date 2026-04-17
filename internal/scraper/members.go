@@ -297,7 +297,7 @@ func fetchRepresentPages(apiURL, governmentLevel, setSlug string, client *http.C
 				Riding:          item.DistrictName,
 				Province:        province,
 				Role:            role,
-				PhotoURL:        item.PhotoURL,
+				PhotoURL:        normalizeRepresentPhotoURL(item.PhotoURL, item.URL),
 				Email:           item.Email,
 				Website:         item.PersonalURL,
 				Chamber:         chamber,
@@ -319,6 +319,29 @@ func fetchRepresentPages(apiURL, governmentLevel, setSlug string, client *http.C
 
 	log.Printf("[members] fetched %d %s members from Represent API", len(profiles), governmentLevel)
 	return profiles, nil
+}
+
+func normalizeRepresentPhotoURL(photoURL, memberURL string) string {
+	photoURL = strings.TrimSpace(photoURL)
+	if photoURL == "" {
+		return ""
+	}
+	if u, err := url.Parse(photoURL); err == nil && u.IsAbs() {
+		return photoURL
+	}
+	if memberURL != "" {
+		if base, err := url.Parse(memberURL); err == nil {
+			if rel, err := url.Parse(photoURL); err == nil {
+				return base.ResolveReference(rel).String()
+			}
+		}
+	}
+	if base, err := url.Parse(RepresentBaseURL); err == nil {
+		if rel, err := url.Parse(photoURL); err == nil {
+			return base.ResolveReference(rel).String()
+		}
+	}
+	return photoURL
 }
 
 // extractProvincialMemberID builds a deterministic ID for a provincial member

@@ -160,6 +160,17 @@ func TestParsePDFDivisionsYeasNays_ManitobaStyle(t *testing.T) {
 	}
 }
 
+func TestParsePDFDivisionsYeasNays_ManitobaStyleUppercaseNames(t *testing.T) {
+	text := `VOTES AND PROCEEDINGS 43rd Legislature 3rd Session YEAS - 37 BALSER BAILEY BEREZA BRAR BUSHIE CLARKE COOK NAYS - 18 BALCAEN BYRAM EICHLER EWASKO GOERTZEN`
+	divs := scraper.ParsePDFDivisionsYeasNaysForTest(text, "https://example.com/votes_041.pdf", "mb", "manitoba", 43, 3, 1, "2024-02-20")
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	if len(divs[0].Votes) < 5 {
+		t.Fatalf("len(votes)=%d, want >=5", len(divs[0].Votes))
+	}
+}
+
 func TestParseNLJournalDivisions_OutcomeOnly(t *testing.T) {
 	text := `The house considered Bill 3. On the motion that the bill be read a third time, the question was put, and the motion was agreed to. On the amendment to the bill, the question was put, and the amendment was defeated.`
 	divs := scraper.ParseNLJournalDivisionsForTest(text, "https://example.com/26-04-14.pdf", 51, 1, 1, "2026-04-14")
