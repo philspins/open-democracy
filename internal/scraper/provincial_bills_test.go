@@ -9,10 +9,10 @@ import (
 	"github.com/philspins/open-democracy/internal/scraper"
 )
 
-// TestMain zeroes PEIRequestDelay so unit tests finish in milliseconds rather
-// than waiting the production 6-second per-request rate-limit interval.
+// TestMain zeroes the PEI rate-limit delay so unit tests finish in milliseconds
+// rather than waiting the production 6-second per-request interval.
 func TestMain(m *testing.M) {
-	scraper.PEIRequestDelay = 0
+	scraper.SetPEIRequestDelay(0)
 	os.Exit(m.Run())
 }
 

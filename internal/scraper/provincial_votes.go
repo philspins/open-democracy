@@ -2194,12 +2194,16 @@ const peiCaptchaSignature = "captcha.perfdrive.com"
 // hosts the legislative assembly workflow API.
 const peiWDFAPIBase = "https://wdf.princeedwardisland.ca"
 
-// PEIRequestDelay is the minimum pause inserted after each HTTP request to PEI
-// assembly sites (assembly.pe.ca and wdf.princeedwardisland.ca). The default of
-// 6 seconds caps throughput at 10 requests per minute, which reduces the chance
-// of triggering Radware bot-manager detection.
-// Tests should set this to zero via TestMain to keep test runs fast.
-var PEIRequestDelay = 6 * time.Second
+// peiRequestDelay is the minimum pause after each HTTP request to PEI assembly
+// sites. The default of 6 seconds caps throughput at 10 requests per minute,
+// reducing the chance of triggering Radware bot-manager detection.
+// Use SetPEIRequestDelay to override (e.g. set to 0 in TestMain).
+var peiRequestDelay = 6 * time.Second
+
+// SetPEIRequestDelay overrides the per-request rate-limit delay for PEI crawls.
+// It must only be called before any PEI crawl goroutines are started.
+// Intended for use in TestMain to disable delays during unit tests.
+func SetPEIRequestDelay(d time.Duration) { peiRequestDelay = d }
 
 // peiWorkflowJournals is the WDF workflow name for the PEI legislative journals search.
 const peiWorkflowJournals = "LegislativeAssemblyJournals"
@@ -2290,7 +2294,7 @@ func postPEIWorkflow(wdfBase, workflowName, xReferer string, params map[string]s
 	}
 
 	// Rate-limit outbound requests to PEI servers.
-	time.Sleep(PEIRequestDelay)
+	time.Sleep(peiRequestDelay)
 	return data, nil
 }
 
@@ -2356,7 +2360,7 @@ func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, c
 		parsed := parseGenericProvincialVotesDoc(doc, "pe", "pei", legislature, session, date)
 		results = append(results, parsed...)
 		// Rate-limit per-journal page fetches to 10 requests per minute.
-		time.Sleep(PEIRequestDelay)
+		time.Sleep(peiRequestDelay)
 	}
 
 	log.Printf("[pe-votes] wdf parsed %d divisions from %d journals", len(results), len(items))
@@ -2377,10 +2381,9 @@ func (t *peiTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone.Header.Set("Sec-Fetch-Mode", "navigate")
 	clone.Header.Set("Sec-Fetch-Site", "none")
 	resp, err := t.base.RoundTrip(clone)
-	if err == nil {
-		// Rate-limit HTML page fetches to 10 requests per minute.
-		time.Sleep(PEIRequestDelay)
-	}
+	// Rate-limit HTML page fetches to 10 requests per minute regardless of
+	// error status; a failed request should not trigger an immediate retry burst.
+	time.Sleep(peiRequestDelay)
 	return resp, err
 }
 
