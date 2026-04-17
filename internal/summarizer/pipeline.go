@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -31,8 +32,9 @@ import (
 var ErrBillTextNotFound = errors.New("bill text not found (HTTP 404)")
 
 const (
-	claudeModel = "claude-sonnet-4-6"
-	claudeURL   = "https://api.anthropic.com/v1/messages"
+	claudeModel              = "claude-sonnet-4-6"
+	claudeURL                = "https://api.anthropic.com/v1/messages"
+	maxBillTextResponseBytes = 8 * 1024 * 1024
 )
 
 func selectedClaudeModels() []string {
@@ -578,9 +580,10 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 		)
 	}
 
-	// Cap read size at 8 MiB to avoid unbounded memory use on unexpectedly large
-	// responses while keeping enough headroom for typical HTML bill text pages.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	// Cap read size at 8 MiB (8 * 1024 * 1024 bytes) to avoid unbounded memory
+	// use on unexpectedly large responses while keeping enough headroom for
+	// typical HTML bill text pages.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBillTextResponseBytes))
 	if err != nil {
 		return "", fmt.Errorf("read response body: %w", err)
 	}
@@ -588,7 +591,7 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 	// Use goquery to parse HTML and extract text.
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
-		log.Printf("[summarizer] goquery parse failed for %s: %v; falling back to tokenizer extraction", url, err)
+		log.Printf("[summarizer] goquery parse failed for %s: %v; falling back to tokenizer extraction", sanitizeLogURL(url), err)
 		fallbackText := extractTextWithTokenizer(body)
 		return strings.TrimSpace(collapseWhitespace(fallbackText)), nil
 	}
@@ -643,4 +646,16 @@ func extractTextWithTokenizer(raw []byte) string {
 
 func collapseWhitespace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
+}
+
+func sanitizeLogURL(raw string) string {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return (&neturl.URL{
+		Scheme: u.Scheme,
+		Host:   u.Host,
+		Path:   u.Path,
+	}).String()
 }
