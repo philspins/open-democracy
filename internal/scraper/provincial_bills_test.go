@@ -274,7 +274,7 @@ func TestProvinceSpecificVoteCrawlerEntryPoints(t *testing.T) {
 // workflow API endpoint serves valid JSON, bills are parsed from it instead of
 // falling back to HTML scraping.
 func TestCrawlPrinceEdwardIslandBills_UsesWorkflowAPI(t *testing.T) {
-	const billsJSON = `{"items":[{"title":"Bill 1 - An Act to Amend the Highway Traffic Act","billNumber":"1","url":"/bills/bill-1","status":"First Reading","date":"2026-03-15"}],"totalCount":1}`
+	const billsJSON = `{"data":[{"title":"Bill 1 - An Act to Amend the Highway Traffic Act","billNumber":"1","url":"/bills/bill-1","status":"First Reading","date":"2026-03-15"}]}`
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/legislative-assembly/services/api/workflow", func(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +339,7 @@ func TestCrawlPrinceEdwardIslandVotes_UsesWorkflowAPI(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	journalsJSON := `{"items":[{"title":"Journal April 7 2026","date":"2026-04-07","url":"` + srv.URL + `/journals/2026-04-07"}],"totalCount":1}`
+	journalsJSON := `{"data":[{"title":"Journal April 7 2026","date":"2026-04-07","url":"` + srv.URL + `/journals/2026-04-07"}]}`
 
 	mux.HandleFunc("/legislative-assembly/services/api/workflow", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

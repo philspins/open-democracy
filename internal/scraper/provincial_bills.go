@@ -354,10 +354,12 @@ func CrawlOntarioBills(indexURL string, legislature, session int, client *http.C
 }
 
 // peiWorkflowBills is the WDF workflow name for the PEI legislative bill search.
-const peiWorkflowBills = "LegislativeAssemblyBillSearch"
+// The name is taken from the default-service attribute on the <gpei-root> web
+// component on assembly.pe.ca/legislative-business/house-records/bills.
+const peiWorkflowBills = "LegislativeAssemblyBillProgress"
 
-// peiWDFBillItem is one bill record from the WDF bill-search workflow response.
-// Field names match the camelCase JSON convention used by PEI's Vue.js WDF frontend.
+// peiWDFBillItem is one bill record from the WDF bill-progress workflow response.
+// Field names match the camelCase JSON convention used by PEI's Angular WDF frontend.
 type peiWDFBillItem struct {
 	Title        string `json:"title"`
 	BillNumber   string `json:"billNumber"`
@@ -369,36 +371,45 @@ type peiWDFBillItem struct {
 	Year         int    `json:"year"`
 }
 
-// peiWDFBillsResponse is the top-level JSON envelope from the WDF bill-search endpoint.
-type peiWDFBillsResponse struct {
-	Items []peiWDFBillItem `json:"items"`
-	Total int              `json:"totalCount"`
-}
-
-// crawlPEIBillsFromWorkflow queries the WDF bill-search workflow for PEI bill stubs.
+// crawlPEIBillsFromWorkflow queries the WDF bill-progress workflow for PEI bill stubs.
 // wdfBase overrides the WDF service root URL (useful for tests); it defaults to
 // peiWDFAPIBase when empty. Returns (nil, nil) when the API is unavailable.
 func crawlPEIBillsFromWorkflow(wdfBase string, year, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
 	xReferer := "https://www.assembly.pe.ca/legislative-business/house-records/bills"
-	body, err := postPEIWorkflow(wdfBase, peiWorkflowBills, xReferer, year, client)
+	params := map[string]string{
+		"year":          strconv.Itoa(year),
+		"search":        "year",
+		"search_bills":  "true",
+		"wdf_url_query": "true",
+	}
+	body, err := postPEIWorkflow(wdfBase, peiWorkflowBills, xReferer, params, client)
 	if err != nil || body == nil {
 		return nil, err
 	}
 
-	var data peiWDFBillsResponse
-	if err := json.Unmarshal(body, &data); err != nil {
+	var env peiWDFEnvelope
+	if err := json.Unmarshal(body, &env); err != nil {
 		log.Printf("[pe-bills] wdf json decode: %v; falling back to HTML", err)
 		return nil, nil
 	}
+	if len(env.Data) == 0 || string(env.Data) == "null" {
+		log.Printf("[pe-bills] wdf returned empty data; falling back to HTML")
+		return nil, nil
+	}
 
-	if len(data.Items) == 0 {
+	var items []peiWDFBillItem
+	if err := json.Unmarshal(env.Data, &items); err != nil {
+		log.Printf("[pe-bills] wdf data decode: %v; falling back to HTML", err)
+		return nil, nil
+	}
+	if len(items) == 0 {
 		log.Printf("[pe-bills] wdf returned 0 bill items; falling back to HTML")
 		return nil, nil
 	}
 
 	seen := make(map[string]bool)
-	out := make([]ProvincialBillStub, 0, len(data.Items))
-	for _, item := range data.Items {
+	out := make([]ProvincialBillStub, 0, len(items))
+	for _, item := range items {
 		// Derive bill number from the dedicated field first, then fall back to
 		// extracting it from the title text.
 		billNumber := strings.ToUpper(strings.TrimSpace(item.BillNumber))

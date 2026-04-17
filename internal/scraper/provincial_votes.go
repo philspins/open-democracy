@@ -2197,18 +2197,14 @@ const peiWDFAPIBase = "https://wdf.princeedwardisland.ca"
 // peiWorkflowJournals is the WDF workflow name for the PEI legislative journals search.
 const peiWorkflowJournals = "LegislativeAssemblyJournals"
 
-// peiWDFRequest is the JSON body for PEI WDF workflow POST requests.
-// workflowName selects the backend data query; filters narrows by year (and optionally
-// session). pageSize and page control pagination (1-based).
-type peiWDFRequest struct {
-	WorkflowName string                 `json:"workflowName"`
-	Filters      map[string]interface{} `json:"filters,omitempty"`
-	PageSize     int                    `json:"pageSize"`
-	Page         int                    `json:"page"`
+// peiWDFEnvelope is the top-level JSON wrapper returned by all WDF workflow POST
+// responses. The actual payload is in the Data field (null when no results).
+type peiWDFEnvelope struct {
+	Data json.RawMessage `json:"data"`
 }
 
 // peiWDFJournalItem is one journal record from the WDF journals workflow response.
-// Field names are inferred from the browser's CORS preflight; adjust if the API changes.
+// Field names match the camelCase convention used by PEI's Angular WDF frontend.
 type peiWDFJournalItem struct {
 	Title   string `json:"title"`
 	Date    string `json:"date"`
@@ -2217,24 +2213,22 @@ type peiWDFJournalItem struct {
 	FileUrl string `json:"fileUrl"`
 }
 
-// peiWDFJournalsResponse is the top-level JSON envelope from the WDF journals endpoint.
-type peiWDFJournalsResponse struct {
-	Items []peiWDFJournalItem `json:"items"`
-	Total int                 `json:"totalCount"`
-}
-
 // postPEIWorkflow POSTs a workflow request to the PEI WDF API and returns the raw
-// response body. The client is wrapped with a no-redirect policy so that Radware
-// bot-manager 302 challenges are returned as-is rather than followed. Returns
-// (nil, nil) when the API is bot-challenged or otherwise unavailable.
-func postPEIWorkflow(wdfBase, workflowName, xReferer string, year int, client *http.Client) ([]byte, error) {
+// response body. It sends CORS-mode headers so the Spring Boot backend routes the
+// request correctly; a no-redirect policy makes Radware bot-manager 302 challenges
+// visible as non-200 status codes. Returns (nil, nil) when the API is unavailable.
+//
+// params are merged into the POST body alongside workflowName; callers supply
+// the flat form fields the Angular WDF frontend sends (year, search, etc.).
+// http.DefaultTransport is always used so peiTransport's navigate-mode header
+// overrides do not interfere with the CORS API call.
+func postPEIWorkflow(wdfBase, workflowName, xReferer string, params map[string]string, client *http.Client) ([]byte, error) {
 	apiURL := strings.TrimRight(wdfBase, "/") + "/legislative-assembly/services/api/workflow"
 
-	payload := peiWDFRequest{
-		WorkflowName: workflowName,
-		Filters:      map[string]interface{}{"year": year},
-		PageSize:     100,
-		Page:         1,
+	payload := make(map[string]string, len(params)+1)
+	payload["workflowName"] = workflowName
+	for k, v := range params {
+		payload[k] = v
 	}
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -2256,10 +2250,13 @@ func postPEIWorkflow(wdfBase, workflowName, xReferer string, year int, client *h
 	req.Header.Set("sec-fetch-mode", "cors")
 	req.Header.Set("sec-fetch-dest", "empty")
 
-	// Wrap with a no-redirect policy so Radware 302 challenges are visible as
-	// non-200 status codes instead of being silently followed.
+	// Use http.DefaultTransport directly so peiTransport's navigate-mode header
+	// overrides (Sec-Fetch-Mode: navigate) do not reach the WDF API.  The Spring
+	// Boot backend requires cors-mode headers to route the request to the workflow
+	// controller; navigate-mode causes a 404 from the application layer.
+	// The no-redirect wrapper makes Radware 302 bot-challenges surface as non-200.
 	noRedirect := &http.Client{
-		Transport:     client.Transport,
+		Transport:     http.DefaultTransport,
 		Timeout:       20 * time.Second,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 	}
@@ -2293,24 +2290,38 @@ func postPEIWorkflow(wdfBase, workflowName, xReferer string, year int, client *h
 // Returns (nil, nil) when the workflow API is unavailable or returns no items.
 func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	xReferer := "https://www.assembly.pe.ca/legislative-business/house-records/journals"
-	body, err := postPEIWorkflow(wdfBase, peiWorkflowJournals, xReferer, year, client)
+	params := map[string]string{
+		"year":          strconv.Itoa(year),
+		"search":        "year",
+		"wdf_url_query": "true",
+	}
+	body, err := postPEIWorkflow(wdfBase, peiWorkflowJournals, xReferer, params, client)
 	if err != nil || body == nil {
 		return nil, err
 	}
 
-	var data peiWDFJournalsResponse
-	if err := json.Unmarshal(body, &data); err != nil {
+	var env peiWDFEnvelope
+	if err := json.Unmarshal(body, &env); err != nil {
 		log.Printf("[pe-votes] wdf json decode: %v; falling back to HTML", err)
 		return nil, nil
 	}
+	if len(env.Data) == 0 || string(env.Data) == "null" {
+		log.Printf("[pe-votes] wdf returned empty data; falling back to HTML")
+		return nil, nil
+	}
 
-	if len(data.Items) == 0 {
+	var items []peiWDFJournalItem
+	if err := json.Unmarshal(env.Data, &items); err != nil {
+		log.Printf("[pe-votes] wdf data decode: %v; falling back to HTML", err)
+		return nil, nil
+	}
+	if len(items) == 0 {
 		log.Printf("[pe-votes] wdf returned 0 journal items; falling back to HTML")
 		return nil, nil
 	}
 
 	var results []ProvincialDivisionResult
-	for _, item := range data.Items {
+	for _, item := range items {
 		link := item.URL
 		if link == "" {
 			link = item.PDFUrl
@@ -2337,7 +2348,7 @@ func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, c
 		results = append(results, parsed...)
 	}
 
-	log.Printf("[pe-votes] wdf parsed %d divisions from %d journals", len(results), len(data.Items))
+	log.Printf("[pe-votes] wdf parsed %d divisions from %d journals", len(results), len(items))
 	return results, nil
 }
 
