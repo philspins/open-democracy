@@ -1,6 +1,6 @@
 package main
 
-// Tests for the domain crawler helper functions in cmd/crawler/main.go.
+// Tests for crawler orchestration and shared crawl task behavior.
 //
 // Each crawler helper accepts a *sql.DB and a *http.Client, making them
 // straightforwardly testable with a temporary SQLite database and an
@@ -45,7 +45,7 @@ func serve(body string) *httptest.Server {
 // noDelay is a zero-length delay for tests so they finish quickly.
 const noDelay = 0 * time.Millisecond
 
-// ── crawlCalendar ─────────────────────────────────────────────────────────────
+// ── CrawlCalendar ─────────────────────────────────────────────────────────────
 
 const calendarHTML = `<html><body>
   <table>
@@ -61,7 +61,7 @@ func TestCrawlCalendar_PersistsDates(t *testing.T) {
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlCalendar(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlCalendar(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlCalendar: %v", err)
 	}
 
@@ -76,7 +76,7 @@ func TestCrawlCalendar_PersistsDates(t *testing.T) {
 
 func TestCrawlCalendar_ReturnsErrorOnBadServer(t *testing.T) {
 	conn := newDB(t)
-	err := crawlCalendar(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
+	err := scraper.CrawlCalendar(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
 	if err == nil {
 		t.Error("expected error for unreachable server")
 	}
@@ -119,7 +119,7 @@ func TestCrawlBills_PersistsBill(t *testing.T) {
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlBills(conn, srv.Client(), noDelay, srv.URL+"/rss", nil); err != nil {
+	if err := scraper.CrawlBills(conn, srv.Client(), noDelay, srv.URL+"/rss", nil); err != nil {
 		t.Fatalf("crawlBills: %v", err)
 	}
 
@@ -133,7 +133,7 @@ func TestCrawlBills_PersistsBill(t *testing.T) {
 
 func TestCrawlBills_ReturnsErrorOnBadRSS(t *testing.T) {
 	conn := newDB(t)
-	err := crawlBills(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server", nil)
+	err := scraper.CrawlBills(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server", nil)
 	if err == nil {
 		t.Error("expected error for unreachable RSS feed")
 	}
@@ -154,7 +154,14 @@ func TestCrawlBills_EmitsSummaryRequest(t *testing.T) {
 
 	conn := newDB(t)
 	ch := make(chan summarizer.BillSummaryRequest, 4)
-	if err := crawlBills(conn, srv.Client(), noDelay, srv.URL+"/rss", ch); err != nil {
+	if err := scraper.CrawlBills(conn, srv.Client(), noDelay, srv.URL+"/rss", func(billID, billTitle, fullTextURL, lastActivityDate string) {
+		ch <- summarizer.BillSummaryRequest{
+			BillID:           billID,
+			BillTitle:        billTitle,
+			FullTextURL:      fullTextURL,
+			LastActivityDate: lastActivityDate,
+		}
+	}); err != nil {
 		t.Fatalf("crawlBills: %v", err)
 	}
 
@@ -173,31 +180,21 @@ func TestCrawlBills_EmitsSummaryRequest(t *testing.T) {
 
 // ── crawlMembers ──────────────────────────────────────────────────────────────
 
-const membersListBody = `<html><body>
-  <div class="ce-mip-mp-tile">
-    <a href="/Members/en/111">
-      <span class="ce-mip-mp-name">Jane Doe</span>
-    </a>
-    <span class="ce-mip-mp-party">Liberal</span>
-    <span class="ce-mip-mp-constituency">Ottawa Centre</span>
-    <span class="ce-mip-mp-province">Ontario</span>
-  </div>
-</body></html>`
+const membersAPIBody = `{"objects":[{"name":"Jane Doe","party_name":"Liberal","district_name":"Ottawa Centre","email":"jane.doe@parl.gc.ca","url":"https://www.ourcommons.ca/Members/en/jane-doe(111)","personal_url":"https://janedoe.ca","photo_url":"https://www.ourcommons.ca/photo/111.jpg","offices":[{"type":"constituency","postal":"Ottawa ON  K1A 0A6"}],"extra":{}}],"meta":{"next":null}}`
 
-const memberProfileBody = `<html><body>
-  <h1 class="ce-mip-mp-name">Jane Doe</h1>
-  <span class="ce-mip-mp-party">Liberal</span>
-  <span class="ce-mip-mp-constituency">Ottawa Centre</span>
-  <span class="ce-mip-mp-province">Ontario</span>
-  <a href="mailto:jane.doe@parl.gc.ca">jane.doe@parl.gc.ca</a>
-</body></html>`
+func serveJSON(body string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Write([]byte(body))
+	}))
+}
 
 func TestCrawlMembers_PersistsMember(t *testing.T) {
-	srv := serve(membersListBody + memberProfileBody)
+	srv := serveJSON(membersAPIBody)
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlMembers(conn, srv.Client(), noDelay, srv.URL, srv.URL); err != nil {
+	if err := scraper.CrawlMembers(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlMembers: %v", err)
 	}
 
@@ -206,17 +203,23 @@ func TestCrawlMembers_PersistsMember(t *testing.T) {
 	if count != 1 {
 		t.Errorf("expected member 111 in DB, count=%d", count)
 	}
+
+	var govLevel string
+	conn.QueryRow(`SELECT COALESCE(government_level,'') FROM members WHERE id='111'`).Scan(&govLevel)
+	if govLevel != "federal" {
+		t.Errorf("government_level=%q want federal", govLevel)
+	}
 }
 
 func TestCrawlMembers_ReturnsErrorOnBadServer(t *testing.T) {
 	conn := newDB(t)
-	err := crawlMembers(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server", "")
+	err := scraper.CrawlMembers(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
 	if err == nil {
 		t.Error("expected error for unreachable server")
 	}
 }
 
-// ── crawlVotes ────────────────────────────────────────────────────────────────
+// ── CrawlVotes ────────────────────────────────────────────────────────────────
 
 const votesIndexBody = `<html><body>
   <table class="table">
@@ -242,7 +245,7 @@ func TestCrawlVotes_PersistsDivision(t *testing.T) {
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlVotes: %v", err)
 	}
 
@@ -280,7 +283,7 @@ func TestCrawlVotes_StoresBillIDWhenBillExists(t *testing.T) {
 	// Pre-insert the referenced bill so FK constraint is satisfied.
 	db.UpsertBill(conn, db.Bill{ID: "45-1-c-47", Parliament: 45, Session: 1, Number: "C-47", Chamber: "commons"})
 
-	if err := crawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlVotes: %v", err)
 	}
 
@@ -293,9 +296,71 @@ func TestCrawlVotes_StoresBillIDWhenBillExists(t *testing.T) {
 
 func TestCrawlVotes_ReturnsErrorOnBadServer(t *testing.T) {
 	conn := newDB(t)
-	err := crawlVotes(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
+	err := scraper.CrawlVotes(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
 	if err == nil {
 		t.Error("expected error for unreachable server")
+	}
+}
+
+func TestCrawlVotes_BackfillsVotesForExistingDivision(t *testing.T) {
+	// Build a two-route test server: index returns a row whose detail link
+	// points to the same server; detail returns the current table layout.
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	indexHTML := `<html><body>
+  <table class="table"><thead><tr>
+    <th>#</th><th>Vote type</th><th>Description</th>
+    <th>Votes</th><th>Result</th><th>Date</th>
+  </tr></thead><tbody>
+    <tr>
+      <td><a href="` + srv.URL + `/votes/45/1/892">No. 892</a></td>
+      <td>Procedural</td><td>Procedural vote</td>
+      <td>172 / 148 / 5</td>
+      <td><i class="icon"></i> Agreed to</td>
+      <td>Wednesday, April 3, 2024</td>
+    </tr>
+  </tbody></table>
+</body></html>`
+
+	const detailHTML = `<html><body>
+  <table class="table table-striped ce-mip-table-mobile">
+    <tbody>
+      <tr>
+        <td><a href="/members/en/111">Alice Smith</a></td>
+        <td>Liberal</td><td>Yea</td><td></td>
+      </tr>
+    </tbody>
+  </table>
+</body></html>`
+
+	mux.HandleFunc("/votes/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(detailHTML))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(indexHTML))
+	})
+
+	conn := newDB(t)
+	// Pre-insert the member so the FK constraint on member_votes is satisfied.
+	db.UpsertMember(conn, db.Member{ID: "111", Name: "Alice Smith"})
+	// Pre-insert the division with no member_votes — simulates a DB that was
+	// populated by a previous crawl run before vote detail scraping was fixed.
+	db.UpsertDivision(conn, db.Division{
+		ID: "45-1-892", Parliament: 45, Session: 1, Number: 892, Chamber: "commons",
+	})
+
+	if err := scraper.CrawlVotes(conn, srv.Client(), noDelay, srv.URL); err != nil {
+		t.Fatalf("crawlVotes backfill: %v", err)
+	}
+
+	var count int
+	conn.QueryRow(`SELECT COUNT(1) FROM member_votes WHERE division_id = '45-1-892'`).Scan(&count)
+	if count == 0 {
+		t.Error("expected member_votes to be backfilled for existing voteless division")
 	}
 }
 
@@ -330,7 +395,7 @@ func TestCrawlSenate_PersistsDivision(t *testing.T) {
 	defer srv.Close()
 
 	conn := newDB(t)
-	if err := crawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlSenate: %v", err)
 	}
 
@@ -375,7 +440,7 @@ func TestCrawlSenate_StoresBillIDWhenBillExists(t *testing.T) {
 	// Pre-insert the referenced bill so FK constraint is satisfied.
 	db.UpsertBill(conn, db.Bill{ID: "45-1-s-209", Parliament: 45, Session: 1, Number: "S-209", Chamber: "senate"})
 
-	if err := crawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
+	if err := scraper.CrawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
 		t.Fatalf("crawlSenate: %v", err)
 	}
 
@@ -388,9 +453,71 @@ func TestCrawlSenate_StoresBillIDWhenBillExists(t *testing.T) {
 
 func TestCrawlSenate_ReturnsErrorOnBadServer(t *testing.T) {
 	conn := newDB(t)
-	err := crawlSenate(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
+	err := scraper.CrawlSenate(conn, http.DefaultClient, noDelay, "http://localhost:0/no-server")
 	if err == nil {
 		t.Error("expected error for unreachable server")
+	}
+}
+
+func TestCrawlSenate_BackfillsVotesForExistingDivision(t *testing.T) {
+	// Build a two-route test server: index returns a row whose detail link
+	// points to the same server; detail returns senator vote HTML.
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	indexHTML := `<html><body>
+  <table><thead><tr>
+    <th>Date</th><th>Description</th><th>Bill</th><th>Result</th>
+  </tr></thead><tbody>
+    <tr>
+      <td class="vote-centered" data-order="2024-04-04 13:30:00 42">
+        <a href="/en/content/sen/chamber/451/journals/j-e">2024-04-04</a>
+      </td>
+      <td>
+        <a class="vote-web-title-link" href="` + srv.URL + `/votes/details/12345/45-1">Procedural motion</a>
+        <br />
+        Yeas: 1 | Nays: 0 | Abstentions: 0 | Total: 1
+      </td>
+      <td class="vote-centered"></td>
+      <td class="vote-centered">Agreed to</td>
+    </tr>
+  </tbody></table>
+</body></html>`
+
+	const detailHTML = `<html><body>
+  <div class="vote-yea">
+    <ul>
+      <li><a href="/Members/en/555">Bob Senator</a></li>
+    </ul>
+  </div>
+</body></html>`
+
+	mux.HandleFunc("/votes/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(detailHTML))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(indexHTML))
+	})
+
+	conn := newDB(t)
+	// Pre-insert the member so the FK constraint on member_votes is satisfied.
+	db.UpsertMember(conn, db.Member{ID: "555", Name: "Bob Senator"})
+	// Pre-insert the division with no member_votes.
+	db.UpsertDivision(conn, db.Division{
+		ID: "senate-45-1-42", Parliament: 45, Session: 1, Number: 42, Chamber: "senate",
+	})
+
+	if err := scraper.CrawlSenate(conn, srv.Client(), noDelay, srv.URL); err != nil {
+		t.Fatalf("crawlSenate backfill: %v", err)
+	}
+
+	var count int
+	conn.QueryRow(`SELECT COUNT(1) FROM member_votes WHERE division_id = 'senate-45-1-42'`).Scan(&count)
+	if count == 0 {
+		t.Error("expected member_votes to be backfilled for existing voteless senate division")
 	}
 }
 
@@ -410,7 +537,7 @@ func TestRunParallel_RunsAllFunctions(t *testing.T) {
 		}
 	}
 
-	runParallel(3, fns)
+	scraper.RunParallel(3, fns)
 
 	for i := range n {
 		if !called[i] {
@@ -445,7 +572,7 @@ func TestRunParallel_RespectsParallelismLimit(t *testing.T) {
 		}
 	}
 
-	runParallel(parallelism, fns)
+	scraper.RunParallel(parallelism, fns)
 
 	if maxConcurrent > parallelism {
 		t.Errorf("max concurrent goroutines=%d, want ≤%d", maxConcurrent, parallelism)
@@ -462,7 +589,7 @@ func TestRunParallel_SerialWhenParallelismOne(t *testing.T) {
 		func() { mu.Lock(); order = append(order, 3); mu.Unlock() },
 	}
 
-	runParallel(1, fns)
+	scraper.RunParallel(1, fns)
 
 	if len(order) != 3 {
 		t.Errorf("expected 3 calls, got %d", len(order))
@@ -475,7 +602,7 @@ func TestRunParallel_NilParallelismDefaultsToSerial(t *testing.T) {
 		func() { atomic.AddInt32(&called, 1) },
 		func() { atomic.AddInt32(&called, 1) },
 	}
-	runParallel(0, fns) // 0 treated as 1
+	scraper.RunParallel(0, fns) // 0 treated as 1
 	if atomic.LoadInt32(&called) != 2 {
 		t.Errorf("expected 2 calls, got %d", called)
 	}
@@ -483,48 +610,48 @@ func TestRunParallel_NilParallelismDefaultsToSerial(t *testing.T) {
 
 func TestRunParallel_EmptyFnsNoOp(t *testing.T) {
 	// Should not panic and should return immediately.
-	runParallel(5, nil)
+	scraper.RunParallel(5, nil)
 }
 
 // ── defaultParallelism ────────────────────────────────────────────────────────
 
 func TestDefaultParallelism_DefaultFive(t *testing.T) {
 	t.Setenv("CRAWLER_PARALLELISM", "")
-	got := defaultParallelism()
+	got := scraper.DefaultParallelism()
 	if got != 5 {
-		t.Errorf("defaultParallelism()=%d, want 5", got)
+		t.Errorf("DefaultParallelism()=%d, want 5", got)
 	}
 }
 
 func TestDefaultParallelism_ReadsEnvVar(t *testing.T) {
 	t.Setenv("CRAWLER_PARALLELISM", "3")
-	got := defaultParallelism()
+	got := scraper.DefaultParallelism()
 	if got != 3 {
-		t.Errorf("defaultParallelism()=%d, want 3", got)
+		t.Errorf("DefaultParallelism()=%d, want 3", got)
 	}
 }
 
 func TestDefaultParallelism_IgnoresInvalidEnvVar(t *testing.T) {
 	t.Setenv("CRAWLER_PARALLELISM", "not-a-number")
-	got := defaultParallelism()
+	got := scraper.DefaultParallelism()
 	if got != 5 {
-		t.Errorf("defaultParallelism()=%d, want 5 for invalid env", got)
+		t.Errorf("DefaultParallelism()=%d, want 5 for invalid env", got)
 	}
 }
 
 func TestDefaultParallelism_IgnoresZeroEnvVar(t *testing.T) {
 	t.Setenv("CRAWLER_PARALLELISM", "0")
-	got := defaultParallelism()
+	got := scraper.DefaultParallelism()
 	if got != 5 {
-		t.Errorf("defaultParallelism()=%d, want 5 for zero env", got)
+		t.Errorf("DefaultParallelism()=%d, want 5 for zero env", got)
 	}
 }
 
 func TestDefaultParallelism_IgnoresNegativeEnvVar(t *testing.T) {
 	t.Setenv("CRAWLER_PARALLELISM", "-2")
-	got := defaultParallelism()
+	got := scraper.DefaultParallelism()
 	if got != 5 {
-		t.Errorf("defaultParallelism()=%d, want 5 for negative env", got)
+		t.Errorf("DefaultParallelism()=%d, want 5 for negative env", got)
 	}
 }
 

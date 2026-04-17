@@ -25,6 +25,12 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 func (s *Store) ListBills(f BillFilter) ([]BillRow, int, error) {
 	where := []string{"1=1"}
 	args := []interface{}{}
+	provincialPredicate := `( 
+		(b.chamber NOT IN ('commons','senate') AND b.chamber <> '')
+		OR b.id LIKE 'ab-%' OR b.id LIKE 'bc-%' OR b.id LIKE 'mb-%' OR b.id LIKE 'nb-%'
+		OR b.id LIKE 'nl-%' OR b.id LIKE 'ns-%' OR b.id LIKE 'on-%' OR b.id LIKE 'pe-%'
+		OR b.id LIKE 'qc-%' OR b.id LIKE 'sk-%'
+	)`
 
 	if f.Search != "" {
 		where = append(where, "(b.title LIKE ? OR b.number LIKE ? OR b.short_title LIKE ?)")
@@ -42,6 +48,12 @@ func (s *Store) ListBills(f BillFilter) ([]BillRow, int, error) {
 	if f.Chamber != "" {
 		where = append(where, "b.chamber = ?")
 		args = append(args, f.Chamber)
+	}
+	if f.Level == "provincial" {
+		where = append(where, provincialPredicate)
+	}
+	if f.Level == "federal" {
+		where = append(where, "NOT "+provincialPredicate)
 	}
 
 	whereClause := strings.Join(where, " AND ")
@@ -223,29 +235,65 @@ func scanDivisionRows(rows *sql.Rows) ([]DivisionRow, error) {
 
 // ── member queries ────────────────────────────────────────────────────────────
 
-// ListMembers returns members matching optional search/party/province filters.
-func (s *Store) ListMembers(search, party, province string) ([]MemberRow, error) {
+// provinceAbbrevToName maps common two-and-three letter Canadian
+// province/territory abbreviations to their full names. It is used to
+// expand search terms like "BC" to "British Columbia" so that the
+// province LIKE filter matches stored full-name values.
+var provinceAbbrevToName = map[string]string{
+	"AB":  "Alberta",
+	"BC":  "British Columbia",
+	"MB":  "Manitoba",
+	"NB":  "New Brunswick",
+	"NL":  "Newfoundland and Labrador",
+	"NS":  "Nova Scotia",
+	"NT":  "Northwest Territories",
+	"NWT": "Northwest Territories",
+	"NU":  "Nunavut",
+	"ON":  "Ontario",
+	"PE":  "Prince Edward Island",
+	"PEI": "Prince Edward Island",
+	"QC":  "Quebec",
+	"SK":  "Saskatchewan",
+	"YT":  "Yukon",
+}
+
+// ListMembers returns members matching optional search/party/province/riding/governmentLevel filters.
+// search matches against member name only.
+func (s *Store) ListMembers(search, party, province, riding, governmentLevel string) ([]MemberRow, error) {
 	where := []string{"1=1"}
 	args := []interface{}{}
 
 	if search != "" {
-		where = append(where, "(name LIKE ? OR riding LIKE ?)")
-		like := "%" + search + "%"
-		args = append(args, like, like)
+		where = append(where, "name LIKE ?")
+		args = append(args, "%"+search+"%")
 	}
 	if party != "" {
 		where = append(where, "party = ?")
 		args = append(args, party)
 	}
 	if province != "" {
+		// Expand common province abbreviations (e.g. "BC") to their full names
+		// (e.g. "British Columbia") so that the filter matches stored values.
+		if full, ok := provinceAbbrevToName[strings.ToUpper(strings.TrimSpace(province))]; ok {
+			province = full
+		}
 		where = append(where, "province = ?")
 		args = append(args, province)
+	}
+	if riding != "" {
+		where = append(where, "riding = ?")
+		args = append(args, riding)
+	}
+	if governmentLevel != "" {
+		where = append(where, "government_level = ?")
+		args = append(args, governmentLevel)
 	}
 
 	rows, err := s.db.Query(`
 		SELECT id, name, COALESCE(party,''), COALESCE(riding,''), COALESCE(province,''),
 		       COALESCE(role,''), COALESCE(photo_url,''), COALESCE(email,''),
-		       COALESCE(website,''), COALESCE(chamber,'commons'), active
+		       COALESCE(website,''), COALESCE(chamber,'commons'), active,
+		       COALESCE(government_level,'federal')
 		FROM members WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY name`, args...)
 	if err != nil {
@@ -260,12 +308,13 @@ func (s *Store) GetMember(id string) (MemberRow, error) {
 	row := s.db.QueryRow(`
 		SELECT id, name, COALESCE(party,''), COALESCE(riding,''), COALESCE(province,''),
 		       COALESCE(role,''), COALESCE(photo_url,''), COALESCE(email,''),
-		       COALESCE(website,''), COALESCE(chamber,'commons'), active
+		       COALESCE(website,''), COALESCE(chamber,'commons'), active,
+		       COALESCE(government_level,'federal')
 		FROM members WHERE id = ?`, id)
 	var m MemberRow
 	var active int
 	err := row.Scan(&m.ID, &m.Name, &m.Party, &m.Riding, &m.Province,
-		&m.Role, &m.PhotoURL, &m.Email, &m.Website, &m.Chamber, &active)
+		&m.Role, &m.PhotoURL, &m.Email, &m.Website, &m.Chamber, &active, &m.GovernmentLevel)
 	if errors.Is(err, sql.ErrNoRows) {
 		return MemberRow{}, fmt.Errorf("member %q not found", id)
 	}
@@ -279,7 +328,8 @@ func scanMemberRows(rows *sql.Rows) ([]MemberRow, error) {
 		var m MemberRow
 		var active int
 		if err := rows.Scan(&m.ID, &m.Name, &m.Party, &m.Riding, &m.Province,
-			&m.Role, &m.PhotoURL, &m.Email, &m.Website, &m.Chamber, &active); err != nil {
+			&m.Role, &m.PhotoURL, &m.Email, &m.Website, &m.Chamber, &active,
+			&m.GovernmentLevel); err != nil {
 			return nil, err
 		}
 		m.Active = active == 1
@@ -288,12 +338,47 @@ func scanMemberRows(rows *sql.Rows) ([]MemberRow, error) {
 	return out, rows.Err()
 }
 
+// listDistinctMemberStrings is a helper that returns sorted, non-empty distinct
+// values for a single column from the members table.
+func (s *Store) listDistinctMemberStrings(col string) ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT ` + col + ` FROM members WHERE ` + col + ` IS NOT NULL AND ` + col + ` <> '' ORDER BY ` + col)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// ListDistinctParties returns all distinct non-empty party values from the members table.
+func (s *Store) ListDistinctParties() ([]string, error) {
+	return s.listDistinctMemberStrings("party")
+}
+
+// ListDistinctProvinces returns all distinct non-empty province values from the members table.
+func (s *Store) ListDistinctProvinces() ([]string, error) {
+	return s.listDistinctMemberStrings("province")
+}
+
+// ListDistinctRidings returns all distinct non-empty riding values from the members table.
+func (s *Store) ListDistinctRidings() ([]string, error) {
+	return s.listDistinctMemberStrings("riding")
+}
+
 // GetMembersByRiding searches members by riding name (partial match).
 func (s *Store) GetMembersByRiding(riding string) ([]MemberRow, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, COALESCE(party,''), COALESCE(riding,''), COALESCE(province,''),
 		       COALESCE(role,''), COALESCE(photo_url,''), COALESCE(email,''),
-		       COALESCE(website,''), COALESCE(chamber,'commons'), active
+		       COALESCE(website,''), COALESCE(chamber,'commons'), active,
+		       COALESCE(government_level,'federal')
 		FROM members WHERE LOWER(riding) LIKE '%' || LOWER(?) || '%'
 		ORDER BY name`, riding)
 	if err != nil {
@@ -519,6 +604,44 @@ func (s *Store) GetMemberStats(id string) (MemberStats, error) {
 		stats.MissedPct = (missed * 100) / totalDivisions
 	}
 	return stats, nil
+}
+
+// GetMemberCategoryScores returns a breakdown of an MP's Yea/Nay votes grouped
+// by bill category. Only categories with at least one recorded Yea or Nay vote
+// are returned, ordered by most-voted category first.
+func (s *Store) GetMemberCategoryScores(id string) ([]CategoryScore, error) {
+	rows, err := s.db.Query(`
+		SELECT
+			b.category,
+			COUNT(*) AS total,
+			COALESCE(SUM(CASE WHEN mv.vote = 'Yea' THEN 1 ELSE 0 END), 0) AS yeas,
+			COALESCE(SUM(CASE WHEN mv.vote = 'Nay' THEN 1 ELSE 0 END), 0) AS nays
+		FROM member_votes mv
+		JOIN divisions d ON d.id = mv.division_id
+		JOIN bills b ON b.id = d.bill_id
+		WHERE mv.member_id = ?
+		  AND mv.vote IN ('Yea', 'Nay')
+		  AND b.category IS NOT NULL
+		  AND b.category != ''
+		GROUP BY b.category
+		ORDER BY total DESC`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var scores []CategoryScore
+	for rows.Next() {
+		var cs CategoryScore
+		if err := rows.Scan(&cs.Category, &cs.Total, &cs.Yeas, &cs.Nays); err != nil {
+			return nil, err
+		}
+		if cs.Total > 0 {
+			cs.YeaPct = (cs.Yeas * 100) / cs.Total
+		}
+		scores = append(scores, cs)
+	}
+	return scores, rows.Err()
 }
 
 // CompareMemberVotes returns the count of divisions where both MPs voted the same way,

@@ -32,3 +32,7 @@ vendor/
 /open-democracy-crawler.exe
 /open-democracy-server.exe
 *.pem
+
+# ignore sensitive files
+sshlogin.sh
+upload_db.sh

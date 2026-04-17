@@ -7,6 +7,8 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite driver
 )
@@ -34,18 +36,19 @@ func Open(path string) (*sql.DB, error) {
 func Migrate(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS members (
-			id           TEXT PRIMARY KEY,
-			name         TEXT NOT NULL,
-			party        TEXT,
-			riding       TEXT,
-			province     TEXT,
-			role         TEXT,
-			photo_url    TEXT,
-			email        TEXT,
-			website      TEXT,
-			chamber      TEXT DEFAULT 'commons',
-			active       INTEGER DEFAULT 1,
-			last_scraped TEXT
+			id               TEXT PRIMARY KEY,
+			name             TEXT NOT NULL,
+			party            TEXT,
+			riding           TEXT,
+			province         TEXT,
+			role             TEXT,
+			photo_url        TEXT,
+			email            TEXT,
+			website          TEXT,
+			chamber          TEXT DEFAULT 'commons',
+			active           INTEGER DEFAULT 1,
+			last_scraped     TEXT,
+			government_level TEXT DEFAULT 'federal'
 		)`,
 		`CREATE TABLE IF NOT EXISTS bills (
 			id                 TEXT PRIMARY KEY,
@@ -189,6 +192,8 @@ func Migrate(db *sql.DB) error {
 	// Forward-compatible migration for older DBs created before email_verified existed.
 	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN address TEXT`)
+	// Forward-compatible migration: add government_level for DBs created before this field existed.
+	_, _ = db.Exec(`ALTER TABLE members ADD COLUMN government_level TEXT DEFAULT 'federal'`)
 
 	return nil
 }
@@ -206,18 +211,19 @@ func nullStr(s string) interface{} {
 
 // Member represents a row in the members table.
 type Member struct {
-	ID          string
-	Name        string
-	Party       string
-	Riding      string
-	Province    string
-	Role        string
-	PhotoURL    string
-	Email       string
-	Website     string
-	Chamber     string
-	Active      bool
-	LastScraped string
+	ID              string
+	Name            string
+	Party           string
+	Riding          string
+	Province        string
+	Role            string
+	PhotoURL        string
+	Email           string
+	Website         string
+	Chamber         string
+	Active          bool
+	LastScraped     string
+	GovernmentLevel string // "federal" | "provincial"
 }
 
 // UpsertMember inserts or updates a member record.
@@ -230,27 +236,43 @@ func UpsertMember(db *sql.DB, m Member) error {
 	if chamber == "" {
 		chamber = "commons"
 	}
+	govLevel := m.GovernmentLevel
+	if govLevel == "" {
+		govLevel = "federal"
+	}
 	_, err := db.Exec(`
 		INSERT INTO members
 			(id, name, party, riding, province, role, photo_url, email, website,
-			 chamber, active, last_scraped)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+			 chamber, active, last_scraped, government_level)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
-			name         = excluded.name,
-			party        = excluded.party,
-			riding       = excluded.riding,
-			province     = excluded.province,
-			role         = excluded.role,
-			photo_url    = excluded.photo_url,
-			email        = excluded.email,
-			website      = excluded.website,
-			chamber      = excluded.chamber,
-			active       = excluded.active,
-			last_scraped = excluded.last_scraped`,
+			name             = excluded.name,
+			party            = excluded.party,
+			riding           = excluded.riding,
+			province         = excluded.province,
+			role             = excluded.role,
+			photo_url        = excluded.photo_url,
+			email            = excluded.email,
+			website          = excluded.website,
+			chamber          = excluded.chamber,
+			active           = excluded.active,
+			last_scraped     = excluded.last_scraped,
+			government_level = excluded.government_level`,
 		m.ID, m.Name, m.Party, m.Riding, m.Province, m.Role, m.PhotoURL,
-		m.Email, m.Website, chamber, active, m.LastScraped,
+		m.Email, m.Website, chamber, active, m.LastScraped, govLevel,
 	)
 	return err
+}
+
+// UpsertProfiles persists a slice of members, logging individual row failures
+// and continuing to process the remaining records.
+func UpsertProfiles(db *sql.DB, members []Member, delay time.Duration) {
+	for _, m := range members {
+		if err := UpsertMember(db, m); err != nil {
+			log.Printf("[members] upsert %s: %v", m.ID, err)
+		}
+		time.Sleep(delay)
+	}
 }
 
 // Bill represents a row in the bills table.
@@ -406,6 +428,18 @@ func UpsertSittingDate(db *sql.DB, parliament, session int, date string) error {
 func DivisionExists(db *sql.DB, divisionID string) (bool, error) {
 	var count int
 	err := db.QueryRow(`SELECT COUNT(1) FROM divisions WHERE id = ?`, divisionID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// DivisionHasVotes returns true if at least one member_votes row exists for
+// the given division.  It is used by the crawlers to decide whether to
+// (re-)fetch the per-division detail page.
+func DivisionHasVotes(db *sql.DB, divisionID string) (bool, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(1) FROM member_votes WHERE division_id = ?`, divisionID).Scan(&count)
 	if err != nil {
 		return false, err
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/a-h/templ"
+	"github.com/philspins/open-democracy/internal/store"
 )
 
 func TestLoadPartyTheme_NoEnvVarFallbacksSuccessfully(t *testing.T) {
@@ -105,6 +106,27 @@ func TestSafeExternalURL(t *testing.T) {
 			got := safeExternalURL(tt.input)
 			if got != tt.want {
 				t.Errorf("safeExternalURL(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBillLevelLabel(t *testing.T) {
+	tests := []struct {
+		name string
+		bill store.BillRow
+		want string
+	}{
+		{name: "federal commons", bill: store.BillRow{ID: "45-1-c-47", Chamber: "commons"}, want: "Federal"},
+		{name: "federal senate", bill: store.BillRow{ID: "45-1-s-209", Chamber: "senate"}, want: "Federal"},
+		{name: "provincial chamber", bill: store.BillRow{ID: "on-43-1-12", Chamber: "ontario"}, want: "Provincial"},
+		{name: "provincial id fallback", bill: store.BillRow{ID: "ab-31-1-10", Chamber: ""}, want: "Provincial"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := BillLevelLabel(tt.bill); got != tt.want {
+				t.Fatalf("BillLevelLabel() = %q, want %q", got, tt.want)
 			}
 		})
 	}

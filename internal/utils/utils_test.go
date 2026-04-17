@@ -34,9 +34,15 @@ func TestExtractMemberID(t *testing.T) {
 		url  string
 		want string
 	}{
+		// Legacy numeric-only format
 		{"https://www.ourcommons.ca/Members/en/123006", "123006"},
 		{"https://www.ourcommons.ca/Members/en/123006?tab=votes", "123006"},
 		{"/Members/en/99999", "99999"},
+		// Current name(ID) format returned by ourcommons.ca and the Represent API
+		{"https://www.ourcommons.ca/Members/en/parm-bains(111067)", "111067"},
+		{"https://www.ourcommons.ca/Members/en/ziad-aboultaif(89156)", "89156"},
+		{"/Members/en/jane-doe(111)", "111"},
+		// No match cases
 		{"https://www.ourcommons.ca/en/", ""},
 		{"", ""},
 	}
