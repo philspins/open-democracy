@@ -3,6 +3,7 @@ package scraper
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -2191,6 +2192,7 @@ func CrawlNovaScotiaVotes(indexURL string, legislature, session int, client *htt
 // returned by assembly.pe.ca for automated clients.
 const peiCaptchaSignature = "captcha.perfdrive.com"
 const peiBotManagerSignature = "perfdrive.com"
+const peiJournalsWorkflowAPIURL = "https://wdf.princeedwardisland.ca/legislative-assembly/services/api/workflow"
 
 func isPEICaptchaBody(body []byte) bool {
 	lower := strings.ToLower(string(body))
@@ -2216,6 +2218,17 @@ func (t *peiTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // crawlPEIVotes is the inner PEI crawl that checks for CAPTCHA and falls back
 // to the generic HTML scraper when the site is accessible.
 func crawlPEIVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	if strings.Contains(indexURL, "/services/api/workflow") {
+		return crawlPEIVotesFromWorkflowAPI(indexURL, legislature, session, client)
+	}
+	if indexURL == "https://www.assembly.pe.ca/legislative-business" {
+		if divs, err := crawlPEIVotesFromWorkflowAPI(peiJournalsWorkflowAPIURL, legislature, session, client); err == nil && len(divs) > 0 {
+			log.Printf("[pe-votes] parsed %d divisions from workflow API", len(divs))
+			return divs, nil
+		} else if err != nil {
+			log.Printf("[pe-votes] workflow API fallback to HTML: %v", err)
+		}
+	}
 	log.Printf("[pe-votes] fetching index: %s", indexURL)
 	resp, err := client.Get(indexURL)
 	if err != nil {
@@ -2255,6 +2268,106 @@ func crawlPEIVotes(indexURL string, legislature, session int, client *http.Clien
 	}
 	log.Printf("[pe-votes] parsed %d divisions", len(results))
 	return results, nil
+}
+
+func crawlPEIVotesFromWorkflowAPI(workflowURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	payload := map[string]any{
+		"appName":     "LegislativeAssemblyJournals",
+		"featureName": "LegislativeAssemblyJournals",
+		"metaVars": map[string]any{
+			"service_id":    nil,
+			"save_location": nil,
+		},
+		"queryVars": map[string]any{
+			"search":           "sitting",
+			"general_assembly": nil,
+			"session":          nil,
+			"sitting":          nil,
+			"year":             strconv.Itoa(time.Now().Year()),
+			"keyword":          nil,
+			"wdf_url_query":    "true",
+			"service":          "LegislativeAssemblyJournals",
+			"activity":         "LegislativeAssemblyJournalsSearch",
+		},
+		"queryName": "LegislativeAssemblyJournalsSearch",
+	}
+	reqBody, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, workflowURL, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Origin", "https://www.assembly.pe.ca")
+	req.Header.Set("Referer", "https://www.assembly.pe.ca/legislative-business")
+	req.Header.Set("Client-Show-Status", "true")
+	req.Header.Set("X-Origin", "https://www.assembly.pe.ca")
+	req.Header.Set("X-Referer", "https://www.assembly.pe.ca/legislative-business")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	if isPEICaptchaBody(body) {
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("pei workflow status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	links := extractPEIWorkflowLinks(body, workflowURL)
+	if len(links) == 0 {
+		return nil, nil
+	}
+	var results []ProvincialDivisionResult
+	for _, link := range links {
+		dayDoc, derr := fetchDoc(link, client)
+		if derr != nil {
+			log.Printf("[pe-votes] skip workflow day link %s: %v", link, derr)
+			continue
+		}
+		date := extractDateFromURL(link)
+		parsed := parseGenericProvincialVotesDoc(dayDoc, "pe", "pei", legislature, session, date)
+		results = append(results, parsed...)
+	}
+	return results, nil
+}
+
+func extractPEIWorkflowLinks(raw []byte, baseURL string) []string {
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil
+	}
+	records := collectWorkflowRecords(decoded)
+	seen := map[string]bool{}
+	var links []string
+	for _, r := range records {
+		for _, key := range []string{"url", "detailUrl", "detail_url", "href", "link"} {
+			v, ok := r[key]
+			if !ok {
+				continue
+			}
+			s := strings.TrimSpace(fmt.Sprintf("%v", v))
+			if s == "" {
+				continue
+			}
+			full := resolveRelativeURL(baseURL, s)
+			if seen[full] {
+				continue
+			}
+			seen[full] = true
+			links = append(links, full)
+		}
+	}
+	sort.Strings(links)
+	return links
 }
 
 // CrawlPrinceEdwardIslandVotes crawls PEI votes/proceedings pages.

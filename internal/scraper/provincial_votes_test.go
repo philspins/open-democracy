@@ -189,6 +189,49 @@ func TestCrawlPrinceEdwardIslandVotes_HandlesCaptcha(t *testing.T) {
 	}
 }
 
+func TestCrawlPrinceEdwardIslandVotes_UsesWorkflowAPI(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/services/api/workflow", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"results":[{"url":"/journals/2026-04-11"},{"detailUrl":"/journals/2026-04-12"}]}`)
+	})
+	mux.HandleFunc("/journals/2026-04-11", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, `<html><body>
+<p>Motion agreed to:</p>
+<table class="division">
+<tr><td class="head" colspan="4">Yeas &#8212; 3</td></tr>
+<tr><td>Smith <br>Jones <br></td><td>Brown <br></td><td></td><td></td></tr>
+<tr><td class="head" colspan="4">Nays &#8212; 1</td></tr>
+<tr><td>Lee <br></td><td></td><td></td><td></td></tr>
+</table></body></html>`)
+	})
+	mux.HandleFunc("/journals/2026-04-12", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, `<html><body>
+<p>Motion agreed to:</p>
+<table class="division">
+<tr><td class="head" colspan="4">Yeas &#8212; 2</td></tr>
+<tr><td>Alpha <br></td><td>Beta <br></td><td></td><td></td></tr>
+<tr><td class="head" colspan="4">Nays &#8212; 0</td></tr>
+<tr><td></td><td></td><td></td><td></td></tr>
+</table></body></html>`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	divs, err := scraper.CrawlPrinceEdwardIslandVotes(srv.URL+"/services/api/workflow", 68, 1, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlPrinceEdwardIslandVotes workflow: %v", err)
+	}
+	if len(divs) < 2 {
+		t.Fatalf("len(divs)=%d, want at least 2", len(divs))
+	}
+}
+
 func TestParseBCVotesDivisions_ParsesDivisionTableYeasNays(t *testing.T) {
 	// HTML fixture modelled on a real BC VP document from the 43rd Parliament, 1st Session.
 	// The <table class="division"> format lists Yeas first, then Nays, each spanning four
@@ -300,4 +343,3 @@ func TestParliamentOrdinal(t *testing.T) {
 		}
 	}
 }
-
