@@ -2271,6 +2271,35 @@ func crawlPEIVotes(indexURL string, legislature, session int, client *http.Clien
 }
 
 func crawlPEIVotesFromWorkflowAPI(workflowURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	year := strconv.Itoa(time.Now().Year())
+	links, err := crawlPEIVotesWorkflowLinks(workflowURL, client, &year)
+	if err != nil {
+		return nil, err
+	}
+	if len(links) == 0 {
+		links, err = crawlPEIVotesWorkflowLinks(workflowURL, client, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(links) == 0 {
+		return nil, nil
+	}
+	var results []ProvincialDivisionResult
+	for _, link := range links {
+		dayDoc, derr := fetchDoc(link, client)
+		if derr != nil {
+			log.Printf("[pe-votes] skip workflow day link %s: %v", link, derr)
+			continue
+		}
+		date := extractDateFromURL(link)
+		parsed := parseGenericProvincialVotesDoc(dayDoc, "pe", "pei", legislature, session, date)
+		results = append(results, parsed...)
+	}
+	return results, nil
+}
+
+func crawlPEIVotesWorkflowLinks(workflowURL string, client *http.Client, year *string) ([]string, error) {
 	payload := map[string]any{
 		"appName":     "LegislativeAssemblyJournals",
 		"featureName": "LegislativeAssemblyJournals",
@@ -2283,7 +2312,7 @@ func crawlPEIVotesFromWorkflowAPI(workflowURL string, legislature, session int, 
 			"general_assembly": nil,
 			"session":          nil,
 			"sitting":          nil,
-			"year":             strconv.Itoa(time.Now().Year()),
+			"year":             year,
 			"keyword":          nil,
 			"wdf_url_query":    "true",
 			"service":          "LegislativeAssemblyJournals",
@@ -2323,21 +2352,7 @@ func crawlPEIVotesFromWorkflowAPI(workflowURL string, legislature, session int, 
 		return nil, fmt.Errorf("pei workflow status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	links := extractPEIWorkflowLinks(body, workflowURL)
-	if len(links) == 0 {
-		return nil, nil
-	}
-	var results []ProvincialDivisionResult
-	for _, link := range links {
-		dayDoc, derr := fetchDoc(link, client)
-		if derr != nil {
-			log.Printf("[pe-votes] skip workflow day link %s: %v", link, derr)
-			continue
-		}
-		date := extractDateFromURL(link)
-		parsed := parseGenericProvincialVotesDoc(dayDoc, "pe", "pei", legislature, session, date)
-		results = append(results, parsed...)
-	}
-	return results, nil
+	return links, nil
 }
 
 func extractPEIWorkflowLinks(raw []byte, baseURL string) []string {
