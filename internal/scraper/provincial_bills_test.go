@@ -15,6 +15,7 @@ func TestExtractProvincialBillNumber(t *testing.T) {
 	}{
 		{"Bill 12 - An Act", "12"},
 		{"BILL A-23 respecting schools", "A-23"},
+		{"Bill (No. M 201) intituled Example Act", "M-201"},
 		{"Motion on C-47", "C-47"},
 		{"No bill here", ""},
 	}

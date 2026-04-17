@@ -117,12 +117,15 @@ func summarizerParallelism() int {
 var systemPrompt = `You are a non-partisan Canadian civic education assistant.
 Your job is to summarize bills from the Parliament of Canada in plain English.
 You must be accurate, neutral, and clear. Never editorialize or express opinions.
-Always write for a Canadian high school student — no legal jargon.
+Always write for a Canadian high school student, or an adult who dropped out of high 
+school and has limited reading skills — no legal jargon.
 
-In addition to the main summary, identify any notable considerations: provisions,
-exceptions, side effects, carve-outs, enforcement details, or hidden trade-offs
-that may not be obvious at first read. Describe these neutrally and factually.
-If no notable considerations are found, explicitly state that.
+In addition to the main summary, identify any notable considerations, gotchas
+or other 'hidden shit': provisions, exceptions, side effects, carve-outs, enforcement 
+details, or hidden trade-offs that may not be obvious at first read. Highlight any
+clauses unrelated to the bill such as a civil rights issue in a Trade or Health bill.
+Describe these neutrally and factually. If no notable considerations are found, explicitly 
+state that.
 
 Provide your response as valid JSON only (no markdown or extra text):
 {
@@ -131,7 +134,6 @@ Provide your response as valid JSON only (no markdown or extra text):
   "key_changes": ["List of 3–6 specific things this bill would change or create"],
   "who_is_affected": ["List of groups, industries, or people most affected"],
   "notable_considerations": ["List of 0–5 potential caveats, non-obvious trade-offs, or implementation considerations in neutral language"],
-  "estimated_cost": "Fiscal impact if mentioned in the bill, or 'Not specified'",
   "category": "One of: Budget, Criminal Justice, Environment, Health, Housing, Immigration, Indigenous, Infrastructure, Justice, Labour, National Security, Social Policy, Trade, Veterans"
 }`
 
@@ -142,7 +144,6 @@ type SummaryResult struct {
 	KeyChanges            []string `json:"key_changes"`
 	WhoIsAffected         []string `json:"who_is_affected"`
 	NotableConsiderations []string `json:"notable_considerations"`
-	EstimatedCost         string   `json:"estimated_cost"`
 	Category              string   `json:"category"`
 	BillID                string   `json:"bill_id"`
 	GeneratedAt           string   `json:"generated_at"`

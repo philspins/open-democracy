@@ -52,6 +52,61 @@ func TestCrawlOntarioVPSittingDates_ParsesHansardLinksAndIgnoresOrdersNotices(t 
 	}
 }
 
+func TestCrawlOntarioVPDay_ParsesCurrentMarkupAndSkipsNonDivisionDataWrappers(t *testing.T) {
+	html := `<html><body>
+	<table><tbody><tr><td colspan="2"><div class="datawrapper">Yesterday, the Leader of the Official Opposition filed a notice of motion.</div></td></tr></tbody></table>
+	<table><tbody><tr>
+		<td class="votesProceedingsDoc2col" lang="en"><p class="no-indent">Second Reading of <strong>Bill 23</strong>, An Act to amend the Residential Tenancies Act, 2006 and the Retirement Homes Act, 2010 respecting tenancies in care homes.</p></td>
+		<td class="votesProceedingsDoc2col" lang="fr"><p class="no-indent">Deuxieme lecture du projet de loi 23.</p></td>
+	</tr></tbody></table>
+	<table><tbody><tr>
+		<td class="votesProceedingsDoc2col" lang="en"><p class="no-indent">Lost on the following division:</p></td>
+		<td class="votesProceedingsDoc2col" lang="fr"><p class="no-indent">Rejetee par le vote suivant :</p></td>
+	</tr></tbody></table>
+	<table><tbody><tr><td colspan="2">
+		<div class="datawrapper">
+			<h5 class="divisionHeader"><span lang="en">Ayes</span><span class="sl-hide">/</span><span lang="fr">pour</span> (2)</h5>
+			<table class="votesList"><tbody><tr>
+				<td><div lang="en">Armstrong</div><div class="docHide" lang="fr">Armstrong</div></td>
+				<td><div lang="en">Jones</div><div class="docHide" lang="fr">Jones</div></td>
+			</tr></tbody></table>
+			<h5 class="divisionHeader"><span lang="en">Nays</span><span class="sl-hide">/</span><span lang="fr">contre</span> (3)</h5>
+			<table class="votesList"><tbody><tr>
+				<td><div lang="en">Brown</div><div class="docHide" lang="fr">Brown</div></td>
+				<td><div lang="en">Taylor</div><div class="docHide" lang="fr">Taylor</div></td>
+				<td><div lang="en">Wilson</div><div class="docHide" lang="fr">Wilson</div></td>
+			</tr></tbody></table>
+		</div>
+	</td></tr></tbody></table>
+	</body></html>`
+
+	srv := newTestServer(html)
+	defer srv.Close()
+
+	divs, err := scraper.CrawlOntarioVPDay(srv.URL, 44, 1, "2026-04-16", srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlOntarioVPDay: %v", err)
+	}
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	if divs[0].Division.ID != "on-44-1-2026-04-16-1" {
+		t.Fatalf("division ID=%q, want on-44-1-2026-04-16-1", divs[0].Division.ID)
+	}
+	if divs[0].Division.Description != "Second Reading of Bill 23, An Act to amend the Residential Tenancies Act, 2006 and the Retirement Homes Act, 2010 respecting tenancies in care homes." {
+		t.Fatalf("description=%q", divs[0].Division.Description)
+	}
+	if divs[0].Division.Yeas != 2 || divs[0].Division.Nays != 3 {
+		t.Fatalf("counts=(%d,%d), want (2,3)", divs[0].Division.Yeas, divs[0].Division.Nays)
+	}
+	if divs[0].Division.Result != "Negatived" {
+		t.Fatalf("result=%q, want Negatived", divs[0].Division.Result)
+	}
+	if len(divs[0].Votes) != 5 {
+		t.Fatalf("len(votes)=%d, want 5", len(divs[0].Votes))
+	}
+}
+
 func TestCrawlQuebecVotes_UsesJSONSearchAndParsesDetailVotes(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/index", func(w http.ResponseWriter, r *http.Request) {
@@ -303,14 +358,38 @@ func TestParseBCVotesDivisions_ParsesDivisionTableYeasNays(t *testing.T) {
 	// Verify at least one yea and one nay vote recorded.
 	yeaCount, nayCount := 0, 0
 	for _, v := range d.Votes {
-		if v.Vote == "yea" {
+		if v.Vote == "Yea" {
 			yeaCount++
-		} else if v.Vote == "nay" {
+		} else if v.Vote == "Nay" {
 			nayCount++
 		}
 	}
 	if yeaCount == 0 || nayCount == 0 {
 		t.Fatalf("yeaCount=%d nayCount=%d, want both >0", yeaCount, nayCount)
+	}
+}
+
+func TestParseBCVotesDivisions_UsesPriorSubstantiveParagraphForDescription(t *testing.T) {
+	html := `<html><body>
+<p>On the motion of <em>Tara Armstrong</em> that Bill (No.&nbsp;M 201) intituled <em>Public Safety Statutes Amendment Act</em> be introduced and read a first time, the House divided.</p>
+<p>Motion negatived on the following division:</p>
+<table width="600" cellpadding="0" cellspacing="0" class="division">
+<tr><td class="head" colspan="4">Yeas &#8212; 3</td></tr>
+<tr><td>Armstrong <br></td><td>Jones <br></td><td>Brown <br></td><td></td></tr>
+<tr><td class="head" colspan="4">Nays &#8212; 6</td></tr>
+<tr><td>Allen <br></td><td>Foster <br></td><td>Mok <br></td><td>Lee <br>Smith <br>Taylor <br></td></tr>
+</table>
+</body></html>`
+
+	divs := scraper.ParseBCVotesDivisionsForTest(html, "https://example.com/v251202.htm", "2025-12-02", 43, 1, 1)
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	if divs[0].Division.Description != "On the motion of Tara Armstrong that Bill (No. M 201) intituled Public Safety Statutes Amendment Act be introduced and read a first time, the House divided." {
+		t.Fatalf("description=%q", divs[0].Division.Description)
+	}
+	if billNumber := scraper.ExtractProvincialBillNumber(divs[0].Division.Description); billNumber != "M-201" {
+		t.Fatalf("billNumber=%q, want M-201", billNumber)
 	}
 }
 

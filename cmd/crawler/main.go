@@ -7,6 +7,7 @@
 // Flags:
 //
 //	--bills           Crawl bills only (LEGISinfo RSS + detail)
+//	--provincial      Crawl provincial bills and votes
 //	--votes           Crawl Commons votes only
 //	--senate          Crawl Senate votes only
 //	--members         Crawl MP profiles only

@@ -817,9 +817,22 @@ func provincialBillIDFromDescription(conn *sql.DB, provinceCode string, legislat
 
 func normalisePersonName(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, " - ", "-")
+	s = strings.ReplaceAll(s, "- ", "-")
+	s = strings.ReplaceAll(s, " -", "-")
 	s = strings.ReplaceAll(s, ".", " ")
 	s = strings.ReplaceAll(s, ",", " ")
-	s = strings.Join(strings.Fields(s), " ")
+	fields := strings.Fields(s)
+	filtered := fields[:0]
+	for _, field := range fields {
+		switch field {
+		case "hon", "mr", "mrs", "ms", "mme", "mlle", "dr", "kc", "k", "c":
+			continue
+		default:
+			filtered = append(filtered, field)
+		}
+	}
+	s = strings.Join(filtered, " ")
 	return s
 }
 
@@ -856,8 +869,32 @@ func resolveProvincialMemberID(conn *sql.DB, province, sourceName string) (strin
 		}
 	}
 
-	// Ontario and some journals list only the surname in vote lists.
 	parts := strings.Fields(want)
+	if len(parts) == 2 && len(parts[0]) == 1 {
+		initial := parts[0]
+		last := parts[1]
+		matchedID := ""
+		for _, c := range list {
+			nameParts := strings.Fields(normalisePersonName(c.Name))
+			if len(nameParts) < 2 {
+				continue
+			}
+			candidateLast := nameParts[len(nameParts)-1]
+			candidateFirst := nameParts[0]
+			if candidateLast != last || !strings.HasPrefix(candidateFirst, initial) {
+				continue
+			}
+			if matchedID != "" {
+				return "", nil
+			}
+			matchedID = c.ID
+		}
+		if matchedID != "" {
+			return matchedID, nil
+		}
+	}
+
+	// Ontario and some journals list only the surname in vote lists.
 	if len(parts) == 1 {
 		last := parts[0]
 		for _, c := range list {

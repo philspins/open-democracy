@@ -34,7 +34,7 @@ type ProvincialBillStub struct {
 	LastScraped      string
 }
 
-var provincialBillNumberRe = regexp.MustCompile(`(?i)\bbill(?:\s+no\.?)?\s+([a-z]?-?\d+[a-z]?)\b`)
+var provincialBillNumberRe = regexp.MustCompile(`(?i)\bbill(?:\s*\(\s*no\.?|\s+no\.?)?\s+([a-z]?(?:[\s-]?\d+)[a-z]?)\s*\)?\b`)
 var provincialBillURLNumberRe = regexp.MustCompile(`(?i)(?:/bill-|/bill/|/bills?/)(\d{1,4}[a-z]?)(?:[/?#-]|$)`)
 var provincialNestedBillURLNumberRe = regexp.MustCompile(`(?i)/\d{1,3}/\d{1,2}/(\d{1,4}[a-z]?)(?:/|$)`)
 var provincialLeadingBillNumberRe = regexp.MustCompile(`(?m)^\s*(\d{1,4}[a-z]?)\s*(?:[.)]|\|)`)
@@ -63,7 +63,8 @@ const peiBillsWorkflowAPIURL = "https://wdf.princeedwardisland.ca/legislative-as
 // Examples: "Bill 12" -> "12", "bill a-23" -> "A-23".
 func ExtractProvincialBillNumber(text string) string {
 	if m := provincialBillNumberRe.FindStringSubmatch(text); len(m) == 2 {
-		return strings.ToUpper(strings.TrimSpace(m[1]))
+		billNumber := strings.ToUpper(strings.TrimSpace(m[1]))
+		return strings.Join(strings.Fields(billNumber), "-")
 	}
 	// Fall back to federal bill-number format (C-47 / S-209) when present.
 	return utils.ExtractBillNumber(text)

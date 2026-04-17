@@ -153,6 +153,39 @@ func CrawlOntarioVPDay(vpURL string, parliament, session int, date string, clien
 var ontarioDivCountRe = regexp.MustCompile(`\((\d+)\)`)
 var ontarioHouseDocDatePathRe = regexp.MustCompile(`/parliament-\d+/session-\d+/(\d{4}-\d{2}-\d{2})/`)
 
+func normaliseOntarioEventText(text string) string {
+	text = strings.TrimSpace(strings.Join(strings.Fields(text), " "))
+	text = strings.TrimSuffix(text, ":")
+	return text
+}
+
+func isOntarioDivisionOutcomeText(text string) bool {
+	switch strings.ToLower(normaliseOntarioEventText(text)) {
+	case "carried on the following division", "lost on the following division", "negatived on the following division":
+		return true
+	default:
+		return false
+	}
+}
+
+func extractOntarioDivisionDescription(wrapper *goquery.Selection) string {
+	baseTable := wrapper.Closest("table")
+	if baseTable.Length() == 0 {
+		return ""
+	}
+
+	desc := ""
+	baseTable.PrevAllFiltered("table").EachWithBreak(func(_ int, table *goquery.Selection) bool {
+		text := normaliseOntarioEventText(table.Find("td[lang='en']").First().Text())
+		if text == "" || isOntarioDivisionOutcomeText(text) {
+			return true
+		}
+		desc = text
+		return false
+	})
+	return desc
+}
+
 // parseOntarioVPDoc is the pure HTML-parsing logic for Ontario V&P pages.
 // Separated from CrawlOntarioVPDay so tests can call it without a network round-trip.
 func parseOntarioVPDoc(doc *goquery.Document, parliament, session int, date string) []ProvincialDivisionResult {
@@ -162,6 +195,10 @@ func parseOntarioVPDoc(doc *goquery.Document, parliament, session int, date stri
 	// Each recorded division is rendered inside a div.datawrapper that contains
 	// alternating h5.divisionHeader / table.votesList pairs (Ayes then Nays).
 	doc.Find("div.datawrapper").Each(func(_ int, wrapper *goquery.Selection) {
+		if wrapper.Find("h5.divisionHeader").Length() == 0 || wrapper.Find("table.votesList").Length() == 0 {
+			return
+		}
+
 		divNum++
 		divID := ProvincialDivisionID("on", parliament, session, divNum, date)
 
@@ -208,20 +245,7 @@ func parseOntarioVPDoc(doc *goquery.Document, parliament, session int, date stri
 			})
 		})
 
-		// Description: English text from the preceding sibling table, with the
-		// "Carried on the following division:" tail stripped.
-		desc := ""
-		wrapper.Closest("table").PrevAll().Filter("table").First().Each(func(_ int, t *goquery.Selection) {
-			t.Find("td[lang='en']").Each(func(_ int, cell *goquery.Selection) {
-				text := strings.TrimSpace(cell.Text())
-				if i := strings.Index(text, "Carried on the following division:"); i >= 0 {
-					text = strings.TrimSpace(text[:i])
-				}
-				if text != "" && desc == "" {
-					desc = text
-				}
-			})
-		})
+		desc := extractOntarioDivisionDescription(wrapper)
 
 		result := "Carried"
 		if nays > yeas {
@@ -601,7 +625,7 @@ var newBrunswickJournalPDFLinkRe = regexp.MustCompile(`(?i)\.pdf(?:\?.*)?$`)
 var newBrunswickPDFVoteCountRe = regexp.MustCompile(`(?is)(?:YEAS?|POUR)\s*[:\-]?\s*(\d{1,3}).{0,280}?(?:NAYS?|CONTRE)\s*[:\-]?\s*(\d{1,3})`)
 var newBrunswickVoteSectionRe = regexp.MustCompile(`(?is)(?:RECORDED\s+DIVISION\s+)?(YEAS?|POUR)\s*[-:–]\s*\d{1,3}\s+`)
 var newBrunswickVoteCountPairRe = regexp.MustCompile(`(?is)(YEAS?|POUR)\s*[-:–]\s*(\d{1,3}).*?(NAYS?|CONTRE)\s*[-:–]\s*(\d{1,3})`)
-var newBrunswickNameTokenRe = regexp.MustCompile(`(?i)(?:Hon\.\s+)?(?:Mr\.|Ms\.)\s+[A-Z][A-Za-z\.'\-]+(?:\s*\-\s*[A-Z][A-Za-z\.'\-]+)*`)
+var newBrunswickNameTokenRe = regexp.MustCompile(`(?i)(?:Hon\.\s+)?(?:Mr\.|Ms\.)\s+(?:[A-Z]\.\s+)?[A-Z][A-Za-z\.'\-]+(?:\s*\-\s*[A-Z][A-Za-z\.'\-]+)*`)
 
 func crawlNewBrunswickVotesFromPDF(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	indexDoc, err := fetchDoc(indexURL, client)
@@ -964,6 +988,7 @@ func parseNewBrunswickVoteNames(blockText string) []string {
 		if name == "" {
 			continue
 		}
+		name = strings.ReplaceAll(name, " - ", "-")
 		name = strings.TrimSpace(strings.TrimPrefix(name, "Hon. "))
 		name = strings.TrimSpace(strings.TrimPrefix(name, "Mr. "))
 		name = strings.TrimSpace(strings.TrimPrefix(name, "Ms. "))
@@ -1484,6 +1509,27 @@ func parseBCDivisionTable(table *goquery.Selection) (yeas, nays int, yeaNames, n
 	return
 }
 
+func normaliseBCDivisionText(text string) string {
+	return strings.TrimSpace(strings.Join(strings.Fields(text), " "))
+}
+
+func isBCDivisionOutcomeText(text string) bool {
+	return strings.Contains(strings.ToLower(normaliseBCDivisionText(text)), "on the following division")
+}
+
+func extractBCDivisionDescription(table *goquery.Selection) string {
+	desc := ""
+	table.PrevAllFiltered("p").EachWithBreak(func(_ int, p *goquery.Selection) bool {
+		text := normaliseBCDivisionText(p.Text())
+		if text == "" || isBCDivisionOutcomeText(text) {
+			return true
+		}
+		desc = text
+		return false
+	})
+	return desc
+}
+
 // parseBCVotesDivisions parses all recorded divisions from a BC V&P HTML document.
 func parseBCVotesDivisions(doc *goquery.Document, sourceURL, date, province string, legislature, session, startDivNum int) []ProvincialDivisionResult {
 	var results []ProvincialDivisionResult
@@ -1494,9 +1540,7 @@ func parseBCVotesDivisions(doc *goquery.Document, sourceURL, date, province stri
 		if goquery.NodeName(sel) != "table" {
 			return
 		}
-		// Found a division table.  Grab the immediately-preceding <p> for the description.
-		desc := strings.TrimSpace(sel.Prev().Text())
-		desc = strings.Join(strings.Fields(desc), " ")
+		desc := extractBCDivisionDescription(sel)
 
 		yeas, nays, yeaNames, nayNames := parseBCDivisionTable(sel)
 		if yeas == 0 && nays == 0 {
@@ -1511,10 +1555,10 @@ func parseBCVotesDivisions(doc *goquery.Document, sourceURL, date, province stri
 		divID := ProvincialDivisionID("bc", legislature, session, divNum, date)
 		mv := make([]ProvincialMemberVote, 0, len(yeaNames)+len(nayNames))
 		for _, name := range yeaNames {
-			mv = append(mv, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "yea"})
+			mv = append(mv, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "Yea"})
 		}
 		for _, name := range nayNames {
-			mv = append(mv, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "nay"})
+			mv = append(mv, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "Nay"})
 		}
 
 		results = append(results, ProvincialDivisionResult{

@@ -13,7 +13,7 @@ import (
 )
 
 func TestParseSummaryJSON_FencedJSON(t *testing.T) {
-	raw := "```json\n{\"one_sentence\":\"One line\",\"plain_summary\":\"Two lines\",\"key_changes\":[\"a\"],\"who_is_affected\":[\"b\"],\"notable_considerations\":[],\"estimated_cost\":\"Not specified\",\"category\":\"Other\"}\n```"
+	raw := "```json\n{\"one_sentence\":\"One line\",\"plain_summary\":\"Two lines\",\"key_changes\":[\"a\"],\"who_is_affected\":[\"b\"],\"notable_considerations\":[],\"category\":\"Other\"}\n```"
 
 	got, err := parseSummaryJSON(raw)
 	if err != nil {
@@ -28,7 +28,7 @@ func TestParseSummaryJSON_FencedJSON(t *testing.T) {
 }
 
 func TestParseSummaryJSON_MixedTextWithJSONObject(t *testing.T) {
-	raw := "Here is your result:\n{\"one_sentence\":\"One line\",\"plain_summary\":\"Two lines\",\"key_changes\":[\"a\"],\"who_is_affected\":[\"b\"],\"notable_considerations\":[\"c\"],\"estimated_cost\":\"Not specified\",\"category\":\"Housing\"}\nThanks!"
+	raw := "Here is your result:\n{\"one_sentence\":\"One line\",\"plain_summary\":\"Two lines\",\"key_changes\":[\"a\"],\"who_is_affected\":[\"b\"],\"notable_considerations\":[\"c\"],\"category\":\"Housing\"}\nThanks!"
 
 	got, err := parseSummaryJSON(raw)
 	if err != nil {
@@ -56,7 +56,6 @@ func TestParseSummaryResult(t *testing.T) {
 		KeyChanges:            []string{"Increases housing tax credit", "Requires landlord transparency"},
 		WhoIsAffected:         []string{"Renters", "Landlords", "Government"},
 		NotableConsiderations: []string{"Citizens must give up privacy rights", "Excludes rural municipalities from some requirements"},
-		EstimatedCost:         "$2 billion over 10 years",
 		Category:              "Housing",
 		BillID:                "45-1-C-123",
 		GeneratedAt:           "2026-04-11T00:00:00Z",
@@ -114,7 +113,6 @@ func TestSummaryResultStructure(t *testing.T) {
 		KeyChanges:            []string{"test"},
 		WhoIsAffected:         []string{"test"},
 		NotableConsiderations: []string{"test"},
-		EstimatedCost:         "test",
 		Category:              "Housing",
 		BillID:                "45-1-C-1",
 		GeneratedAt:           "2026-04-11T00:00:00Z",
