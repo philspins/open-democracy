@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -2194,16 +2195,21 @@ const peiCaptchaSignature = "captcha.perfdrive.com"
 // hosts the legislative assembly workflow API.
 const peiWDFAPIBase = "https://wdf.princeedwardisland.ca"
 
-// peiRequestDelay is the minimum pause after each HTTP request to PEI assembly
-// sites. The default of 6 seconds caps throughput at 10 requests per minute,
-// reducing the chance of triggering Radware bot-manager detection.
-// Use SetPEIRequestDelay to override (e.g. set to 0 in TestMain).
-var peiRequestDelay = 6 * time.Second
+// peiRequestDelay holds the nanosecond value of the minimum pause after each
+// HTTP request to PEI assembly sites. The default of 6 seconds caps throughput
+// at 10 requests per minute, reducing the chance of triggering Radware
+// bot-manager detection. Access is atomic so SetPEIRequestDelay is safe to
+// call from any goroutine (e.g. test setup) without data races.
+var peiRequestDelay atomic.Int64
+
+func init() { peiRequestDelay.Store(int64(6 * time.Second)) }
 
 // SetPEIRequestDelay overrides the per-request rate-limit delay for PEI crawls.
-// It must only be called before any PEI crawl goroutines are started.
-// Intended for use in TestMain to disable delays during unit tests.
-func SetPEIRequestDelay(d time.Duration) { peiRequestDelay = d }
+// It is goroutine-safe. Intended for use in TestMain to disable delays during
+// unit tests:
+//
+//	func TestMain(m *testing.M) { scraper.SetPEIRequestDelay(0); os.Exit(m.Run()) }
+func SetPEIRequestDelay(d time.Duration) { peiRequestDelay.Store(int64(d)) }
 
 // peiWorkflowJournals is the WDF workflow name for the PEI legislative journals search.
 const peiWorkflowJournals = "LegislativeAssemblyJournals"
@@ -2294,7 +2300,7 @@ func postPEIWorkflow(wdfBase, workflowName, xReferer string, params map[string]s
 	}
 
 	// Rate-limit outbound requests to PEI servers.
-	time.Sleep(peiRequestDelay)
+	time.Sleep(time.Duration(peiRequestDelay.Load()))
 	return data, nil
 }
 
@@ -2360,7 +2366,7 @@ func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, c
 		parsed := parseGenericProvincialVotesDoc(doc, "pe", "pei", legislature, session, date)
 		results = append(results, parsed...)
 		// Rate-limit per-journal page fetches to 10 requests per minute.
-		time.Sleep(peiRequestDelay)
+		time.Sleep(time.Duration(peiRequestDelay.Load()))
 	}
 
 	log.Printf("[pe-votes] wdf parsed %d divisions from %d journals", len(results), len(items))
@@ -2383,7 +2389,7 @@ func (t *peiTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := t.base.RoundTrip(clone)
 	// Rate-limit HTML page fetches to 10 requests per minute regardless of
 	// error status; a failed request should not trigger an immediate retry burst.
-	time.Sleep(peiRequestDelay)
+	time.Sleep(time.Duration(peiRequestDelay.Load()))
 	return resp, err
 }
 
