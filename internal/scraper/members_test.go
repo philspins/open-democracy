@@ -932,7 +932,7 @@ func TestCrawlProvincialMembersFromAPI_NLEnrichesPhotos(t *testing.T) {
 	jsSrv := newTextTestServer("application/javascript", sampleNLMembersJS)
 	defer jsSrv.Close()
 
-	// Inject JS URL override via EnrichNLMemberPhotosURL.
+	// Inject JS URL override via scraper.NLMembersJSURLOverride.
 	scraper.NLMembersJSURLOverride = jsSrv.URL
 	defer func() { scraper.NLMembersJSURLOverride = "" }()
 

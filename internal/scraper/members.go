@@ -240,7 +240,7 @@ func CrawlProvincialMembersFromAPI(setSlug, apiURL string, client *http.Client) 
 	// The Newfoundland and Labrador Represent API does not include photo URLs.
 	// Enrich member photos from the legislature's own JavaScript member-index.
 	if setSlug == "newfoundland-labrador-legislature" {
-		profiles = enrichNLMemberPhotos(profiles, "", client)
+		profiles = enrichNLMemberPhotos(profiles, client)
 	}
 	return profiles, nil
 }
@@ -552,8 +552,10 @@ func CrawlNewBrunswickMembersFromWebsite(indexURL string, client *http.Client) (
 	return profiles, nil
 }
 
-// nbConvertMemberName converts a name in "LastName, FirstName" format (as used
-// by the NB legislature website) to "FirstName LastName" for consistent storage.
+// nbConvertMemberName converts a name in "LastName, FirstName" format to
+// "FirstName LastName" for consistent storage.  It is used for both New
+// Brunswick (NB) member pages and Newfoundland and Labrador (NL) member-index
+// entries, both of which use the same comma-separated name format.
 // Names that don't contain a comma are returned unchanged.
 func nbConvertMemberName(raw string) string {
 	if idx := strings.Index(raw, ", "); idx >= 0 {
@@ -587,14 +589,11 @@ var nlMemberNameRe = regexp.MustCompile(`>([^<]+)</a>`)
 //
 // Members are matched by normalised full name (case-insensitive, whitespace
 // collapsed). Unmatched members are left unchanged.
-func enrichNLMemberPhotos(profiles []MemberProfile, jsURL string, client *http.Client) []MemberProfile {
-	if jsURL == "" {
-		// Allow tests to redirect to a local server via NLMembersJSURLOverride.
-		if NLMembersJSURLOverride != "" {
-			jsURL = NLMembersJSURLOverride
-		} else {
-			jsURL = NLMembersJSURL
-		}
+func enrichNLMemberPhotos(profiles []MemberProfile, client *http.Client) []MemberProfile {
+	jsURL := NLMembersJSURL
+	// Allow tests to redirect to a local server via NLMembersJSURLOverride.
+	if NLMembersJSURLOverride != "" {
+		jsURL = NLMembersJSURLOverride
 	}
 	if client == nil {
 		client = utils.NewHTTPClient()
