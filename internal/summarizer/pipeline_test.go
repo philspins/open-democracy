@@ -1,6 +1,7 @@
 package summarizer
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -200,7 +201,7 @@ func TestFetchBillText_FallsBackForDeeplyNestedHTML(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	text, err := fetchBillText(t.Context(), srv.URL)
+	text, err := fetchBillText(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("fetchBillText returned error: %v", err)
 	}

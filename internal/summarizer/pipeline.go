@@ -578,6 +578,8 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 		)
 	}
 
+	// Cap read size at 8 MiB to avoid unbounded memory use on unexpectedly large
+	// responses while keeping enough headroom for typical HTML bill text pages.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return "", fmt.Errorf("read response body: %w", err)
@@ -603,6 +605,10 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 	return strings.TrimSpace(text), nil
 }
 
+// extractTextWithTokenizer extracts visible text from HTML using a streaming
+// tokenizer. It is used as a fallback when full DOM parsing fails on malformed
+// input (for example, extremely deep nesting). script/style content is excluded
+// by tracking whether the tokenizer is currently inside those tags.
 func extractTextWithTokenizer(raw []byte) string {
 	z := html.NewTokenizer(bytes.NewReader(raw))
 	var b strings.Builder
