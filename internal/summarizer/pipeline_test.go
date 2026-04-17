@@ -193,7 +193,8 @@ func TestSummarizeBillsFromChannel_Clears404FullTextURL(t *testing.T) {
 }
 
 func TestFetchBillText_FallsBackForDeeplyNestedHTML(t *testing.T) {
-	deep := strings.Repeat("<div>", 600) + "Bill body text" + strings.Repeat("</div>", 600)
+	const deepNesting = 600 // exceeds x/net/html parser stack limit (512)
+	deep := strings.Repeat("<div>", deepNesting) + "Bill body text" + strings.Repeat("</div>", deepNesting)
 	html := `<html><head><style>.x{display:none}</style></head><body><script>ignored()</script>` + deep + `</body></html>`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
