@@ -204,6 +204,19 @@ func TestProvinceSpecificBillCrawlerEntryPoints(t *testing.T) {
 	}
 }
 
+func TestCrawlPrinceEdwardIslandBills_HandlesCaptcha(t *testing.T) {
+	srv := newTestServer(`<html><body><link rel="stylesheet" href="https://captcha.perfdrive.com/challenge.css"></body></html>`)
+	defer srv.Close()
+
+	bills, err := scraper.CrawlPrinceEdwardIslandBills(srv.URL, 68, 1, srv.Client())
+	if err != nil {
+		t.Fatalf("expected no error on CAPTCHA, got: %v", err)
+	}
+	if len(bills) != 0 {
+		t.Fatalf("expected 0 bills on CAPTCHA, got %d", len(bills))
+	}
+}
+
 func TestProvinceSpecificVoteCrawlerEntryPoints(t *testing.T) {
 	type voteCrawler func(string, int, int, *http.Client) ([]scraper.ProvincialDivisionResult, error)
 
@@ -267,4 +280,3 @@ func TestProvinceSpecificVoteCrawlerEntryPoints(t *testing.T) {
 		})
 	}
 }
-

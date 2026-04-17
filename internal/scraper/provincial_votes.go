@@ -779,7 +779,7 @@ func extractProvincialPDFText(pdfPath string) (string, error) {
 		scanner := bufio.NewScanner(fp)
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
-			if strings.HasSuffix(line, "TJ") || strings.HasSuffix(line, "Tj") {
+			if hasPDFTextShowOperator(line) {
 				for _, match := range pdfParenTextRe.FindAllStringSubmatch(line, -1) {
 					if len(match) < 2 {
 						continue
@@ -801,6 +801,10 @@ func extractProvincialPDFText(pdfPath string) (string, error) {
 }
 
 var pdfParenTextRe = regexp.MustCompile(`\(([^()]*)\)`)
+
+func hasPDFTextShowOperator(line string) bool {
+	return strings.Contains(line, " Tj") || strings.Contains(line, " TJ")
+}
 
 func decodePDFStringToken(token string) string {
 	token = strings.ReplaceAll(token, `\\(`, "(")
@@ -1389,10 +1393,10 @@ const bcLIMSBase = "https://lims.leg.bc.ca"
 
 // bcLIMSVotesFile describes a single V&P HTML document returned by the BC LIMS API.
 type bcLIMSVotesFile struct {
-	FileName  string `json:"fileName"`
-	FilePath  string `json:"filePath"`
-	Published bool   `json:"published"`
-	Date      string `json:"date"`
+	FileName                string `json:"fileName"`
+	FilePath                string `json:"filePath"`
+	Published               bool   `json:"published"`
+	Date                    string `json:"date"`
 	VotesAttributesByFileId struct {
 		Nodes []struct {
 			VoteNumbers string `json:"voteNumbers"`
@@ -1769,8 +1773,6 @@ func CrawlManitobaVotes(indexURL string, legislature, session int, client *http.
 	}
 	return crawlManitobaVotesFromPDF(indexURL, legislature, session, client)
 }
-
-
 
 // CrawlQuebecVotes crawls Quebec registre/votes pages.
 func CrawlQuebecVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
@@ -2188,6 +2190,12 @@ func CrawlNovaScotiaVotes(indexURL string, legislature, session int, client *htt
 // peiCaptchaSignature is a substring present in Radware bot-manager CAPTCHA pages
 // returned by assembly.pe.ca for automated clients.
 const peiCaptchaSignature = "captcha.perfdrive.com"
+const peiBotManagerSignature = "perfdrive.com"
+
+func isPEICaptchaBody(body []byte) bool {
+	lower := strings.ToLower(string(body))
+	return strings.Contains(lower, peiCaptchaSignature) || strings.Contains(lower, peiBotManagerSignature)
+}
 
 // peiTransport adds browser-like request headers to bypass Radware bot-manager.
 type peiTransport struct {
@@ -2220,7 +2228,7 @@ func crawlPEIVotes(indexURL string, legislature, session int, client *http.Clien
 		return nil, fmt.Errorf("pe votes index read: %w", err)
 	}
 
-	if strings.Contains(string(body), peiCaptchaSignature) {
+	if isPEICaptchaBody(body) {
 		log.Printf("[pe-votes] CAPTCHA detected — assembly.pe.ca is protected by Radware bot-manager; returning 0 divisions. See docs/implementation-plan-detailed.md § 5A.7 for escalation path.")
 		return nil, nil
 	}
@@ -2279,8 +2287,6 @@ func CrawlPrinceEdwardIslandVotes(indexURL string, legislature, session int, cli
 	}
 	return crawlPEIVotes(indexURL, legislature, session, client)
 }
-
-
 
 // CrawlGenericProvincialVotes fetches a provincial votes/proceedings index page,
 // discovers likely per-day links, then parses divisions from each page using

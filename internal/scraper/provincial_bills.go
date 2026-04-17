@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -361,7 +363,25 @@ func CrawlPrinceEdwardIslandBills(indexURL string, legislature, session int, cli
 	if client == nil {
 		client = newPEIHTTPClient()
 	}
-	return crawlProvincialBillsFromIndexWithMatcher(indexURL, "pe", legislature, session, "pei", client, peiBillLinkRe)
+	resp, err := client.Get(indexURL)
+	if err != nil {
+		return nil, fmt.Errorf("pei bills index: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("pei bills index read: %w", err)
+	}
+	if isPEICaptchaBody(body) {
+		log.Printf("[pe-bills] CAPTCHA detected — assembly.pe.ca is protected by Radware bot-manager; returning 0 bills.")
+		return nil, nil
+	}
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("pei bills parse: %w", err)
+	}
+	return parseProvincialBillsIndexDoc(doc, indexURL, "pe", legislature, session, "pei", peiBillLinkRe), nil
 }
 
 func CrawlQuebecBills(indexURL string, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
