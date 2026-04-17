@@ -177,10 +177,11 @@ func TestParseNLJournalDivisions_OutcomeOnly(t *testing.T) {
 }
 
 func TestCrawlPrinceEdwardIslandVotes_HandlesCaptcha(t *testing.T) {
+	const peiLegislature = 68
 	srv := newTestServer(`<html><body><link rel="stylesheet" href="https://captcha.perfdrive.com/challenge.css"></body></html>`)
 	defer srv.Close()
 
-	divs, err := scraper.CrawlPrinceEdwardIslandVotes(srv.URL, 68, 1, srv.Client())
+	divs, err := scraper.CrawlPrinceEdwardIslandVotes(srv.URL, peiLegislature, 1, srv.Client())
 	if err != nil {
 		t.Fatalf("expected no error on CAPTCHA, got: %v", err)
 	}
@@ -190,6 +191,7 @@ func TestCrawlPrinceEdwardIslandVotes_HandlesCaptcha(t *testing.T) {
 }
 
 func TestCrawlPrinceEdwardIslandVotes_UsesWorkflowAPI(t *testing.T) {
+	const peiLegislature = 68
 	mux := http.NewServeMux()
 	mux.HandleFunc("/services/api/workflow", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -223,7 +225,7 @@ func TestCrawlPrinceEdwardIslandVotes_UsesWorkflowAPI(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	divs, err := scraper.CrawlPrinceEdwardIslandVotes(srv.URL+"/services/api/workflow", 68, 1, srv.Client())
+	divs, err := scraper.CrawlPrinceEdwardIslandVotes(srv.URL+"/services/api/workflow", peiLegislature, 1, srv.Client())
 	if err != nil {
 		t.Fatalf("CrawlPrinceEdwardIslandVotes workflow: %v", err)
 	}
