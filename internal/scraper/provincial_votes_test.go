@@ -161,6 +161,9 @@ func TestParsePDFDivisionsYeasNays_ManitobaStyle(t *testing.T) {
 }
 
 func TestParsePDFDivisionsYeasNays_ManitobaStyleUppercaseNames(t *testing.T) {
+	// Real MB V&P PDFs commonly render surname lists in ALL CAPS. This compact
+	// excerpt is sufficient because the parser only requires YEAS/NAYS headers,
+	// counts, and tokenized name blocks.
 	text := `VOTES AND PROCEEDINGS 43rd Legislature 3rd Session YEAS - 37 BALSER BAILEY BEREZA BRAR BUSHIE CLARKE COOK NAYS - 18 BALCAEN BYRAM EICHLER EWASKO GOERTZEN`
 	divs := scraper.ParsePDFDivisionsYeasNaysForTest(text, "https://example.com/votes_041.pdf", "mb", "manitoba", 43, 3, 1, "2024-02-20")
 	if len(divs) != 1 {
@@ -168,6 +171,16 @@ func TestParsePDFDivisionsYeasNays_ManitobaStyleUppercaseNames(t *testing.T) {
 	}
 	if len(divs[0].Votes) < 5 {
 		t.Fatalf("len(votes)=%d, want >=5", len(divs[0].Votes))
+	}
+	votesByName := map[string]string{}
+	for _, v := range divs[0].Votes {
+		votesByName[v.MemberName] = v.Vote
+	}
+	if got := votesByName["BALSER"]; got != "Yea" {
+		t.Fatalf("vote[BALSER]=%q, want Yea", got)
+	}
+	if got := votesByName["EICHLER"]; got != "Nay" {
+		t.Fatalf("vote[EICHLER]=%q, want Nay", got)
 	}
 }
 

@@ -385,7 +385,7 @@ const sampleProvincialAPIResponse = `{
 const sampleProvincialRelativePhotoAPIResponse = `{
   "objects": [
     {
-      "name": "Marc L",
+      "name": "Marc Lagasse",
       "party_name": "Party",
       "district_name": "District",
       "email": "",

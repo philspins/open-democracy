@@ -321,27 +321,28 @@ func fetchRepresentPages(apiURL, governmentLevel, setSlug string, client *http.C
 	return profiles, nil
 }
 
+// normalizeRepresentPhotoURL converts Represent API photo_url values to an
+// absolute URL. Relative photo paths are resolved against the member profile
+// URL when available, and otherwise against the Represent API base URL.
 func normalizeRepresentPhotoURL(photoURL, memberURL string) string {
 	photoURL = strings.TrimSpace(photoURL)
 	if photoURL == "" {
 		return ""
 	}
-	if u, err := url.Parse(photoURL); err == nil && u.IsAbs() {
+	photoRef, err := url.Parse(photoURL)
+	if err != nil {
+		return photoURL
+	}
+	if photoRef.IsAbs() {
 		return photoURL
 	}
 	if memberURL != "" {
-		if base, err := url.Parse(memberURL); err == nil {
-			if rel, err := url.Parse(photoURL); err == nil {
-				return base.ResolveReference(rel).String()
-			}
+		base, err := url.Parse(memberURL)
+		if err == nil {
+			return base.ResolveReference(photoRef).String()
 		}
 	}
-	if base, err := url.Parse(RepresentBaseURL); err == nil {
-		if rel, err := url.Parse(photoURL); err == nil {
-			return base.ResolveReference(rel).String()
-		}
-	}
-	return photoURL
+	return ""
 }
 
 // extractProvincialMemberID builds a deterministic ID for a provincial member
