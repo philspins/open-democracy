@@ -20,11 +20,11 @@ import (
 
 // Server holds application dependencies.
 type Server struct {
-	store      *store.Store
-	mux        *http.ServeMux
-	auth       *auth.Service
-	riding     *riding.Service
-	baseURL    string
+	store   *store.Store
+	mux     *http.ServeMux
+	auth    *auth.Service
+	riding  *riding.Service
+	baseURL string
 	// baseHost is the hostname extracted from baseURL at construction time.
 	// It is used for the HTTP→HTTPS redirect to prevent host-header injection.
 	// Empty when baseURL cannot be parsed or contains no host.
@@ -158,6 +158,7 @@ func (s *Server) handleBills(w http.ResponseWriter, r *http.Request) {
 		Stage:    q.Get("stage"),
 		Category: q.Get("category"),
 		Chamber:  q.Get("chamber"),
+		Level:    q.Get("level"),
 		Page:     page,
 		PerPage:  20,
 	}
@@ -198,12 +199,15 @@ func (s *Server) handleVotes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleMembers(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	ps := s.parliamentStatus()
-	members, err := s.store.ListMembers(q.Get("q"), q.Get("party"), q.Get("province"))
+	members, err := s.store.ListMembers(q.Get("q"), q.Get("party"), q.Get("province"), q.Get("riding"), q.Get("level"))
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	_ = templates.MembersDirectory(ps, members, q.Get("q"), q.Get("party"), q.Get("province")).Render(r.Context(), w)
+	parties, _ := s.store.ListDistinctParties()
+	provinces, _ := s.store.ListDistinctProvinces()
+	ridings, _ := s.store.ListDistinctRidings()
+	_ = templates.MembersDirectory(ps, members, q.Get("q"), q.Get("party"), q.Get("province"), q.Get("riding"), q.Get("level"), parties, provinces, ridings).Render(r.Context(), w)
 }
 
 func (s *Server) handleMemberProfile(w http.ResponseWriter, r *http.Request) {
@@ -216,7 +220,8 @@ func (s *Server) handleMemberProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	votes, _ := s.store.GetMemberVotes(id, 50)
 	stats, _ := s.store.GetMemberStats(id)
-	_ = templates.MemberProfile(ps, member, votes, stats).Render(r.Context(), w)
+	catScores, _ := s.store.GetMemberCategoryScores(id)
+	_ = templates.MemberProfile(ps, member, votes, stats, catScores).Render(r.Context(), w)
 }
 
 func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {

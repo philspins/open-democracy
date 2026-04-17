@@ -40,17 +40,18 @@ type DivisionRow struct {
 }
 
 type MemberRow struct {
-	ID       string
-	Name     string
-	Party    string
-	Riding   string
-	Province string
-	Role     string
-	PhotoURL string
-	Email    string
-	Website  string
-	Chamber  string
-	Active   bool
+	ID              string
+	Name            string
+	Party           string
+	Riding          string
+	Province        string
+	Role            string
+	PhotoURL        string
+	Email           string
+	Website         string
+	Chamber         string
+	Active          bool
+	GovernmentLevel string // "federal" | "provincial"
 }
 
 type VoteRow struct {
@@ -85,6 +86,7 @@ type BillFilter struct {
 	Stage    string
 	Category string
 	Chamber  string
+	Level    string // "" | "federal" | "provincial"
 	Page     int
 	PerPage  int
 }
@@ -114,4 +116,13 @@ type BillReactionCounts struct {
 	NeutralCount   int
 	TotalReactions int
 	RefreshedAt    string
+}
+
+// CategoryScore holds an MP's voting tendency on bills in a given category.
+type CategoryScore struct {
+	Category string
+	Total    int
+	Yeas     int
+	Nays     int
+	YeaPct   int // 0–100, rounded
 }

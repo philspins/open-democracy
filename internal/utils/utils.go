@@ -28,6 +28,15 @@ func NewHTTPClient() *http.Client {
 	}
 }
 
+// NewHTTPClientWithTimeout returns an *http.Client with a custom timeout and
+// the project User-Agent injected via a transport wrapper.
+func NewHTTPClientWithTimeout(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: &uaTransport{base: http.DefaultTransport},
+	}
+}
+
 // uaTransport injects the User-Agent header on every request.
 type uaTransport struct {
 	base http.RoundTripper
@@ -36,6 +45,12 @@ type uaTransport struct {
 func (t *uaTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone := req.Clone(req.Context())
 	clone.Header.Set("User-Agent", AppUserAgent)
+	// Some servers (e.g. nslegislature.ca) require an Accept header and drop the
+	// connection with EOF when it is absent. Use a broadly-accepting value that
+	// works for both HTML pages and JSON APIs.
+	if clone.Header.Get("Accept") == "" {
+		clone.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,application/json,*/*;q=0.8")
+	}
 	return t.base.RoundTrip(clone)
 }
 
@@ -44,6 +59,7 @@ func (t *uaTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 var (
 	legisinfoRe  = regexp.MustCompile(`(?i)/legisinfo/en/bill/(\d+)-(\d+)/([A-Za-z]+-?\d+)`)
 	memberRe     = regexp.MustCompile(`(?i)/Members/en/(\d+)`)
+	memberParenRe = regexp.MustCompile(`(?i)/Members/en/[^/(]+\((\d+)\)`)
 	billNumberRe = regexp.MustCompile(`(?i)\b([CS]-\d+)\b`)
 )
 
@@ -60,10 +76,15 @@ func ExtractBillID(rawURL string) string {
 
 // ExtractMemberID parses a member ID from an ourcommons.ca URL.
 //
-//	https://www.ourcommons.ca/Members/en/123006  →  "123006"
+//	https://www.ourcommons.ca/Members/en/parm-bains(111067)  →  "111067"
+//	https://www.ourcommons.ca/Members/en/123006              →  "123006"
 func ExtractMemberID(rawURL string) string {
-	m := memberRe.FindStringSubmatch(rawURL)
-	if len(m) == 2 {
+	// Prefer the current name(ID) format used by ourcommons.ca and the Represent API.
+	if m := memberParenRe.FindStringSubmatch(rawURL); len(m) == 2 {
+		return m[1]
+	}
+	// Fall back to the legacy numeric-only format.
+	if m := memberRe.FindStringSubmatch(rawURL); len(m) == 2 {
 		return m[1]
 	}
 	return ""

@@ -34,6 +34,11 @@ templ BillsFeed(ps store.ParliamentStatus, bills []store.BillRow, total int, f s
 					<option value="commons" selected?={ f.Chamber == "commons" }>House</option>
 					<option value="senate" selected?={ f.Chamber == "senate" }>Senate</option>
 				</select>
+				<select name="level" class="input-field">
+					<option value="">Federal + Provincial</option>
+					<option value="federal" selected?={ f.Level == "federal" }>Federal only</option>
+					<option value="provincial" selected?={ f.Level == "provincial" }>Provincial only</option>
+				</select>
 				<button type="submit" class="btn btn-primary">Filter</button>
 				<a href="/bills" class="text-sm text-gray-500 hover:underline">Clear</a>
 			</form>
@@ -62,6 +67,7 @@ templ billCard(b store.BillRow) {
 			<div class="flex-1 min-w-0">
 				<div class="flex items-center gap-2 mb-2">
 					<span class="font-mono font-semibold text-blue-600">{ b.Number }</span>
+					<span class={ BillLevelBadgeClass(b) }>{ BillLevelLabel(b) }</span>
 					if b.Category != "" {
 						<span class="text-xs px-2 py-0.5 rounded-full text-white" style={ CategoryBadgeStyle(b.Category) }>{ b.Category }</span>
 					}
@@ -137,6 +143,9 @@ func billPageParams(f store.BillFilter) string {
 	}
 	if f.Chamber != "" {
 		params += "&chamber=" + f.Chamber
+	}
+	if f.Level != "" {
+		params += "&level=" + f.Level
 	}
 	return params
 }

@@ -96,6 +96,43 @@ func TestListBills_ChamberFilter(t *testing.T) {
 	}
 }
 
+func TestListBills_LevelFilter(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, err := conn.Exec(`INSERT INTO bills (id, parliament, session, number, title, category, current_stage, chamber)
+		VALUES ('45-1-c-1', 45, 1, 'C-1', 'Federal Commons Bill', 'Housing', '1st_reading', 'commons'),
+		       ('45-1-s-1', 45, 1, 'S-1', 'Federal Senate Bill', 'Health', '1st_reading', 'senate'),
+		       ('on-43-1-12', 43, 1, '12', 'Ontario Bill', 'Housing', '1st_reading', 'ontario')`)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	bills, total, err := st.ListBills(store.BillFilter{Level: "federal", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListBills federal: %v", err)
+	}
+	if total != 2 || len(bills) != 2 {
+		t.Fatalf("expected 2 federal bills, total=%d len=%d", total, len(bills))
+	}
+	for _, b := range bills {
+		if b.ID == "on-43-1-12" {
+			t.Fatalf("provincial bill included in federal filter: %+v", b)
+		}
+	}
+
+	bills, total, err = st.ListBills(store.BillFilter{Level: "provincial", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListBills provincial: %v", err)
+	}
+	if total != 1 || len(bills) != 1 {
+		t.Fatalf("expected 1 provincial bill, total=%d len=%d", total, len(bills))
+	}
+	if bills[0].ID != "on-43-1-12" {
+		t.Fatalf("unexpected provincial result: %+v", bills[0])
+	}
+}
+
 func TestGetBill_NotFound(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)
@@ -508,5 +545,154 @@ func TestUpdateUserLocationPersistsAddressAndRidings(t *testing.T) {
 	}
 	if reloaded.Address != updated.Address || reloaded.FederalRidingID != updated.FederalRidingID || reloaded.ProvincialRidingID != updated.ProvincialRidingID {
 		t.Fatalf("reloaded user mismatch: %+v vs %+v", reloaded, updated)
+	}
+}
+
+func TestListMembers_Filters(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, err := conn.Exec(`INSERT INTO members (id, name, party, riding, province, chamber, active, government_level)
+		VALUES ('m1', 'Alice Smith', 'Liberal', 'Ottawa Centre', 'Ontario', 'commons', 1, 'federal'),
+		       ('m2', 'Bob Jones', 'Conservative', 'Calgary East', 'Alberta', 'commons', 1, 'federal'),
+		       ('m3', 'Carol White', 'NDP', 'Vancouver East', 'British Columbia', 'legislature', 1, 'provincial')`)
+	if err != nil {
+		t.Fatalf("insert members: %v", err)
+	}
+
+	tests := []struct {
+		name            string
+		search          string
+		party           string
+		province        string
+		riding          string
+		governmentLevel string
+		wantIDs         []string
+	}{
+		{"no filter returns all", "", "", "", "", "", []string{"m1", "m2", "m3"}},
+		{"name search exact", "Alice Smith", "", "", "", "", []string{"m1"}},
+		{"name search partial", "alice", "", "", "", "", []string{"m1"}},
+		{"name search case insensitive", "ALICE", "", "", "", "", []string{"m1"}},
+		{"party exact match", "", "Liberal", "", "", "", []string{"m1"}},
+		{"province exact match", "", "", "Ontario", "", "", []string{"m1"}},
+		{"province abbreviation BC expands to British Columbia", "", "", "BC", "", "", []string{"m3"}},
+		{"province abbreviation bc lowercase", "", "", "bc", "", "", []string{"m3"}},
+		{"province abbreviation ON expands to Ontario", "", "", "ON", "", "", []string{"m1"}},
+		{"province abbreviation AB expands to Alberta", "", "", "AB", "", "", []string{"m2"}},
+		{"riding exact match", "", "", "", "Ottawa Centre", "", []string{"m1"}},
+		{"name and party combined", "alice", "Liberal", "", "", "", []string{"m1"}},
+		{"no match returns empty", "zzz", "", "", "", "", []string{}},
+		{"federal filter returns two", "", "", "", "", "federal", []string{"m1", "m2"}},
+		{"provincial filter returns one", "", "", "", "", "provincial", []string{"m3"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			members, err := st.ListMembers(tc.search, tc.party, tc.province, tc.riding, tc.governmentLevel)
+			if err != nil {
+				t.Fatalf("ListMembers: %v", err)
+			}
+			gotIDs := make([]string, len(members))
+			for i, m := range members {
+				gotIDs[i] = m.ID
+			}
+			if len(gotIDs) != len(tc.wantIDs) {
+				t.Errorf("got %d members (%v), want %d (%v)", len(gotIDs), gotIDs, len(tc.wantIDs), tc.wantIDs)
+				return
+			}
+			wantSet := make(map[string]bool)
+			for _, id := range tc.wantIDs {
+				wantSet[id] = true
+			}
+			for _, id := range gotIDs {
+				if !wantSet[id] {
+					t.Errorf("unexpected member ID %q in results %v", id, gotIDs)
+				}
+			}
+		})
+	}
+}
+
+func TestGetMemberCategoryScores(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	// Insert a member, two bills in different categories, two divisions, and votes.
+	_, err := conn.Exec(`
+		INSERT INTO members (id, name, party, riding, province, chamber, active, government_level)
+		VALUES ('m1', 'Alice Smith', 'Liberal', 'Ottawa Centre', 'Ontario', 'commons', 1, 'federal')`)
+	if err != nil {
+		t.Fatalf("insert member: %v", err)
+	}
+	_, err = conn.Exec(`
+		INSERT INTO bills (id, parliament, session, number, title, category, current_stage, chamber)
+		VALUES ('b-housing', 45, 1, 'C-1', 'Housing Act', 'Housing', '1st_reading', 'commons'),
+		       ('b-health',  45, 1, 'C-2', 'Health Act',  'Health',  '1st_reading', 'commons')`)
+	if err != nil {
+		t.Fatalf("insert bills: %v", err)
+	}
+	_, err = conn.Exec(`
+		INSERT INTO divisions (id, parliament, session, number, date, bill_id, description, yeas, nays, result, chamber)
+		VALUES ('d1', 45, 1, 1, '2024-01-01', 'b-housing', 'Housing vote 1', 100, 50, 'Passed', 'commons'),
+		       ('d2', 45, 1, 2, '2024-01-02', 'b-housing', 'Housing vote 2', 80,  70, 'Passed', 'commons'),
+		       ('d3', 45, 1, 3, '2024-01-03', 'b-health',  'Health vote 1',  90,  60, 'Passed', 'commons')`)
+	if err != nil {
+		t.Fatalf("insert divisions: %v", err)
+	}
+	// Alice votes Yea on both housing divisions and Nay on the health division.
+	_, err = conn.Exec(`
+		INSERT INTO member_votes (member_id, division_id, vote)
+		VALUES ('m1', 'd1', 'Yea'),
+		       ('m1', 'd2', 'Nay'),
+		       ('m1', 'd3', 'Nay')`)
+	if err != nil {
+		t.Fatalf("insert member_votes: %v", err)
+	}
+
+	scores, err := st.GetMemberCategoryScores("m1")
+	if err != nil {
+		t.Fatalf("GetMemberCategoryScores: %v", err)
+	}
+
+	// Expect 2 categories; Housing has more votes so it comes first.
+	if len(scores) != 2 {
+		t.Fatalf("want 2 category scores, got %d (%+v)", len(scores), scores)
+	}
+
+	// Housing: 1 Yea + 1 Nay = total 2, YeaPct = 50
+	hsc := scores[0]
+	if hsc.Category != "Housing" {
+		t.Errorf("first category: want Housing, got %q", hsc.Category)
+	}
+	if hsc.Total != 2 || hsc.Yeas != 1 || hsc.Nays != 1 {
+		t.Errorf("Housing totals: want total=2 yeas=1 nays=1, got %+v", hsc)
+	}
+	if hsc.YeaPct != 50 {
+		t.Errorf("Housing YeaPct: want 50, got %d", hsc.YeaPct)
+	}
+
+	// Health: 0 Yea + 1 Nay = total 1, YeaPct = 0
+	hlt := scores[1]
+	if hlt.Category != "Health" {
+		t.Errorf("second category: want Health, got %q", hlt.Category)
+	}
+	if hlt.Total != 1 || hlt.Yeas != 0 || hlt.Nays != 1 {
+		t.Errorf("Health totals: want total=1 yeas=0 nays=1, got %+v", hlt)
+	}
+	if hlt.YeaPct != 0 {
+		t.Errorf("Health YeaPct: want 0, got %d", hlt.YeaPct)
+	}
+}
+
+func TestGetMemberCategoryScores_Empty(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	scores, err := st.GetMemberCategoryScores("nonexistent")
+	if err != nil {
+		t.Fatalf("GetMemberCategoryScores: %v", err)
+	}
+	if len(scores) != 0 {
+		t.Errorf("want 0 scores for unknown member, got %d", len(scores))
 	}
 }

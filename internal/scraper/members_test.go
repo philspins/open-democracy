@@ -1,10 +1,21 @@
 package scraper_test
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/philspins/open-democracy/internal/scraper"
 )
+
+// newJSONTestServer starts a test server that always returns body as JSON.
+func newJSONTestServer(body string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Write([]byte(body))
+	}))
+}
 
 // ── NormaliseVote ─────────────────────────────────────────────────────────────
 
@@ -183,5 +194,437 @@ func TestCrawlMemberProfile_PreservesIDOnError(t *testing.T) {
 	profile, _ := scraper.CrawlMemberProfile("123006", "http://localhost:0/no-server", nil)
 	if profile.ID != "123006" {
 		t.Errorf("ID=%q want 123006", profile.ID)
+	}
+}
+
+// ── CrawlMembersFromAPI ───────────────────────────────────────────────────────
+
+const sampleAPIResponse = `{
+  "objects": [
+    {
+      "name": "Jane Doe",
+      "party_name": "Liberal",
+      "district_name": "Ottawa Centre",
+      "email": "jane.doe@parl.gc.ca",
+      "url": "https://www.ourcommons.ca/Members/en/jane-doe(111)",
+      "personal_url": "https://janedoe.ca",
+      "photo_url": "https://www.ourcommons.ca/photo/111.jpg",
+      "offices": [
+        {"type": "legislature", "postal": "House of Commons\nOttawa ON  K1A 0A6"},
+        {"type": "constituency", "postal": "Main office\n123 Main St\nOttawa ON  K1A 0A6"}
+      ],
+      "extra": {}
+    },
+    {
+      "name": "John Smith",
+      "party_name": "Conservative",
+      "district_name": "Calgary East",
+      "email": "john.smith@parl.gc.ca",
+      "url": "https://www.ourcommons.ca/Members/en/john-smith(222)",
+      "personal_url": "",
+      "photo_url": "https://www.ourcommons.ca/photo/222.jpg",
+      "offices": [
+        {"type": "constituency", "postal": "555 9 Ave SW\nCalgary AB  T2P 3S5"}
+      ],
+      "extra": {"roles": ["Minister of Finance"]}
+    }
+  ],
+  "meta": {"next": null}
+}`
+
+func TestCrawlMembersFromAPI_ReturnsTwoProfiles(t *testing.T) {
+srv := newJSONTestServer(sampleAPIResponse)
+defer srv.Close()
+
+profiles, err := scraper.CrawlMembersFromAPI(srv.URL, srv.Client())
+if err != nil {
+t.Fatalf("CrawlMembersFromAPI: %v", err)
+}
+if len(profiles) != 2 {
+t.Fatalf("len=%d, want 2", len(profiles))
+}
+}
+
+func TestCrawlMembersFromAPI_ParsesFirstMember(t *testing.T) {
+srv := newJSONTestServer(sampleAPIResponse)
+defer srv.Close()
+
+profiles, _ := scraper.CrawlMembersFromAPI(srv.URL, srv.Client())
+m := profiles[0]
+if m.ID != "111" {
+t.Errorf("ID=%q want 111", m.ID)
+}
+if m.Name != "Jane Doe" {
+t.Errorf("Name=%q want Jane Doe", m.Name)
+}
+if m.Party != "Liberal" {
+t.Errorf("Party=%q want Liberal", m.Party)
+}
+if m.Riding != "Ottawa Centre" {
+t.Errorf("Riding=%q want Ottawa Centre", m.Riding)
+}
+if m.Province != "Ontario" {
+t.Errorf("Province=%q want Ontario", m.Province)
+}
+if m.Email != "jane.doe@parl.gc.ca" {
+t.Errorf("Email=%q want jane.doe@parl.gc.ca", m.Email)
+}
+if m.PhotoURL != "https://www.ourcommons.ca/photo/111.jpg" {
+t.Errorf("PhotoURL=%q want https://www.ourcommons.ca/photo/111.jpg", m.PhotoURL)
+}
+if m.Website != "https://janedoe.ca" {
+t.Errorf("Website=%q want https://janedoe.ca", m.Website)
+}
+if m.Chamber != "commons" {
+t.Errorf("Chamber=%q want commons", m.Chamber)
+}
+if !m.Active {
+t.Error("Active should be true")
+}
+if m.GovernmentLevel != "federal" {
+t.Errorf("GovernmentLevel=%q want federal", m.GovernmentLevel)
+}
+}
+
+func TestCrawlMembersFromAPI_ParsesRoleFromExtra(t *testing.T) {
+srv := newJSONTestServer(sampleAPIResponse)
+defer srv.Close()
+
+profiles, _ := scraper.CrawlMembersFromAPI(srv.URL, srv.Client())
+if profiles[1].Role != "Minister of Finance" {
+t.Errorf("Role=%q want Minister of Finance", profiles[1].Role)
+}
+}
+
+func TestCrawlMembersFromAPI_DefaultRoleWhenExtraEmpty(t *testing.T) {
+srv := newJSONTestServer(sampleAPIResponse)
+defer srv.Close()
+
+profiles, _ := scraper.CrawlMembersFromAPI(srv.URL, srv.Client())
+if profiles[0].Role != "Member of Parliament" {
+t.Errorf("Role=%q want Member of Parliament", profiles[0].Role)
+}
+}
+
+func TestCrawlMembersFromAPI_ParsesProvinceFromOffices(t *testing.T) {
+srv := newJSONTestServer(sampleAPIResponse)
+defer srv.Close()
+
+profiles, _ := scraper.CrawlMembersFromAPI(srv.URL, srv.Client())
+if profiles[1].Province != "Alberta" {
+t.Errorf("Province=%q want Alberta", profiles[1].Province)
+}
+}
+
+func TestCrawlMembersFromAPI_ErrorOnBadServer(t *testing.T) {
+_, err := scraper.CrawlMembersFromAPI("http://localhost:0/no-server", nil)
+if err == nil {
+t.Error("expected error for unreachable server")
+}
+}
+
+func TestCrawlMembersFromAPI_EmptyOnNoObjects(t *testing.T) {
+srv := newJSONTestServer(`{"objects":[],"meta":{"next":null}}`)
+defer srv.Close()
+
+profiles, err := scraper.CrawlMembersFromAPI(srv.URL, srv.Client())
+if err != nil {
+t.Fatalf("unexpected error: %v", err)
+}
+if len(profiles) != 0 {
+t.Errorf("expected 0 profiles, got %d", len(profiles))
+}
+}
+
+func TestCrawlMembersFromAPI_FollowsPagination(t *testing.T) {
+page1 := `{"objects":[{"name":"Jane Doe","party_name":"Liberal","district_name":"Ottawa Centre","email":"","url":"https://www.ourcommons.ca/Members/en/jane-doe(111)","personal_url":"","photo_url":"","offices":[],"extra":{}}],"meta":{"next":"/page2"}}`
+page2 := `{"objects":[{"name":"John Smith","party_name":"Conservative","district_name":"Calgary East","email":"","url":"https://www.ourcommons.ca/Members/en/john-smith(222)","personal_url":"","photo_url":"","offices":[],"extra":{}}],"meta":{"next":null}}`
+
+var srv *httptest.Server
+srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+w.Header().Set("Content-Type", "application/json")
+if r.URL.Path == "/page2" {
+w.Write([]byte(page2))
+} else {
+w.Write([]byte(page1))
+}
+}))
+defer srv.Close()
+
+profiles, err := scraper.CrawlMembersFromAPI(srv.URL, srv.Client())
+if err != nil {
+t.Fatalf("CrawlMembersFromAPI: %v", err)
+}
+if len(profiles) != 2 {
+t.Errorf("len=%d, want 2 (expected pagination to be followed)", len(profiles))
+}
+}
+
+// ── CrawlProvincialMembersFromAPI ─────────────────────────────────────────────
+
+const sampleProvincialAPIResponse = `{
+  "objects": [
+    {
+      "name": "Laura Smith",
+      "party_name": "Progressive Conservative Party of Ontario",
+      "district_name": "Thornhill",
+      "email": "laura.smith@pc.ola.org",
+      "url": "https://www.ola.org/en/members/all/laura-smith",
+      "personal_url": "",
+      "photo_url": "https://www.ola.org/sites/default/files/Laura_Smith.png",
+      "elected_office": "MPP",
+      "offices": [
+        {"type": "constituency", "postal": "1136 Centre St.\nThornhill ON  L4J 3M8"}
+      ],
+      "extra": {}
+    }
+  ],
+  "meta": {"next": null}
+}`
+
+func TestCrawlProvincialMembersFromAPI_ReturnsProfile(t *testing.T) {
+	srv := newJSONTestServer(sampleProvincialAPIResponse)
+	defer srv.Close()
+
+	profiles, err := scraper.CrawlProvincialMembersFromAPI("ontario-legislature", srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlProvincialMembersFromAPI: %v", err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("len=%d, want 1", len(profiles))
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_GovernmentLevel(t *testing.T) {
+	srv := newJSONTestServer(sampleProvincialAPIResponse)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlProvincialMembersFromAPI("ontario-legislature", srv.URL, srv.Client())
+	if profiles[0].GovernmentLevel != "provincial" {
+		t.Errorf("GovernmentLevel=%q want provincial", profiles[0].GovernmentLevel)
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_IDFromSetSlugAndURLSlug(t *testing.T) {
+	srv := newJSONTestServer(sampleProvincialAPIResponse)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlProvincialMembersFromAPI("ontario-legislature", srv.URL, srv.Client())
+	wantID := "ontario-legislature-laura-smith"
+	if profiles[0].ID != wantID {
+		t.Errorf("ID=%q want %q", profiles[0].ID, wantID)
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_ElectedOfficeAsRole(t *testing.T) {
+	srv := newJSONTestServer(sampleProvincialAPIResponse)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlProvincialMembersFromAPI("ontario-legislature", srv.URL, srv.Client())
+	if profiles[0].Role != "MPP" {
+		t.Errorf("Role=%q want MPP", profiles[0].Role)
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_ProvinceFromOffices(t *testing.T) {
+	srv := newJSONTestServer(sampleProvincialAPIResponse)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlProvincialMembersFromAPI("ontario-legislature", srv.URL, srv.Client())
+	if profiles[0].Province != "Ontario" {
+		t.Errorf("Province=%q want Ontario", profiles[0].Province)
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_ErrorOnUnknownSetWithNoURL(t *testing.T) {
+	_, err := scraper.CrawlProvincialMembersFromAPI("nonexistent-set", "", nil)
+	if err == nil {
+		t.Error("expected error for unknown set slug with no apiURL")
+	}
+}
+
+// ── urlLastSegment / province fallback ───────────────────────────────────────
+
+// sampleNBAPIResponse simulates a Represent API response for NB (no offices).
+const sampleNBAPIResponse = `{
+  "objects": [
+    {
+      "name": "Jane Doe",
+      "party_name": "Progressive Conservative Party",
+      "district_name": "Moncton Centre",
+      "email": "",
+      "url": "https://represent.opennorth.ca/representatives/nb-legislature/42/",
+      "personal_url": "",
+      "photo_url": "",
+      "elected_office": "MLA",
+      "offices": [],
+      "extra": {}
+    }
+  ],
+  "meta": {"next": null}
+}`
+
+// sampleQueryStringURLResponse simulates a member whose API URL has a query string.
+const sampleQueryStringURLResponse = `{
+  "objects": [
+    {
+      "name": "Bob Jones",
+      "party_name": "Progressive Conservative",
+      "district_name": "Calgary East",
+      "email": "",
+      "url": "https://www.assembly.ab.ca/members/mla?SpecificMember=42",
+      "personal_url": "",
+      "photo_url": "",
+      "elected_office": "MLA",
+      "offices": [
+        {"type": "constituency", "postal": "123 Main St\nCalgary AB  T2P 1E3"}
+      ],
+      "extra": {}
+    }
+  ],
+  "meta": {"next": null}
+}`
+
+func TestCrawlProvincialMembersFromAPI_ProvinceFromSetSlugWhenNoOffices(t *testing.T) {
+	srv := newJSONTestServer(sampleNBAPIResponse)
+	defer srv.Close()
+
+	profiles, err := scraper.CrawlProvincialMembersFromAPI("nb-legislature", srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlProvincialMembersFromAPI: %v", err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("len=%d, want 1", len(profiles))
+	}
+	if profiles[0].Province != "New Brunswick" {
+		t.Errorf("Province=%q want New Brunswick (derived from set slug)", profiles[0].Province)
+	}
+}
+
+func TestCrawlProvincialMembersFromAPI_IDFromQueryStringURL(t *testing.T) {
+	// When the member URL contains a query string the ID must not include it;
+	// the query-string segment after ? must be stripped.
+	srv := newJSONTestServer(sampleQueryStringURLResponse)
+	defer srv.Close()
+
+	profiles, err := scraper.CrawlProvincialMembersFromAPI("alberta-legislature", srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlProvincialMembersFromAPI: %v", err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("len=%d, want 1", len(profiles))
+	}
+	// The last path segment of the URL (before the query string) is "mla",
+	// not "mla?SpecificMember=42", so the ID must NOT contain "?".
+	id := profiles[0].ID
+	if strings.Contains(id, "?") {
+		t.Errorf("ID=%q must not contain a '?' character", id)
+	}
+}
+
+// ── CrawlNewBrunswickMembersFromWebsite ───────────────────────────────────────
+
+const sampleNBWebsitePage = `<!DOCTYPE html><html><body>
+<div class="member-card ">
+  <div class="member-card-avatar">
+    <img alt="Ames, Richard" src="/content/members/portraits/61-1/Richard_Ames_sm.jpg" />
+  </div>
+  <ul class="member-card-description">
+    <li class="member-card-description-name">
+      <a href="/en/members/current/165/ames-richard"><h3>Ames, Richard</h3></a>
+    </li>
+    <li class="member-card-description-party">
+      <div class="member-card-party-dot" style="background-color:#005DAC"></div>Progressive Conservative Party
+    </li>
+    <li class="member-card-description-riding">
+      <i class="fas fa-map-marker-alt"></i><span>Carleton-York</span>
+    </li>
+  </ul>
+</div>
+<div class="member-card ">
+  <div class="member-card-avatar">
+    <img alt="Boudreau, Lyne Chantal" src="/content/members/portraits/61-1/Lyne_Boudreau_sm.jpg" />
+  </div>
+  <ul class="member-card-description">
+    <li class="member-card-description-name">
+      <a href="/en/members/current/208/boudreau-lyne-chantal"><h3>Boudreau, Lyne Chantal</h3></a>
+    </li>
+    <li class="member-card-description-party">
+      <div class="member-card-party-dot" style="background-color:#C0161D"></div>Liberal Party
+    </li>
+    <li class="member-card-description-riding">
+      <i class="fas fa-map-marker-alt"></i><span>Champdoré-Irishtown</span>
+    </li>
+  </ul>
+</div>
+</body></html>`
+
+func newHTMLTestServer(body string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(body))
+	}))
+}
+
+func TestCrawlNewBrunswickMembersFromWebsite_ReturnsTwoProfiles(t *testing.T) {
+	srv := newHTMLTestServer(sampleNBWebsitePage)
+	defer srv.Close()
+
+	profiles, err := scraper.CrawlNewBrunswickMembersFromWebsite(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlNewBrunswickMembersFromWebsite: %v", err)
+	}
+	if len(profiles) != 2 {
+		t.Fatalf("len=%d, want 2", len(profiles))
+	}
+}
+
+func TestCrawlNewBrunswickMembersFromWebsite_ParsesFirstMember(t *testing.T) {
+	srv := newHTMLTestServer(sampleNBWebsitePage)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlNewBrunswickMembersFromWebsite(srv.URL, srv.Client())
+	p := profiles[0]
+
+	if p.ID != "nb-legislature-ames-richard" {
+		t.Errorf("ID=%q, want nb-legislature-ames-richard", p.ID)
+	}
+	if p.Name != "Richard Ames" {
+		t.Errorf("Name=%q, want Richard Ames", p.Name)
+	}
+	if p.Party != "Progressive Conservative Party" {
+		t.Errorf("Party=%q, want Progressive Conservative Party", p.Party)
+	}
+	if p.Riding != "Carleton-York" {
+		t.Errorf("Riding=%q, want Carleton-York", p.Riding)
+	}
+	if p.Province != "New Brunswick" {
+		t.Errorf("Province=%q, want New Brunswick", p.Province)
+	}
+	if p.GovernmentLevel != "provincial" {
+		t.Errorf("GovernmentLevel=%q, want provincial", p.GovernmentLevel)
+	}
+}
+
+func TestCrawlNewBrunswickMembersFromWebsite_MultiWordFirstName(t *testing.T) {
+	// "Boudreau, Lyne Chantal" should become "Lyne Chantal Boudreau"
+	srv := newHTMLTestServer(sampleNBWebsitePage)
+	defer srv.Close()
+
+	profiles, _ := scraper.CrawlNewBrunswickMembersFromWebsite(srv.URL, srv.Client())
+	p := profiles[1]
+
+	if p.Name != "Lyne Chantal Boudreau" {
+		t.Errorf("Name=%q, want 'Lyne Chantal Boudreau'", p.Name)
+	}
+	if p.ID != "nb-legislature-boudreau-lyne-chantal" {
+		t.Errorf("ID=%q, want nb-legislature-boudreau-lyne-chantal", p.ID)
+	}
+}
+
+func TestCrawlNewBrunswickMembersFromWebsite_ErrorOnBadServer(t *testing.T) {
+	_, err := scraper.CrawlNewBrunswickMembersFromWebsite("http://localhost:0/no-server", nil)
+	if err == nil {
+		t.Error("expected error for bad server")
 	}
 }

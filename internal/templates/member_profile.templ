@@ -5,7 +5,7 @@ import (
 	"github.com/philspins/open-democracy/internal/store"
 )
 
-templ MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []store.VoteRow, stats store.MemberStats) {
+templ MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []store.VoteRow, stats store.MemberStats, catScores []store.CategoryScore) {
 	@Layout(member.Name, ps) {
 		<div class="space-y-6">
 			<a href="/members" class="text-sm text-blue-600 hover:underline">← Members</a>
@@ -20,7 +20,10 @@ templ MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []s
 					</div>
 				}
 				<div>
-					<h1 class="text-2xl font-bold text-gray-900">{ member.Name }</h1>
+					<div class="flex items-center gap-2 flex-wrap">
+						<h1 class="text-2xl font-bold text-gray-900">{ member.Name }</h1>
+						@GovernmentLevelBadge(member.GovernmentLevel)
+					</div>
 					<p class={ "text-lg", PartyClass(member.Party) }>{ member.Party }</p>
 					<p class="text-gray-600">{ member.Riding } · { member.Province }</p>
 					if member.Role != "" {
@@ -56,6 +59,31 @@ templ MemberProfile(ps store.ParliamentStatus, member store.MemberRow, votes []s
 					<p class="text-sm text-gray-500">Missed Votes</p>
 				</div>
 			</div>
+
+			<!-- Category Scorecards -->
+			if len(catScores) > 0 {
+				<section class="bg-white rounded-lg border border-gray-200 p-6">
+					<h2 class="text-lg font-semibold text-gray-800 mb-4">Voting by Category</h2>
+					<div class="space-y-3">
+						for _, cs := range catScores {
+							<div>
+								<div class="flex items-center justify-between text-sm mb-1">
+									<span class="font-medium text-gray-700">{ cs.Category }</span>
+									<span class="text-gray-500">
+										{ fmt.Sprint(cs.Yeas) } Yea · { fmt.Sprint(cs.Nays) } Nay · { fmt.Sprint(cs.YeaPct) }% Yea
+									</span>
+								</div>
+								<div class="w-full bg-red-200 rounded-full h-2">
+									<div
+										class="bg-green-500 h-2 rounded-full"
+										style={ fmt.Sprintf("width: %d%%", cs.YeaPct) }
+									></div>
+								</div>
+							</div>
+						}
+					</div>
+				</section>
+			}
 
 			<!-- Compare link -->
 			<div>
