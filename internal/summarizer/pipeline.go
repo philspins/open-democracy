@@ -21,6 +21,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/philspins/open-democracy/internal/utils"
+	"golang.org/x/net/html"
 )
 
 // ErrBillTextNotFound is returned by fetchBillText when the remote server
@@ -577,10 +578,17 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 		)
 	}
 
-	// Use goquery to parse HTML and extract text.
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read response body: %w", err)
+	}
+
+	// Use goquery to parse HTML and extract text.
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		log.Printf("[summarizer] goquery parse failed for %s: %v; falling back to tokenizer extraction", url, err)
+		fallbackText := extractTextWithTokenizer(body)
+		return strings.TrimSpace(collapseWhitespace(fallbackText)), nil
 	}
 
 	// Remove script and style tags to clean text.
@@ -593,6 +601,38 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 	text = collapseWhitespace(text)
 
 	return strings.TrimSpace(text), nil
+}
+
+func extractTextWithTokenizer(raw []byte) string {
+	z := html.NewTokenizer(bytes.NewReader(raw))
+	var b strings.Builder
+	var skipDepth int
+
+	for {
+		tt := z.Next()
+		switch tt {
+		case html.ErrorToken:
+			return b.String()
+		case html.StartTagToken:
+			tok := z.Token()
+			tag := strings.ToLower(tok.Data)
+			if tag == "script" || tag == "style" {
+				skipDepth++
+			}
+		case html.EndTagToken:
+			tok := z.Token()
+			tag := strings.ToLower(tok.Data)
+			if (tag == "script" || tag == "style") && skipDepth > 0 {
+				skipDepth--
+			}
+		case html.TextToken:
+			if skipDepth > 0 {
+				continue
+			}
+			b.WriteString(z.Token().Data)
+			b.WriteByte(' ')
+		}
+	}
 }
 
 func collapseWhitespace(s string) string {

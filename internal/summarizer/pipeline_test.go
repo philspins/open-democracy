@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -187,5 +188,26 @@ func TestSummarizeBillsFromChannel_Clears404FullTextURL(t *testing.T) {
 	db.QueryRow(`SELECT COALESCE(full_text_url,'') FROM bills WHERE id='45-1-s-1'`).Scan(&storedURL)
 	if storedURL != "" {
 		t.Errorf("expected full_text_url to be cleared after 404, got %q", storedURL)
+	}
+}
+
+func TestFetchBillText_FallsBackForDeeplyNestedHTML(t *testing.T) {
+	deep := strings.Repeat("<div>", 600) + "Bill body text" + strings.Repeat("</div>", 600)
+	html := `<html><head><style>.x{display:none}</style></head><body><script>ignored()</script>` + deep + `</body></html>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(html))
+	}))
+	defer srv.Close()
+
+	text, err := fetchBillText(t.Context(), srv.URL)
+	if err != nil {
+		t.Fatalf("fetchBillText returned error: %v", err)
+	}
+	if !strings.Contains(text, "Bill body text") {
+		t.Fatalf("expected extracted text to contain bill text, got %q", text)
+	}
+	if strings.Contains(text, "ignored()") {
+		t.Fatalf("expected script content to be removed, got %q", text)
 	}
 }
