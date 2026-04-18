@@ -16,7 +16,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -2195,21 +2194,10 @@ const peiCaptchaSignature = "captcha.perfdrive.com"
 // hosts the legislative assembly workflow API.
 const peiWDFAPIBase = "https://wdf.princeedwardisland.ca"
 
-// peiRequestDelay holds the nanosecond value of the minimum pause after each
-// HTTP request to PEI assembly sites. The default of 6 seconds caps throughput
-// at 10 requests per minute, reducing the chance of triggering Radware
-// bot-manager detection. Access is atomic so SetPEIRequestDelay is safe to
-// call from any goroutine (e.g. test setup) without data races.
-var peiRequestDelay atomic.Int64
-
-func init() { peiRequestDelay.Store(int64(6 * time.Second)) }
-
-// SetPEIRequestDelay overrides the per-request rate-limit delay for PEI crawls.
-// It is goroutine-safe. Intended for use in TestMain to disable delays during
-// unit tests:
-//
-//	func TestMain(m *testing.M) { scraper.SetPEIRequestDelay(0); os.Exit(m.Run()) }
-func SetPEIRequestDelay(d time.Duration) { peiRequestDelay.Store(int64(d)) }
+// peiDefaultDelay is the per-request rate-limit interval for production PEI
+// crawls: 6 seconds ≈ 10 requests per minute, reducing the chance of triggering
+// Radware bot-manager detection.
+const peiDefaultDelay = 6 * time.Second
 
 // peiWorkflowJournals is the WDF workflow name for the PEI legislative journals search.
 const peiWorkflowJournals = "LegislativeAssemblyJournals"
@@ -2239,7 +2227,8 @@ type peiWDFJournalItem struct {
 // the flat form fields the Angular WDF frontend sends (year, search, etc.).
 // http.DefaultTransport is always used so peiTransport's navigate-mode header
 // overrides do not interfere with the CORS API call.
-func postPEIWorkflow(wdfBase, workflowName, xReferer string, params map[string]string, client *http.Client) ([]byte, error) {
+// delay is the rate-limit pause inserted after a successful response.
+func postPEIWorkflow(wdfBase, workflowName, xReferer string, params map[string]string, client *http.Client, delay time.Duration) ([]byte, error) {
 	apiURL := strings.TrimRight(wdfBase, "/") + "/legislative-assembly/services/api/workflow"
 
 	payload := make(map[string]string, len(params)+1)
@@ -2300,21 +2289,22 @@ func postPEIWorkflow(wdfBase, workflowName, xReferer string, params map[string]s
 	}
 
 	// Rate-limit outbound requests to PEI servers.
-	time.Sleep(time.Duration(peiRequestDelay.Load()))
+	time.Sleep(delay)
 	return data, nil
 }
 
 // crawlPEIVotesFromWorkflow queries the WDF journals workflow for PEI journal links
 // and parses each linked HTML journal page for recorded divisions.
 // Returns (nil, nil) when the workflow API is unavailable or returns no items.
-func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+// delay is the rate-limit pause inserted after each HTTP request.
+func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, client *http.Client, delay time.Duration) ([]ProvincialDivisionResult, error) {
 	xReferer := "https://www.assembly.pe.ca/legislative-business/house-records/journals"
 	params := map[string]string{
 		"year":          strconv.Itoa(year),
 		"search":        "year",
 		"wdf_url_query": "true",
 	}
-	body, err := postPEIWorkflow(wdfBase, peiWorkflowJournals, xReferer, params, client)
+	body, err := postPEIWorkflow(wdfBase, peiWorkflowJournals, xReferer, params, client, delay)
 	if err != nil || body == nil {
 		return nil, err
 	}
@@ -2365,8 +2355,9 @@ func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, c
 		}
 		parsed := parseGenericProvincialVotesDoc(doc, "pe", "pei", legislature, session, date)
 		results = append(results, parsed...)
-		// Rate-limit per-journal page fetches to 10 requests per minute.
-		time.Sleep(time.Duration(peiRequestDelay.Load()))
+		// Rate-limit per-journal page fetches to stay within the caller-specified
+		// requests-per-minute budget.
+		time.Sleep(delay)
 	}
 
 	log.Printf("[pe-votes] wdf parsed %d divisions from %d journals", len(results), len(items))
@@ -2374,8 +2365,11 @@ func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, c
 }
 
 // peiTransport adds browser-like request headers to bypass Radware bot-manager.
+// delay is inserted after every roundtrip (including errors) to rate-limit
+// requests to assembly.pe.ca.
 type peiTransport struct {
-	base http.RoundTripper
+	base  http.RoundTripper
+	delay time.Duration
 }
 
 func (t *peiTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -2387,9 +2381,9 @@ func (t *peiTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone.Header.Set("Sec-Fetch-Mode", "navigate")
 	clone.Header.Set("Sec-Fetch-Site", "none")
 	resp, err := t.base.RoundTrip(clone)
-	// Rate-limit HTML page fetches to 10 requests per minute regardless of
-	// error status; a failed request should not trigger an immediate retry burst.
-	time.Sleep(time.Duration(peiRequestDelay.Load()))
+	// Rate-limit HTML page fetches regardless of error status; a failed request
+	// should not trigger an immediate retry burst.
+	time.Sleep(t.delay)
 	return resp, err
 }
 
@@ -2451,10 +2445,12 @@ func crawlPEIVotes(indexURL string, legislature, session int, client *http.Clien
 // (headless Chromium) if header spoofing continues to fail.
 // newPEIHTTPClient returns an HTTP client with browser-like headers for assembly.pe.ca.
 // It is used by both the bills and votes crawlers for that province.
-func newPEIHTTPClient() *http.Client {
+// delay is embedded in the transport so every request through this client is
+// rate-limited independently of any other provincial crawler.
+func newPEIHTTPClient(delay time.Duration) *http.Client {
 	return &http.Client{
 		Timeout:   20 * time.Second,
-		Transport: &peiTransport{base: http.DefaultTransport},
+		Transport: &peiTransport{base: http.DefaultTransport, delay: delay},
 	}
 }
 
@@ -2463,8 +2459,14 @@ func CrawlPrinceEdwardIslandVotes(indexURL string, legislature, session int, cli
 	if defaultURL {
 		indexURL = "https://www.assembly.pe.ca/legislative-business/house-records/journals"
 	}
+	// When no client is supplied (production), create a PEI-specific client with
+	// browser-like headers and the production rate-limit delay.  When the caller
+	// provides their own client (e.g. tests), use a zero delay so the test suite
+	// runs at full speed and the rate limiter has no effect outside of PEI crawls.
+	delay := time.Duration(0)
 	if client == nil {
-		client = newPEIHTTPClient()
+		delay = peiDefaultDelay
+		client = newPEIHTTPClient(delay)
 	}
 
 	// Attempt WDF workflow API first. In production (defaultURL), use the canonical
@@ -2475,7 +2477,7 @@ func CrawlPrinceEdwardIslandVotes(indexURL string, legislature, session int, cli
 		wdfBase = indexURL
 	}
 	year := time.Now().Year()
-	divs, err := crawlPEIVotesFromWorkflow(wdfBase, year, legislature, session, client)
+	divs, err := crawlPEIVotesFromWorkflow(wdfBase, year, legislature, session, client, delay)
 	if err == nil && len(divs) > 0 {
 		return divs, nil
 	}

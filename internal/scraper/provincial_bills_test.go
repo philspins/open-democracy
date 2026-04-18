@@ -3,18 +3,10 @@ package scraper_test
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/philspins/open-democracy/internal/scraper"
 )
-
-// TestMain zeroes the PEI rate-limit delay so unit tests finish in milliseconds
-// rather than waiting the production 6-second per-request interval.
-func TestMain(m *testing.M) {
-	scraper.SetPEIRequestDelay(0)
-	os.Exit(m.Run())
-}
 
 func TestExtractProvincialBillNumber(t *testing.T) {
 	cases := []struct {

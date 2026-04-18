@@ -374,7 +374,8 @@ type peiWDFBillItem struct {
 // crawlPEIBillsFromWorkflow queries the WDF bill-progress workflow for PEI bill stubs.
 // wdfBase overrides the WDF service root URL (useful for tests); it defaults to
 // peiWDFAPIBase when empty. Returns (nil, nil) when the API is unavailable.
-func crawlPEIBillsFromWorkflow(wdfBase string, year, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
+// delay is the rate-limit pause threaded to postPEIWorkflow.
+func crawlPEIBillsFromWorkflow(wdfBase string, year, legislature, session int, client *http.Client, delay time.Duration) ([]ProvincialBillStub, error) {
 	xReferer := "https://www.assembly.pe.ca/legislative-business/house-records/bills"
 	params := map[string]string{
 		"year":          strconv.Itoa(year),
@@ -382,7 +383,7 @@ func crawlPEIBillsFromWorkflow(wdfBase string, year, legislature, session int, c
 		"search_bills":  "true",
 		"wdf_url_query": "true",
 	}
-	body, err := postPEIWorkflow(wdfBase, peiWorkflowBills, xReferer, params, client)
+	body, err := postPEIWorkflow(wdfBase, peiWorkflowBills, xReferer, params, client, delay)
 	if err != nil || body == nil {
 		return nil, err
 	}
@@ -466,11 +467,14 @@ func CrawlPrinceEdwardIslandBills(indexURL string, legislature, session int, cli
 	if defaultURL {
 		indexURL = "https://www.assembly.pe.ca/legislative-business/house-records/bills"
 	}
-	// assembly.pe.ca is protected by a Radware bot-manager CAPTCHA. Use the same
-	// browser-like transport used by CrawlPrinceEdwardIslandVotes when no client
-	// is provided by the caller.
+	// When no client is supplied (production), create a PEI-specific client with
+	// browser-like headers and the production rate-limit delay.  When the caller
+	// provides their own client (e.g. tests), use a zero delay so the test suite
+	// runs at full speed and the rate limiter has no effect outside of PEI crawls.
+	delay := time.Duration(0)
 	if client == nil {
-		client = newPEIHTTPClient()
+		delay = peiDefaultDelay
+		client = newPEIHTTPClient(delay)
 	}
 
 	// Attempt the WDF workflow API first. In production (defaultURL), use the
@@ -481,7 +485,7 @@ func CrawlPrinceEdwardIslandBills(indexURL string, legislature, session int, cli
 		wdfBase = indexURL
 	}
 	year := time.Now().Year()
-	bills, werr := crawlPEIBillsFromWorkflow(wdfBase, year, legislature, session, client)
+	bills, werr := crawlPEIBillsFromWorkflow(wdfBase, year, legislature, session, client, delay)
 	if werr == nil && len(bills) > 0 {
 		return bills, nil
 	}
