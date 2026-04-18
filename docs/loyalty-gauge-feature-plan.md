@@ -32,6 +32,7 @@ A **radial gauge** displayed at the top of each MP/MLA profile page. The needle 
 DONORS ◄──┼──► PUBLIC
 
 ```
+Public = low corruption = green, party = medium corruption = yellow, donors = high corruption = red
 
 The position of the needle is computed from three independent scores:
 
