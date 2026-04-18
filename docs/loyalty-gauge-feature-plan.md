@@ -22,7 +22,7 @@
 
 ## 1. Feature Overview
 
-A **tri-axis gauge** displayed at the top of each MP/MLA profile page. The needle points toward one of three poles:
+A **radial gauge** displayed at the top of each MP/MLA profile page. The needle points toward one of three poles:
 
 ```
         PARTY
@@ -30,7 +30,7 @@ A **tri-axis gauge** displayed at the top of each MP/MLA profile page. The needl
           │
           │
 DONORS ◄──┼──► PUBLIC
-          │
+
 ```
 
 The position of the needle is computed from three independent scores:
