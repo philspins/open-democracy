@@ -22,7 +22,7 @@
 
 ## 1. Feature Overview
 
-A **radial gauge** displayed at the top of each MP/MLA profile page. The needle points toward one of three poles:
+A **radial gauge** displayed at the top of each MP/MLA profile page. The needle points to one of three options:
 
 ```
         PARTY
