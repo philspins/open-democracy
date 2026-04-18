@@ -90,14 +90,14 @@ In 2010–2011, it was discovered that corporations had been funnelling money to
 
 Elections Canada's Open Data page offers a bulk download of contributions to all political entities from January 2004 to present, updated weekly, in CSV format (compressed ZIP). Two versions: as submitted by entities, and as reviewed/amended by Elections Canada.
 
-```python
-# Federal bulk download — no scraping needed
-FEDERAL_CSV_URL = "https://www.elections.ca/fin/oda/od_cntrbtn_audt_e.zip"
+```go
+// Federal bulk download — no scraping needed
+const FederalCSVURL = "https://www.elections.ca/fin/oda/od_cntrbtn_audt_e.zip"
 
-# Fields in the CSV (approximate — verify against data dictionary):
-# contributor_first_name, contributor_last_name, contributor_type,
-# contributor_province, contribution_amount, contribution_date,
-# recipient_name, recipient_type, political_party, electoral_district
+// Fields in the CSV (approximate — verify against data dictionary):
+// contributor_first_name, contributor_last_name, contributor_type,
+// contributor_province, contribution_amount, contribution_date,
+// recipient_name, recipient_type, political_party, electoral_district
 ```
 
 This is the cleanest, most machine-readable source. Start here.
@@ -111,7 +111,7 @@ This is the cleanest, most machine-readable source. Start here.
 | **Saskatchewan** | Web form search at elections.sk.ca | HTML table | ⭐⭐ Easy scrape |
 | **Manitoba** | electionsmanitoba.ca search | HTML | ⭐⭐ Easy scrape |
 | **Quebec** | electionsquebec.qc.ca contributor search | HTML | ⭐⭐ Easy scrape |
-| **Ontario** | JS-rendered React app | JSON API (intercept) | ⭐⭐⭐ Need DevTools |
+| **Ontario** | JS-rendered web app | JSON API (intercept) | ⭐⭐⭐ Need DevTools |
 | **BC** | contributions.electionsbc.gov.bc.ca — ASP.NET WebForms with `__doPostBack` | HTML + POST | ⭐⭐⭐ Tricky (session state) |
 | **New Brunswick** | electionsnb.ca PDF reports | PDF extraction | ⭐⭐⭐⭐ Painful |
 | **Nova Scotia** | electionsnovascotia.ca — data appears stale (pre-2024) | PDF | ⭐⭐⭐⭐ Painful + stale |
@@ -122,60 +122,64 @@ This is the cleanest, most machine-readable source. Start here.
 
 ### 3.3 Federal Scraper
 
-```python
-# ingest/federal.py
+```go
+// internal/scraper/contributions_federal.go
 
-import zipfile
-import io
-import csv
-import requests
+type ContributionRow struct {
+	Source           string
+	ContributorLast  string
+	ContributorFirst string
+	ContributorType  string
+	Province         string
+	Amount           float64
+	Date             string
+	Recipient        string
+	RecipientType    string
+	Party            string
+	Riding           string
+}
 
-FEDERAL_URL = "https://www.elections.ca/fin/oda/od_cntrbtn_audt_e.zip"
-HEADERS = {"User-Agent": "Open Democracy/1.0 (open-democracy.ca; contact@open-democracy.ca)"}
+func IngestFederalContributions(ctx context.Context, client *http.Client) ([]ContributionRow, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, FederalCSVURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Open Democracy/1.0 (open-democracy.ca; contact@open-democracy.ca)")
 
-def ingest_federal_contributions():
-    """
-    Download the full Elections Canada contributions CSV.
-    ~80MB compressed. Run once, then weekly delta checks.
-    """
-    print("Downloading federal contributions ZIP...")
-    resp = requests.get(FEDERAL_URL, headers=HEADERS, stream=True, timeout=120)
-    resp.raise_for_status()
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status: %s", resp.Status)
+	}
 
-    with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
-        csv_filename = [f for f in z.namelist() if f.endswith(".csv")][0]
-        with z.open(csv_filename) as f:
-            reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
-            rows = []
-            for row in reader:
-                rows.append({
-                    "source":           "federal",
-                    "contributor_last":  row.get("Contributor Last Name", "").strip(),
-                    "contributor_first": row.get("Contributor First Name", "").strip(),
-                    "contributor_type":  row.get("Contributor Type", "").strip(),
-                    "province":          row.get("Contributor Province", "").strip(),
-                    "amount":            float(row.get("Contribution Amount", 0) or 0),
-                    "date":              row.get("Contribution Date", "").strip(),
-                    "recipient":         row.get("Political Entity", "").strip(),
-                    "recipient_type":    row.get("Political Entity Type", "").strip(),
-                    "party":             row.get("Political Party", "").strip(),
-                    "riding":            row.get("Electoral District", "").strip(),
-                })
-            return rows
+	zipBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := parseFederalZip(zipBytes)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
 
-def upsert_contributions(rows: list[dict]):
-    """Bulk upsert into contributions table."""
-    # Use PostgreSQL COPY for performance — millions of rows
-    pass
+func UpsertContributions(ctx context.Context, db *sql.DB, rows []ContributionRow) error {
+	// Batch inserts/updates in a transaction against SQLite.
+	// Reuse existing store-layer upsert patterns for consistency.
+	return nil
+}
 ```
 
 ### 3.4 Unified Contributions Schema
 
 ```sql
--- Normalized across all federal + provincial sources
+-- Normalized across all federal + provincial sources (SQLite-friendly)
 
 CREATE TABLE contributions (
-  id                  BIGSERIAL PRIMARY KEY,
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   source              TEXT NOT NULL,          -- 'federal', 'alberta', 'bc', etc.
   contributor_last    TEXT,
   contributor_first   TEXT,
@@ -185,20 +189,20 @@ CREATE TABLE contributions (
   city                TEXT,
   province            TEXT,
   postal_code         TEXT,
-  amount              NUMERIC(10, 2),
-  contribution_date   DATE,
+  amount              REAL,
+  contribution_date   TEXT,                   -- ISO date
   recipient           TEXT,                   -- Candidate/party/association name
   recipient_type      TEXT,                   -- 'Candidate', 'Party', 'Association'
   party               TEXT,
   riding              TEXT,
   election_event      TEXT,
-  raw_json            JSONB,                  -- Original row, for auditing
+  raw_json            TEXT,                   -- Original row JSON for auditing
 
   -- Resolution outputs (populated later by entity resolution pipeline)
   donor_person_id     TEXT REFERENCES persons(id),
   donor_org_id        TEXT REFERENCES organizations(id),
-  resolved_at         TIMESTAMP,
-  resolution_confidence FLOAT                -- 0.0–1.0
+  resolved_at         TEXT,                   -- RFC3339 timestamp
+  resolution_confidence REAL                  -- 0.0–1.0
 );
 
 CREATE INDEX idx_contributions_name ON contributions (contributor_last, contributor_first);
@@ -229,123 +233,66 @@ This is the hardest and most important part of the pipeline. Federal donation re
 
 ### 4.2 Resolution Pipeline
 
-```python
-# resolver/pipeline.py
-# Multi-stage entity resolution for individual donors
+```go
+// internal/scraper/entity_resolution.go
+// Multi-stage entity resolution for individual donors
 
-import anthropic
-from dataclasses import dataclass
-from typing import Optional
+type ResolvedDonor struct {
+	PersonID   string
+	FullName   string
+	Employer   *string
+	EmployerID *string // links to organizations table
+	JobTitle   *string
+	Confidence float64 // 0.0 - 1.0
+	Method     string  // how we resolved this
+	Sources    []string
+}
 
-@dataclass
-class ResolvedDonor:
-    person_id: str
-    full_name: str
-    employer: Optional[str]
-    employer_id: Optional[str]       # links to organizations table
-    job_title: Optional[str]
-    confidence: float                 # 0.0 - 1.0
-    method: str                       # how we resolved this
-    sources: list[str]
+func ResolveDonor(ctx context.Context, last, first, province string, amount float64) ResolvedDonor {
+	// Stage 1: Exact name match against known politicians, lobbyists, directors
+	if result, ok := matchKnownEntities(ctx, last, first, province); ok && result.Confidence > 0.9 {
+		return result
+	}
 
-def resolve_donor(last: str, first: str, province: str, amount: float) -> ResolvedDonor:
-    """
-    Multi-stage resolution. Falls through stages until confidence > threshold.
-    """
+	// Stage 2: Corporate registry director lookup
+	if result, ok := matchCorporateDirectors(ctx, last, first, province); ok && result.Confidence > 0.85 {
+		return result
+	}
 
-    # Stage 1: Exact name match against known politicians, lobbyists, directors
-    result = match_known_entities(last, first, province)
-    if result and result.confidence > 0.9:
-        return result
+	// Stage 3: Lobbyist registry lookup
+	if result, ok := matchLobbyistRegistry(ctx, last, first); ok && result.Confidence > 0.85 {
+		return result
+	}
 
-    # Stage 2: Corporate registry director lookup
-    result = match_corporate_directors(last, first, province)
-    if result and result.confidence > 0.85:
-        return result
+	// Stage 4: People Data Labs enrichment (paid, use sparingly)
+	if amount >= 500 {
+		if result, ok := enrichViaPDL(ctx, last, first, province); ok && result.Confidence > 0.75 {
+			return result
+		}
+	}
 
-    # Stage 3: Lobbyist registry lookup
-    result = match_lobbyist_registry(last, first)
-    if result and result.confidence > 0.85:
-        return result
+	// Stage 5: AI-assisted web search (for top donors only)
+	if amount >= 1000 {
+		if result, ok := aiWebSearchResolution(ctx, last, first, province); ok {
+			return result
+		}
+	}
 
-    # Stage 4: People Data Labs enrichment (paid, use sparingly)
-    # Only run for donors who gave > $500 (higher-influence donors)
-    if amount >= 500:
-        result = enrich_via_pdl(last, first, province)
-        if result and result.confidence > 0.75:
-            return result
+	// Stage 6: Unresolved — store as individual with no org link
+	return ResolvedDonor{
+		PersonID:   generateID(last, first, province),
+		FullName:   strings.TrimSpace(first + " " + last),
+		Confidence: 0.0,
+		Method:     "unresolved",
+		Sources:    nil,
+	}
+}
 
-    # Stage 5: AI-assisted web search (for top donors only)
-    # Only run for donors who gave > $1000 or appear in multiple elections
-    if amount >= 1000:
-        result = ai_web_search_resolution(last, first, province)
-        if result:
-            return result
-
-    # Stage 6: Unresolved — store as individual with no org link
-    return ResolvedDonor(
-        person_id=generate_id(last, first, province),
-        full_name=f"{first} {last}",
-        employer=None,
-        employer_id=None,
-        job_title=None,
-        confidence=0.0,
-        method="unresolved",
-        sources=[]
-    )
-
-def ai_web_search_resolution(last: str, first: str, province: str) -> Optional[ResolvedDonor]:
-    """
-    Use Claude with web search to identify a high-value donor.
-    Only called for top donors (>$1000) where other methods failed.
-    """
-    client = anthropic.Anthropic()
-
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=500,
-        tools=[{"type": "web_search_20250305", "name": "web_search"}],
-        messages=[{
-            "role": "user",
-            "content": f"""
-Find the employer and job title of a Canadian political donor named {first} {last}
-from {province}. Search for their LinkedIn profile, corporate directory listings,
-or any public source that identifies their employer.
-
-Return ONLY valid JSON:
-{{
-  "full_name": "...",
-  "employer": "company name or null",
-  "job_title": "title or null",
-  "confidence": 0.0-1.0,
-  "source_urls": ["..."]
-}}
-
-If you cannot find a confident match, return confidence 0.0.
-Do not guess. Only return information from verified public sources.
-"""
-        }]
-    )
-
-    # Parse response
-    import json
-    text = "".join(b.text for b in response.content if hasattr(b, "text"))
-    try:
-        data = json.loads(text)
-        if data.get("confidence", 0) > 0.7:
-            return ResolvedDonor(
-                person_id=generate_id(last, first, province),
-                full_name=data["full_name"],
-                employer=data.get("employer"),
-                employer_id=None,  # link to org in next step
-                job_title=data.get("job_title"),
-                confidence=data["confidence"],
-                method="ai_web_search",
-                sources=data.get("source_urls", [])
-            )
-    except (json.JSONDecodeError, KeyError):
-        pass
-    return None
+func aiWebSearchResolution(ctx context.Context, last, first, province string) (ResolvedDonor, bool) {
+	// Call existing AI/web-search integration used elsewhere in the Go services.
+	// Parse strict JSON output and require confidence >= 0.7.
+	return ResolvedDonor{}, false
+}
 ```
 
 ### 4.3 Entity Resolution Schema (Relational Side)
@@ -537,12 +484,12 @@ RETURN pol.name,
        COUNT(DISTINCT CASE WHEN org IS NOT NULL THEN div END) AS donor_aligned_votes
 ```
 
-### 5.6 Postgres + Neo4j Together
+### 5.6 SQLite + Neo4j Together
 
-Keep Postgres as the **operational database** (bills, votes, users, session data). Use Neo4j as the **analytical layer** (influence mapping, loyalty scoring). Sync nightly from Postgres → Neo4j.
+Keep SQLite as the **operational database** (bills, votes, users, session data). Use Neo4j as the **analytical layer** (influence mapping, loyalty scoring). Sync nightly from SQLite → Neo4j.
 
 ```
-Postgres (operational)   →   ETL nightly   →   Neo4j (influence graph)
+SQLite (operational)     →   ETL nightly   →   Neo4j (influence graph)
   bills, votes, members                          donors, orgs, stances,
   users, reactions                               loyalty scores
 ```
@@ -557,21 +504,25 @@ Once we have organizations linked to donors, we need to know: *what position wou
 
 The first layer is heuristic — industry predicts stance on many bills reliably:
 
-```python
-# stances/industry_heuristics.py
+```go
+// internal/summarizer/industry_stances.go
 
-INDUSTRY_BILL_STANCES = {
-    # (industry, bill_category): likely_stance
-    ("Oil & Gas",        "Environment"):     "oppose",
-    ("Oil & Gas",        "Energy"):          "support_if_pro_industry",
-    ("Real Estate",      "Housing"):         "oppose_if_rent_control",
-    ("Finance",          "Finance"):         "oppose_if_regulation",
-    ("Pharma",           "Health"):          "support_if_patent_protection",
-    ("Telecom",          "Digital/Tech"):    "oppose_if_regulation",
-    ("Defence",          "Defence"):         "support_if_spending",
-    ("Agriculture",      "Agriculture"):     "support_if_subsidy",
-    ("Labour/Unions",    "Labour"):          "support_if_pro_worker",
-    ("Tech",             "Digital/Tech"):    "oppose_if_privacy_regulation",
+type IndustryCategoryKey struct {
+	Industry string
+	Category string
+}
+
+var IndustryBillStances = map[IndustryCategoryKey]string{
+	{Industry: "Oil & Gas", Category: "Environment"}:  "oppose",
+	{Industry: "Oil & Gas", Category: "Energy"}:       "support_if_pro_industry",
+	{Industry: "Real Estate", Category: "Housing"}:    "oppose_if_rent_control",
+	{Industry: "Finance", Category: "Finance"}:        "oppose_if_regulation",
+	{Industry: "Pharma", Category: "Health"}:          "support_if_patent_protection",
+	{Industry: "Telecom", Category: "Digital/Tech"}:   "oppose_if_regulation",
+	{Industry: "Defence", Category: "Defence"}:        "support_if_spending",
+	{Industry: "Agriculture", Category: "Agriculture"}:"support_if_subsidy",
+	{Industry: "Labour/Unions", Category: "Labour"}:   "support_if_pro_worker",
+	{Industry: "Tech", Category: "Digital/Tech"}:      "oppose_if_privacy_regulation",
 }
 ```
 
@@ -579,77 +530,38 @@ INDUSTRY_BILL_STANCES = {
 
 For each bill + organization pair where we have enough context:
 
-```python
-# stances/ai_analysis.py
+```go
+// internal/summarizer/stance_inference.go
 
-def infer_org_stance_on_bill(org: Organization, bill: Bill) -> dict:
-    """
-    Use Claude to determine an organization's likely stance on a specific bill.
-    Called for high-value donor organizations on high-attention bills.
-    """
-    client = anthropic.Anthropic()
+type InferredStance struct {
+	Stance     string   `json:"stance"` // support|oppose|neutral|unknown
+	Confidence float64  `json:"confidence"`
+	Reasoning  string   `json:"reasoning"`
+	Sources    []string `json:"sources"`
+}
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=600,
-        tools=[{"type": "web_search_20250305", "name": "web_search"}],
-        messages=[{
-            "role": "user",
-            "content": f"""
-Analyze whether the following Canadian organization would likely support or oppose this bill.
-
-ORGANIZATION: {org.name}
-Industry: {org.industry}
-Type: {org.org_type}
-
-BILL: {bill.number} — {bill.title}
-Summary: {bill.summary_lop or bill.summary_ai}
-Category: {bill.category}
-
-Search for:
-1. Any public statements by {org.name} on this bill or related policy
-2. Lobbying records involving {org.name} and this policy area
-3. The organization's known political positions and industry associations
-
-Return ONLY valid JSON:
-{{
-  "stance": "support" | "oppose" | "neutral" | "unknown",
-  "confidence": 0.0-1.0,
-  "reasoning": "One sentence explanation",
-  "sources": ["url1", "url2"]
-}}
-
-Be conservative. Use "unknown" if you cannot find evidence. Never invent positions.
-"""
-        }]
-    )
-
-    # Parse and store
-    import json
-    text = "".join(b.text for b in response.content if hasattr(b, "text"))
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return {"stance": "unknown", "confidence": 0.0, "reasoning": "", "sources": []}
+func InferOrgStanceOnBill(ctx context.Context, org Organization, bill Bill) InferredStance {
+	// Call Claude through the existing Go summarization client and require strict JSON output.
+	// Prompt should request support/oppose/neutral/unknown plus confidence and URLs.
+	// If parsing fails or evidence is weak, return unknown with confidence 0.0.
+	return InferredStance{Stance: "unknown", Confidence: 0.0}
+}
 ```
 
 ### 6.3 Lobbyist Registry as Ground Truth
 
 The federal Lobbyist Registry (`lobbyist.gc.ca`) is the most reliable source of organizational stances — organizations literally register what bills and policy areas they're trying to influence, and on whose behalf.
 
-```python
-# stances/lobbyist_registry.py
+```go
+// internal/scraper/lobbyist_registry.go
 
-LOBBYIST_API = "https://lobbycanada.gc.ca/app/secure/ocl/lrs/do/vwRg"
+const LobbyistAPI = "https://lobbycanada.gc.ca/app/secure/ocl/lrs/do/vwRg"
 
-def fetch_lobbying_activity(org_name: str) -> list[dict]:
-    """
-    Find all lobbying communications by an organization.
-    Returns: subject matter, bill numbers, MPs contacted, dates.
-    """
-    # The lobbyist registry has a search API and downloadable datasets
-    # at open.canada.ca/data — use the bulk download for efficiency
-    pass
+func FetchLobbyingActivity(ctx context.Context, orgName string) ([]LobbyActivity, error) {
+	// The lobbyist registry has a search API and downloadable datasets
+	// at open.canada.ca/data — use bulk download ingestion in Go for efficiency.
+	return nil, nil
+}
 ```
 
 ---
@@ -658,81 +570,31 @@ def fetch_lobbying_activity(org_name: str) -> list[dict]:
 
 ### 7.1 Three Component Scores
 
-```python
-# scoring/loyalty.py
+```go
+// internal/server/loyalty_scores.go
 
-def compute_loyalty_scores(politician_id: str, lookback_days: int = 365) -> dict:
-    """
-    Returns scores for party, donor, and public alignment.
-    Each score is 0.0–1.0. They do NOT need to sum to 1.0 —
-    they are independent alignment measures.
-    """
+type LoyaltyScores struct {
+	PoliticianID string     `json:"politician_id"`
+	PartyScore   float64    `json:"party_score"`
+	DonorScore   *float64   `json:"donor_score"`
+	PublicScore  *float64   `json:"public_score"`
+	DonorN       int        `json:"donor_n"`
+	PublicN      int        `json:"public_n"`
+	Dominant     string     `json:"dominant"`
+	ComputedAt   time.Time  `json:"computed_at"`
+}
 
-    # ── PARTY SCORE ──────────────────────────────────────────────
-    # Already computed in Phase 5 of main plan
-    party_score = get_party_line_pct(politician_id, lookback_days) / 100.0
-    # e.g. 0.87 = voted with party 87% of the time
-
-    # ── DONOR SCORE ──────────────────────────────────────────────
-    # For each vote, check if the politician voted in alignment
-    # with their donors' inferred stances
-    votes = get_votes_with_bill_stances(politician_id, lookback_days)
-    donor_orgs = get_donor_orgs(politician_id)
-
-    donor_aligned = 0
-    donor_total = 0
-    for vote in votes:
-        bill_stances = get_org_stances_on_bill(
-            org_ids=[o.id for o in donor_orgs],
-            bill_id=vote.bill_id
-        )
-        if not bill_stances:
-            continue  # Skip bills where we don't know donor stance
-        donor_consensus = get_consensus_stance(bill_stances, donor_orgs)
-        if donor_consensus != "unknown":
-            donor_total += 1
-            if votes_align(vote.vote, donor_consensus):
-                donor_aligned += 1
-
-    donor_score = (donor_aligned / donor_total) if donor_total > 0 else None
-    donor_n = donor_total  # Show sample size in UI
-
-    # ── PUBLIC SCORE ─────────────────────────────────────────────
-    # Compare politician's votes to constituent reactions on Open Democracy
-    reactions = get_constituent_reactions(politician_id, lookback_days)
-
-    public_aligned = 0
-    public_total = 0
-    for vote in votes:
-        reaction = reactions.get(vote.bill_id)
-        if not reaction or reaction.total < 10:
-            continue  # Need minimum sample size
-        public_consensus = "support" if reaction.support_pct > 55 else \
-                          "oppose"  if reaction.oppose_pct > 55 else "neutral"
-        if public_consensus != "neutral":
-            public_total += 1
-            if votes_align(vote.vote, public_consensus):
-                public_aligned += 1
-
-    public_score = (public_aligned / public_total) if public_total > 0 else None
-    public_n = public_total
-
-    return {
-        "politician_id": politician_id,
-        "party_score":   party_score,
-        "donor_score":   donor_score,    # None if insufficient data
-        "public_score":  public_score,   # None if insufficient data
-        "donor_n":       donor_n,        # number of bills with donor stance data
-        "public_n":      public_n,       # number of bills with reaction data
-        "computed_at":   datetime.utcnow().isoformat(),
-        # Dominant loyalty: whichever is highest
-        "dominant":      max(
-            [("party", party_score or 0),
-             ("donors", donor_score or 0),
-             ("public", public_score or 0)],
-            key=lambda x: x[1]
-        )[0]
-    }
+func ComputeLoyaltyScores(ctx context.Context, politicianID string, lookbackDays int) (LoyaltyScores, error) {
+	// PARTY SCORE: party line percentage / 100.
+	// DONOR SCORE: compare vote directions to donor-org stance consensus.
+	// PUBLIC SCORE: compare vote directions to constituent reaction consensus.
+	// Scores remain independent (do not need to sum to 1.0).
+	// Return nil pointers for donor/public scores when sample size is insufficient.
+	return LoyaltyScores{
+		PoliticianID: politicianID,
+		ComputedAt:   time.Now().UTC(),
+	}, nil
+}
 ```
 
 ### 7.2 Score Interpretation
@@ -753,138 +615,41 @@ def compute_loyalty_scores(politician_id: str, lookback_days: int = 365) -> dict
 
 ### 8.1 Visual Design
 
-```jsx
-// components/LoyaltyGauge.jsx
-// A semicircular gauge with three labeled zones
+```go
+// internal/templates/loyalty_gauge.templ (Templ + Alpine.js approach)
 
-import { useMemo } from "react";
+templ LoyaltyGauge(scores LoyaltyScores, politicianID string) {
+	<div class="loyalty-gauge-container"
+	     x-data="{ expanded: false }">
+		<h3 class="gauge-title">Loyalty Analysis</h3>
+		<svg viewBox="0 0 200 110" class="gauge-svg">
+			@GaugeArcs(scores)
+			@GaugeNeedle(scores)
+			<text x="28" y="95" class="gauge-label" fill="#F59E0B">DONORS</text>
+			<text x="88" y="40" class="gauge-label" fill="#6366F1">PARTY</text>
+			<text x="155" y="95" class="gauge-label" fill="#22C55E">PUBLIC</text>
+		</svg>
 
-const GAUGE_CONFIG = {
-  // The gauge sweeps 180°, divided into three zones
-  // Left third = DONORS, Middle = PARTY, Right third = PUBLIC
-  zones: [
-    { label: "DONORS",  startDeg: 180, endDeg: 240, color: "#F59E0B" },
-    { label: "PARTY",   startDeg: 240, endDeg: 300, color: "#6366F1" },
-    { label: "PUBLIC",  startDeg: 300, endDeg: 360, color: "#22C55E" },
-  ]
-};
+		<div class="gauge-scores">
+			@ScoreBar("Party alignment", scores.PartyScore, "#6366F1", 0)
+			@ScoreBar("Donor alignment", ptrOrZero(scores.DonorScore), "#F59E0B", scores.DonorN)
+			@ScoreBar("Public alignment", ptrOrZero(scores.PublicScore), "#22C55E", scores.PublicN)
+		</div>
 
-export function LoyaltyGauge({ scores, politician }) {
-  const { party_score, donor_score, public_score, dominant, donor_n, public_n } = scores;
+		if scores.DonorN < 10 || scores.PublicN < 10 {
+			<p class="gauge-warning">⚠ Insufficient data for a reliable loyalty reading.</p>
+		}
 
-  // Convert three scores into a single needle angle (180°–360°)
-  const needleAngle = useMemo(() => {
-    const p = party_score  ?? 0;
-    const d = donor_score  ?? 0;
-    const u = public_score ?? 0;
-    const total = p + d + u;
-    if (total === 0) return 270; // Centre = unknown
+		<p class="gauge-caveat">
+			Alignment scores show correlation only — not proof of improper influence.
+			<a href="/methodology">Methodology →</a>
+		</p>
 
-    // Weight each zone by its score, map to 180°–360°
-    // DONORS = 180°–240°, PARTY = 240°–300°, PUBLIC = 300°–360°
-    const donorWeight  = d / total;
-    const partyWeight  = p / total;
-    const publicWeight = u / total;
-
-    return 180 + (donorWeight * 60) + (partyWeight * 120) + (publicWeight * 180);
-  }, [party_score, donor_score, public_score]);
-
-  const hasEnoughData = donor_n >= 10 && public_n >= 10;
-
-  return (
-    <div className="loyalty-gauge-container">
-      <h3 className="gauge-title">Loyalty Analysis</h3>
-
-      {/* SVG Gauge */}
-      <svg viewBox="0 0 200 110" className="gauge-svg">
-        {/* Background arcs */}
-        <GaugeArc startDeg={180} endDeg={240} color="#F59E0B22" strokeWidth={16} />
-        <GaugeArc startDeg={240} endDeg={300} color="#6366F122" strokeWidth={16} />
-        <GaugeArc startDeg={300} endDeg={360} color="#22C55E22" strokeWidth={16} />
-
-        {/* Score-filled arcs */}
-        {donor_score && (
-          <GaugeArc
-            startDeg={180}
-            endDeg={180 + donor_score * 60}
-            color="#F59E0B"
-            strokeWidth={16}
-          />
-        )}
-        {party_score && (
-          <GaugeArc
-            startDeg={240}
-            endDeg={240 + party_score * 60}
-            color="#6366F1"
-            strokeWidth={16}
-          />
-        )}
-        {public_score && (
-          <GaugeArc
-            startDeg={300}
-            endDeg={300 + public_score * 60}
-            color="#22C55E"
-            strokeWidth={16}
-          />
-        )}
-
-        {/* Needle */}
-        {hasEnoughData && (
-          <GaugeNeedle angle={needleAngle} cx={100} cy={100} />
-        )}
-
-        {/* Zone labels */}
-        <text x="28"  y="95" className="gauge-label" fill="#F59E0B">DONORS</text>
-        <text x="88"  y="40" className="gauge-label" fill="#6366F1">PARTY</text>
-        <text x="155" y="95" className="gauge-label" fill="#22C55E">PUBLIC</text>
-      </svg>
-
-      {/* Score breakdown */}
-      <div className="gauge-scores">
-        <ScoreBar label="Party alignment"  score={party_score}  color="#6366F1" n={null} />
-        <ScoreBar label="Donor alignment"  score={donor_score}  color="#F59E0B" n={donor_n} />
-        <ScoreBar label="Public alignment" score={public_score} color="#22C55E" n={public_n} />
-      </div>
-
-      {/* Data quality warning */}
-      {!hasEnoughData && (
-        <p className="gauge-warning">
-          ⚠ Insufficient data for a reliable loyalty reading.
-          {donor_n < 10 && ` Donor stance data available for only ${donor_n} bills.`}
-          {public_n < 10 && ` Public reactions available for only ${public_n} bills.`}
-        </p>
-      )}
-
-      {/* Caveat */}
-      <p className="gauge-caveat">
-        Alignment scores show correlation only — not proof of improper influence.
-        <a href="/methodology">Methodology →</a>
-      </p>
-
-      {/* Donor breakdown — expandable */}
-      <DonorIndustryBreakdown politicianId={politician.id} />
-    </div>
-  );
-}
-
-// Expandable panel showing top donor industries + total amounts
-function DonorIndustryBreakdown({ politicianId }) {
-  const [expanded, setExpanded] = useState(false);
-  // Fetch from /api/members/{id}/donor-industries
-  const { data } = useDonorIndustries(politicianId);
-
-  return (
-    <details open={expanded} onToggle={e => setExpanded(e.target.open)}>
-      <summary>Top donor industries</summary>
-      {data?.map(row => (
-        <div key={row.industry} className="donor-row">
-          <span className="industry-name">{row.industry}</span>
-          <span className="donor-count">{row.num_donors} donors</span>
-          <span className="donor-total">${row.total_donated.toLocaleString()}</span>
-        </div>
-      ))}
-    </details>
-  );
+		<details x-bind:open="expanded" x-on:toggle="expanded = $event.target.open">
+			<summary>Top donor industries</summary>
+			@DonorIndustryRows(politicianID)
+		</details>
+	</div>
 }
 ```
 
@@ -914,13 +679,13 @@ Below the gauge, show a **Donor Network Panel**:
 ## 9. Technical Stack & Phasing
 
 ### Phase A — Data Ingestion (3–4 weeks)
-- Federal CSV bulk download → Postgres `contributions` table
+- Federal CSV bulk download → SQLite `contributions` table
 - Alberta, Saskatchewan, Manitoba CSV/scrape → same table
 - Basic `persons` + `organizations` tables
 - Rule-based entity resolution (corporate registry matching only)
 
 ### Phase B — Graph Setup (2 weeks)
-- Install Neo4j Community (or Memgraph) alongside Postgres
+- Install Neo4j Community (or Memgraph) alongside SQLite
 - ETL: sync members, bills, votes, contributions → graph
 - Basic Cypher queries for industry concentration per politician
 
@@ -949,7 +714,7 @@ Below the gauge, show a **Donor Network Panel**:
 | Layer | Technology | Notes |
 |-------|-----------|-------|
 | Graph DB | Neo4j Community (GPL) or Memgraph | Both use Cypher; Memgraph is faster in-memory |
-| ETL (Postgres → Neo4j) | `neo4j-python-driver` + cron | Nightly sync |
+| ETL (SQLite → Neo4j) | `neo4j-go-driver` + existing Go scheduler/cron jobs | Nightly sync |
 | Entity resolution | People Data Labs API | ~$0.10/lookup; budget $5–10k for initial load |
 | Corporate registry | Corporations Canada bulk data (Open Gov Portal) | Free |
 | Lobbyist registry | lobbyist.gc.ca + open.canada.ca bulk download | Free |
