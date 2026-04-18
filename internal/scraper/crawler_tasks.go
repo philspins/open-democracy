@@ -894,6 +894,27 @@ func resolveProvincialMemberID(conn *sql.DB, province, sourceName string) (strin
 		}
 	}
 
+	if len(parts) >= 2 {
+		matchedID := ""
+		for _, c := range list {
+			nameParts := strings.Fields(normalisePersonName(c.Name))
+			if len(nameParts) < len(parts) {
+				continue
+			}
+			suffix := strings.Join(nameParts[len(nameParts)-len(parts):], " ")
+			if suffix != want {
+				continue
+			}
+			if matchedID != "" {
+				return "", nil
+			}
+			matchedID = c.ID
+		}
+		if matchedID != "" {
+			return matchedID, nil
+		}
+	}
+
 	// Ontario and some journals list only the surname in vote lists.
 	if len(parts) == 1 {
 		last := parts[0]

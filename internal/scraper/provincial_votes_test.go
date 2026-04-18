@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/philspins/open-democracy/internal/scraper"
@@ -198,6 +199,40 @@ func TestParseAlbertaVPDivisions_MultiDivision(t *testing.T) {
 	}
 }
 
+func TestParseAlbertaVPDivisions_QuestionBlocksFormat(t *testing.T) {
+	text := `Hon. Mr. Schow, Government House Leader, moved pursuant to Standing Order 27 that the Assembly proceed immediately to Orders of the Day. The question being put, the motion was agreed to on the voice vote. With Hon. Mr. McIver in the Chair, the names being called for were taken as follows: For the motion: 45 Amery Armstrong-Homeniuk Boitchenko Bouchard Cyr de Jonge Dreeshen Against the motion: 37 Al-Guneid Arcand-Paul Batten Boparai Brar ORDERS OF THE DAY Government Motions 2. Moved by Hon. Mr. Schow: Be it resolved that the Legislative Assembly resolve into Committee of the Whole, when called, to consider certain Bills on the Order Paper. The question being put, the motion was agreed to on the voice vote. With Hon. Mr. McIver in the Chair, the names being called for were taken as follows: For the motion: 44 Amery Armstrong-Homeniuk Boitchenko Bouchard Cyr de Jonge Dreeshen Against the motion: 37 Al-Guneid Arcand-Paul Batten Boparai Brar`
+	divs := scraper.ParseAlbertaVPDivisionsForTest(text, "https://example.com/vp.pdf", 31, 2, 1, "2025-10-27")
+	if len(divs) != 2 {
+		t.Fatalf("len(divs)=%d, want 2", len(divs))
+	}
+	if divs[0].Division.Yeas != 45 || divs[0].Division.Nays != 37 {
+		t.Fatalf("div1 counts=(%d,%d), want (45,37)", divs[0].Division.Yeas, divs[0].Division.Nays)
+	}
+	if divs[1].Division.Yeas != 44 || divs[1].Division.Nays != 37 {
+		t.Fatalf("div2 counts=(%d,%d), want (44,37)", divs[1].Division.Yeas, divs[1].Division.Nays)
+	}
+	if !strings.Contains(divs[0].Division.Description, "Standing Order 27") {
+		t.Fatalf("div1 description=%q", divs[0].Division.Description)
+	}
+	if !strings.Contains(divs[1].Division.Description, "Committee of the Whole") {
+		t.Fatalf("div2 description=%q", divs[1].Division.Description)
+	}
+	if len(divs[0].Votes) < 5 || len(divs[1].Votes) < 5 {
+		t.Fatalf("votes lens=(%d,%d), want >=5", len(divs[0].Votes), len(divs[1].Votes))
+	}
+}
+
+func TestParseAlbertaVPDivisions_QuestionBlocksKeepBillDescription(t *testing.T) {
+	text := `Second Reading On the motion that the following Bill be now read a Second time: Bill 27 Financial Statutes Amendment Act, 2026 -- Hon. Mr. Horner A debate followed. The question being put, the motion was agreed to on the voice vote. With Hon. Mr. McIver in the Chair, the names being called for were taken as follows: For the motion: 45 Amery Armstrong-Homeniuk Boitchenko Bouchard Cyr de Jonge Dreeshen Against the motion: 37 Al-Guneid Arcand-Paul Batten Boparai Brar`
+	divs := scraper.ParseAlbertaVPDivisionsForTest(text, "https://example.com/vp.pdf", 31, 2, 1, "2026-04-15")
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	if !strings.Contains(divs[0].Division.Description, "Bill 27 Financial Statutes Amendment Act") {
+		t.Fatalf("description=%q", divs[0].Division.Description)
+	}
+}
+
 func TestParsePDFDivisionsYeasNays_ManitobaStyle(t *testing.T) {
 	text := `VOTES AND PROCEEDINGS 43rd Legislature 3rd Session YEAS - 37 Balser Bailey Bereza Brar Bushie Clarke Cook NAYS - 18 Balcaen Byram Eichler Ewasko Goertzen`
 	divs := scraper.ParsePDFDivisionsYeasNaysForTest(text, "https://example.com/votes_041.pdf", "mb", "manitoba", 43, 3, 1, "2024-02-20")
@@ -236,6 +271,30 @@ func TestParsePDFDivisionsYeasNays_ManitobaStyleUppercaseNames(t *testing.T) {
 	}
 	if got := votesByName["EICHLER"]; got != "Nay" {
 		t.Fatalf("vote[EICHLER]=%q, want Nay", got)
+	}
+}
+
+func TestParseManitobaAyeNayDivisions_CurrentLayout(t *testing.T) {
+	text := `Pursuant to sub-rule 24(7), the division on the proposed motion of MLA LAMOUREUX was deferred to take place today at 11:55 a.m. THAT Bill (No. 232) The Autism Strategy Act/Loi sur la strategie sur l'autisme, be now read a Second Time and be referred to a Committee of this House. And the Question being put. It was agreed to, on the following division: AYE BALCAEN BEREZA BLASHKO BRAR BUSHIE BYRAM CABLE COMPTON COOK CORBETT CROSS DELA CRUZ DEVGAN EWASKO GUENTER HIEBERT JOHNSON KENNEDY KHAN KING KOSTYSHYN LAMOUREUX MALOWAY MARCELINO MOROZ MOSES MOYES NARTH NESBITT OXENHAM PERCHOTTE REDHEAD ROBBINS SALA SANDHU SCHMIDT SCHOTT SCHULER SIMARD SMITH STONE WASYLIW WHARTON WIEBE WOWCHUK ..................................... 46 NAY ......................................................... 0 The Bill was accordingly read a Second Time and referred to a Committee of this House.`
+	divs := scraper.ParseManitobaAyeNayDivisionsForTest(text, "https://example.com/votes_031.pdf", 43, 3, 1, "2026-03-19")
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	if divs[0].Division.Yeas != 46 || divs[0].Division.Nays != 0 {
+		t.Fatalf("counts=(%d,%d), want (46,0)", divs[0].Division.Yeas, divs[0].Division.Nays)
+	}
+	if len(divs[0].Votes) < 10 {
+		t.Fatalf("len(votes)=%d, want >=10", len(divs[0].Votes))
+	}
+	if !strings.Contains(divs[0].Division.Description, "Bill (No. 232)") {
+		t.Fatalf("description=%q", divs[0].Division.Description)
+	}
+	seen := map[string]string{}
+	for _, vote := range divs[0].Votes {
+		seen[vote.MemberName] = vote.Vote
+	}
+	if seen["BALCAEN"] != "Yea" || seen["WOWCHUK"] != "Yea" || seen["DELA CRUZ"] != "Yea" {
+		t.Fatalf("unexpected parsed votes: BALCAEN=%q WOWCHUK=%q DELA CRUZ=%q", seen["BALCAEN"], seen["WOWCHUK"], seen["DELA CRUZ"])
 	}
 }
 
