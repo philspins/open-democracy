@@ -1,4 +1,4 @@
-# CivicTracker — Loyalty Gauge Feature
+# Open Democracy — Loyalty Gauge Feature
 ## Donor Intelligence, Graph Mapping & Accountability Scoring
 
 > "Who does this politician actually work for?"
@@ -37,7 +37,7 @@ The position of the needle is computed from three independent scores:
 
 - **Party alignment** — how often the politician votes with their party (from Phase 5 of the main plan)
 - **Donor alignment** — how often their votes benefit their donors' inferred interests
-- **Public alignment** — how often their votes match constituent reactions on CivicTracker
+- **Public alignment** — how often their votes match constituent reactions on Open Democracy
 
 The gauge is the **output** of a substantial data pipeline described in this document. Building it requires four major components: donation data ingestion, entity resolution, stance inference, and scoring.
 
@@ -131,7 +131,7 @@ import csv
 import requests
 
 FEDERAL_URL = "https://www.elections.ca/fin/oda/od_cntrbtn_audt_e.zip"
-HEADERS = {"User-Agent": "CivicTracker/1.0 (civic-app.ca; contact@civic-app.ca)"}
+HEADERS = {"User-Agent": "Open Democracy/1.0 (open-democracy.ca; contact@open-democracy.ca)"}
 
 def ingest_federal_contributions():
     """
@@ -698,7 +698,7 @@ def compute_loyalty_scores(politician_id: str, lookback_days: int = 365) -> dict
     donor_n = donor_total  # Show sample size in UI
 
     # ── PUBLIC SCORE ─────────────────────────────────────────────
-    # Compare politician's votes to constituent reactions on CivicTracker
+    # Compare politician's votes to constituent reactions on Open Democracy
     reactions = get_constituent_reactions(politician_id, lookback_days)
 
     public_aligned = 0
