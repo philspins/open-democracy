@@ -24,10 +24,10 @@
 
 A **radial gauge** displayed at the top of each MP/MLA profile page. The needle points to one of three options:
 
-![Loyalty gauge](images/loyalty-gauge.png)
-
-
 Public = low corruption = green, party = medium corruption = yellow, donors = high corruption = red
+
+Example:
+![Loyalty gauge](images/loyalty-gauge.png)
 
 The position of the needle is computed from three independent scores:
 
