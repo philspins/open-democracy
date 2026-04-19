@@ -2300,7 +2300,7 @@ func peiAssemblySessionFromQueryParams(params map[string]string) (int, int, bool
 	return 0, 0, false
 }
 
-
+// wdfNode is one node in the WDF component tree returned by the workflow API.
 // The Type field identifies the component (TableV2Row, LinkV2, Paginator, etc.).
 // Data is kept as raw JSON because its structure varies by node type.
 type wdfNode struct {
