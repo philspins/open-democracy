@@ -1839,7 +1839,7 @@ func ParliamentOrdinalForTest(n int) string { return parliamentOrdinal(n) }
 // mbVotesPDFLinkRe matches per-day Votes and Proceedings PDF links on MB session pages.
 var mbVotesPDFLinkRe = regexp.MustCompile(`(?i)\d+(?:rd|th|st|nd)/votes_\d+\.pdf`)
 var mbAyeNaySectionRe = regexp.MustCompile(`(?is)\bAYE\b\s+(.{1,1000}?)\.{3,}\s*(\d{1,3})\s+\bNAY\b\s+(.{0,600}?)\.{3,}\s*(\d{1,3})`)
-var mbMotionDescriptionRe = regexp.MustCompile(`(?is)(THAT\s+Bill\s*\(No\.\s*\d+\).{0,260}?|Resolution\s+No\.\s*\d+:.{0,260}?)(?:And\s+the\s+Question\s+being\s+put|It\s+was\s+agreed\s+to,\s+on\s+the\s+following\s+division|$)`)
+var mbMotionDescriptionRe = regexp.MustCompile(`(?is)(THAT\s+Bill(?:\s*\(No\.\s*\d+\)|\s+No\.\s*\d+).{0,320}?|Resolution\s+No\.\s*\d+\s*:.{0,320}?)(?:And\s+the\s+Question\s+being\s+put|It\s+was\s+(?:agreed|negatived)\s+to,\s+on\s+the\s+following\s+division|$)`)
 
 // mbSessionPageLinkRe matches session-index page links on the MB V&P index page.
 // Links have the form "43rd/43rd_3rd.html" (ordinal suffix on both the legislature

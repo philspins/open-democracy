@@ -570,6 +570,9 @@ var parliamentSessionRe = regexp.MustCompile(`(?i)(\d{1,3})(?:st|nd|rd|th)\s*par
 var legislatureSessionRe = regexp.MustCompile(`(?i)(\d{1,3})(?:st|nd|rd|th)\s*(?:legislature|general assembly)[^\d]{0,40}(\d{1,2})(?:st|nd|rd|th)?\s*session`)
 var parliamentSessionURLRe = regexp.MustCompile(`(?i)(\d{1,3})(?:st|nd|rd|th)?[-_/]parliament[-_/](\d{1,2})(?:st|nd|rd|th)?[-_/]session`)
 var compactLegSessionURLRe = regexp.MustCompile(`(?i)/(\d{1,3})-(\d{1,2})(?:/|$)`) // e.g. /43-2/
+var albertaLegislatureSessionLabelRe = regexp.MustCompile(`(?i)legislature\s*,?\s*session\s+(\d{1,3})-(\d{1,2})`)
+var albertaLegislatureSessionCommaRe = regexp.MustCompile(`(?i)legislature\s+(\d{1,3})\s*,\s*session\s+(\d{1,2})`)
+var albertaLegislatureSessionQueryRe = regexp.MustCompile(`(?i)[?&]legl=(\d{1,3})&session=(\d{1,2})(?:[&#]|$)`)
 
 func candidateScore(text string, base int) int {
 	score := base
@@ -658,6 +661,23 @@ func extractLegislatureSessionCandidates(provinceCode, text string, baseScore in
 				continue
 			}
 			out = append(out, legislatureSession{Legislature: l, Session: s, Score: candidateScore(text, baseScore)})
+		}
+	}
+
+	if provinceCode == "ab" {
+		for _, re := range []*regexp.Regexp{albertaLegislatureSessionLabelRe, albertaLegislatureSessionCommaRe, albertaLegislatureSessionQueryRe} {
+			matches := re.FindAllStringSubmatch(text, -1)
+			for _, m := range matches {
+				if len(m) < 3 {
+					continue
+				}
+				l, lerr := strconv.Atoi(m[1])
+				s, serr := strconv.Atoi(m[2])
+				if lerr != nil || serr != nil || l <= 0 || s <= 0 {
+					continue
+				}
+				out = append(out, legislatureSession{Legislature: l, Session: s, Score: candidateScore(text, baseScore+20)})
+			}
 		}
 	}
 

@@ -298,6 +298,20 @@ func TestParseManitobaAyeNayDivisions_CurrentLayout(t *testing.T) {
 	}
 }
 
+func TestParseManitobaAyeNayDivisions_LiveNoParensBillFormat(t *testing.T) {
+	text := `Pursuant to sub-rule 24(7), the division on the proposed motion of MLA LAMOUREUX was deferred to take place today at 11:55 a.m. THAT Bill No. 232 The Autism Strategy Act/Loi sur la strategie sur l'autisme, be now read a Second Time and be referred to a Committee of this House. And the Question being put. It was agreed to, on the following division: AYE BALCAEN BEREZA BLASHKO BRAR BUSHIE BYRAM CABLE COMPTON COOK CORBETT CROSS DELA CRUZ DEVGAN EWASKO GUENTER HIEBERT JOHNSON KENNEDY KHAN KING KOSTYSHYN LAMOUREUX MALOWAY MARCELINO MOROZ MOSES MOYES NARTH NESBITT OXENHAM PERCHOTTE REDHEAD ROBBINS SALA SANDHU SCHMIDT SCHOTT SCHULER SIMARD SMITH STONE WASYLIW WHARTON WIEBE WOWCHUK ..................................... 46 NAY ......................................................... 0`
+	divs := scraper.ParseManitobaAyeNayDivisionsForTest(text, "https://example.com/votes_031.pdf", 43, 3, 1, "2026-03-19")
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	if !strings.Contains(divs[0].Division.Description, "Bill No. 232") {
+		t.Fatalf("description=%q", divs[0].Division.Description)
+	}
+	if scraper.ExtractProvincialBillNumber(divs[0].Division.Description) != "232" {
+		t.Fatalf("bill number=%q", scraper.ExtractProvincialBillNumber(divs[0].Division.Description))
+	}
+}
+
 func TestParseNLJournalDivisions_OutcomeOnly(t *testing.T) {
 	text := `The house considered Bill 3. On the motion that the bill be read a third time, the question was put, and the motion was agreed to. On the amendment to the bill, the question was put, and the amendment was defeated.`
 	divs := scraper.ParseNLJournalDivisionsForTest(text, "https://example.com/26-04-14.pdf", 51, 1, 1, "2026-04-14")
