@@ -1392,10 +1392,10 @@ const bcLIMSBase = "https://lims.leg.bc.ca"
 
 // bcLIMSVotesFile describes a single V&P HTML document returned by the BC LIMS API.
 type bcLIMSVotesFile struct {
-	FileName  string `json:"fileName"`
-	FilePath  string `json:"filePath"`
-	Published bool   `json:"published"`
-	Date      string `json:"date"`
+	FileName                string `json:"fileName"`
+	FilePath                string `json:"filePath"`
+	Published               bool   `json:"published"`
+	Date                    string `json:"date"`
 	VotesAttributesByFileId struct {
 		Nodes []struct {
 			VoteNumbers string `json:"voteNumbers"`
@@ -1772,8 +1772,6 @@ func CrawlManitobaVotes(indexURL string, legislature, session int, client *http.
 	}
 	return crawlManitobaVotesFromPDF(indexURL, legislature, session, client)
 }
-
-
 
 // CrawlQuebecVotes crawls Quebec registre/votes pages.
 func CrawlQuebecVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
@@ -2222,7 +2220,7 @@ type wdfNode struct {
 
 // wdfTreeResponse is the top-level envelope of a WDF workflow API response.
 type wdfTreeResponse struct {
-	ProcessInstanceID string    `json:"processInstanceId"`
+	ProcessInstanceID string `json:"processInstanceId"`
 	Messages          struct {
 		Error []string `json:"error"`
 	} `json:"messages"`
@@ -2372,14 +2370,10 @@ func postPEIWorkflowHTTP(wdfBase, workflowName, activityName string, queryVars m
 // peiDivTriggerRe matches the recorded-division announcement in PEI journals.
 var peiDivTriggerRe = regexp.MustCompile(`(?i)A\s+Recorded\s+Division\s+being\s+sought[^.]*?the\s+names\s+were\s+recorded[^.]*?as\s+follows:`)
 
-// peiDivCountRe matches "Nays (7\" or "Yeas ( 12 \" — the closing `\` is how
-// pdfcpu renders the PDF `\)` escape that ends a string literal.
-var peiDivCountRe = regexp.MustCompile(`(?i)(Nays|Yeas)\s*\(\s*(\d[\d\s]*)\s*\\`)
-
-// peiMemberRidingRe matches a constituency/portfolio suffix like "(Land and Environment\"
-// that terminates a member entry. Requires at least one letter so bare-number
-// count markers like "(7\" are excluded.
-var peiMemberRidingRe = regexp.MustCompile(`\([^(\\]*[A-Za-z][^(\\]*\\`)
+// peiDivCountRe matches vote-count markers in normalized PEI PDF text, e.g.
+// "Nays 12 \" or "Yeas ( 12 \". Parentheses are optional because pdfcpu
+// extraction sometimes strips them while preserving the trailing backslash.
+var peiDivCountRe = regexp.MustCompile(`(?i)(Nays?|Yeas?)\s*\(?\s*(\d[\d\s]*)\s*\\`)
 
 // peiDivOutcomeRe matches the outcome sentence that closes a recorded division.
 var peiDivOutcomeRe = regexp.MustCompile(`(?i)(?:Motion\s+(?:was\s+)?(?:CARRIED|NEGATIVED)|CARRIED\s+UNANIMOUSLY|Motion\s+resolved\s+in\s+the)`)
@@ -2400,6 +2394,14 @@ var peiTitlePrefixes = []string{
 	"Hon. Leader of the Third Party",
 	"Leader of the Third Party",
 	"Leader of the Opposition",
+}
+
+var peiRidingStartWords = map[string]struct{}{
+	"Land": {}, "Finance": {}, "Agriculture": {}, "Justice": {}, "Public": {},
+	"Workforce": {}, "Fisheries": {}, "Transportation": {}, "Infrastructure": {},
+	"Health": {}, "Social": {}, "Education": {}, "Economic": {}, "Housing": {},
+	"Communities": {}, "Charlottetown": {}, "Summerside": {}, "Georgetown": {},
+	"Kensington": {}, "Tyne": {}, "New": {}, "O'Leary": {},
 }
 
 // parsePEIJournalDivisions extracts recorded division results from the normalized
@@ -2458,7 +2460,7 @@ func parsePEIJournalDivisions(rawText, pdfURL string, legislature, session, star
 			secondCount, _ := strconv.Atoi(secondCountStr)
 			secondMemberBlock := block[counts[1][1]:]
 
-			if firstLabel == "yeas" {
+			if strings.HasPrefix(firstLabel, "yea") {
 				yeas, yeasBlock = firstCount, firstMemberBlock
 				nays, naysBlock = secondCount, secondMemberBlock
 			} else {
@@ -2467,7 +2469,7 @@ func parsePEIJournalDivisions(rawText, pdfURL string, legislature, session, star
 			}
 		} else {
 			memberBlock := block[counts[0][1]:]
-			if firstLabel == "yeas" {
+			if strings.HasPrefix(firstLabel, "yea") {
 				yeas, yeasBlock = firstCount, memberBlock
 			} else {
 				nays, naysBlock = firstCount, memberBlock
@@ -2531,13 +2533,17 @@ func parsePEIJournalMembers(block string) []string {
 	if strings.TrimSpace(block) == "" {
 		return nil
 	}
-	positions := peiMemberRidingRe.FindAllStringIndex(block, -1)
+	parts := strings.Split(block, `\`)
+	seen := make(map[string]bool)
 	var names []string
-	prev := 0
-	for _, pos := range positions {
-		chunk := strings.TrimSpace(block[prev:pos[0]])
-		prev = pos[1]
-		names = append(names, peiExtractNamesFromChunk(chunk)...)
+	for _, part := range parts {
+		for _, n := range peiExtractNamesFromChunk(part) {
+			if n == "" || seen[n] {
+				continue
+			}
+			seen[n] = true
+			names = append(names, n)
+		}
 	}
 	return names
 }
@@ -2547,6 +2553,9 @@ func parsePEIJournalMembers(block string) []string {
 // and optional title prefixes like "Leader of the Third Party".
 func peiExtractNamesFromChunk(chunk string) []string {
 	chunk = strings.TrimSpace(chunk)
+	chunk = strings.Join(strings.Fields(chunk), " ")
+	chunk = strings.ReplaceAll(chunk, " - ", "-")
+	chunk = regexp.MustCompile(`(?i)^(Nays?|Yeas?)\s*\(?\s*\d+\s*`).ReplaceAllString(chunk, "")
 	// Skip empty chunks and orphaned riding fragments like "- Inverness".
 	if chunk == "" || strings.HasPrefix(chunk, "- ") {
 		return nil
@@ -2554,9 +2563,9 @@ func peiExtractNamesFromChunk(chunk string) []string {
 
 	var results []string
 
-	// "Hon. Premier" has no riding suffix; extract it before processing the rest.
+	// "Hon. Premier" is a title, not a stable member name. Remove it and continue
+	// extracting the actual MLA name that usually follows in the same chunk.
 	if peiPremierRe.MatchString(chunk) {
-		results = append(results, "Premier")
 		chunk = strings.TrimSpace(peiPremierRe.ReplaceAllString(chunk, ""))
 		if chunk == "" {
 			return results
@@ -2572,9 +2581,44 @@ func peiExtractNamesFromChunk(chunk string) []string {
 	}
 	chunk = strings.TrimPrefix(chunk, "Hon. ")
 	chunk = strings.TrimSpace(chunk)
+	if chunk == "" {
+		return results
+	}
+	lower := strings.ToLower(chunk)
+	if strings.HasPrefix(lower, "the motion") || strings.HasPrefix(lower, "motion resolved") || strings.HasPrefix(lower, "ordered") || strings.HasPrefix(lower, "journal of") {
+		return results
+	}
 
-	if chunk != "" && !strings.HasPrefix(chunk, "- ") {
-		results = append(results, chunk)
+	words := strings.Fields(chunk)
+	if len(words) < 2 {
+		return results
+	}
+
+	name := make([]string, 0, 3)
+	for i, w := range words {
+		clean := strings.Trim(w, ",.;:()")
+		if clean == "" {
+			continue
+		}
+		if i > 0 {
+			if _, isRiding := peiRidingStartWords[clean]; isRiding && len(name) >= 2 {
+				break
+			}
+		}
+		if len(name) == 3 {
+			break
+		}
+		name = append(name, clean)
+		if len(name) >= 2 && i+1 < len(words) {
+			next := strings.Trim(words[i+1], ",.;:()")
+			if _, isRiding := peiRidingStartWords[next]; isRiding {
+				break
+			}
+		}
+	}
+
+	if len(name) >= 2 {
+		results = append(results, strings.Join(name, " "))
 	}
 	return results
 }
@@ -2806,8 +2850,6 @@ func CrawlPrinceEdwardIslandVotes(indexURL string, legislature, session int, cli
 
 	return crawlPEIVotes(indexURL, legislature, session, client)
 }
-
-
 
 // CrawlGenericProvincialVotes fetches a provincial votes/proceedings index page,
 // discovers likely per-day links, then parses divisions from each page using

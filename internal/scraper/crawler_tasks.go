@@ -838,8 +838,25 @@ func normalisePersonName(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = strings.ReplaceAll(s, ".", " ")
 	s = strings.ReplaceAll(s, ",", " ")
+	s = strings.ReplaceAll(s, "-", " ")
+	s = strings.ReplaceAll(s, "(", " ")
+	s = strings.ReplaceAll(s, ")", " ")
+	s = strings.ReplaceAll(s, "'", "")
 	s = strings.Join(strings.Fields(s), " ")
 	return s
+}
+
+func commonPrefixLen(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return n
 }
 
 func resolveProvincialMemberID(conn *sql.DB, province, sourceName string) (string, error) {
@@ -884,6 +901,107 @@ func resolveProvincialMemberID(conn *sql.DB, province, sourceName string) (strin
 			if len(nameParts) > 0 && nameParts[len(nameParts)-1] == last {
 				return c.ID, nil
 			}
+		}
+		bestID := ""
+		bestScore := 0
+		tie := false
+		for _, c := range list {
+			nameParts := strings.Fields(normalisePersonName(c.Name))
+			if len(nameParts) < 2 {
+				continue
+			}
+			score := 0
+			for i := 1; i < len(nameParts); i++ {
+				p := commonPrefixLen(last, nameParts[i])
+				if p > score {
+					score = p
+				}
+			}
+			if score < 4 {
+				continue
+			}
+			if score > bestScore {
+				bestScore = score
+				bestID = c.ID
+				tie = false
+			} else if score == bestScore {
+				tie = true
+			}
+		}
+		if bestID != "" && !tie {
+			return bestID, nil
+		}
+	}
+
+	// OCR-heavy provincial journals (especially PEI PDFs) may merge surname with
+	// riding text (e.g., "thompsoagriculture"). Fall back to a deterministic
+	// first-name + surname-prefix match when it produces one clear best candidate.
+	if len(parts) >= 2 {
+		wantFirst := parts[0]
+		wantSurnameLike := parts[1]
+
+		bestID := ""
+		bestScore := 0
+		tie := false
+
+		for _, c := range list {
+			nameParts := strings.Fields(normalisePersonName(c.Name))
+			if len(nameParts) < 2 || nameParts[0] != wantFirst {
+				continue
+			}
+			score := 0
+			for i := 1; i < len(nameParts); i++ {
+				p := commonPrefixLen(wantSurnameLike, nameParts[i])
+				if p > score {
+					score = p
+				}
+			}
+			if score < 4 {
+				continue
+			}
+			if score > bestScore {
+				bestScore = score
+				bestID = c.ID
+				tie = false
+			} else if score == bestScore {
+				tie = true
+			}
+		}
+
+		if bestID != "" && !tie {
+			return bestID, nil
+		}
+
+		// Last-resort fallback: if the first name is OCR-corrupted, resolve by a
+		// unique strong surname-prefix match across candidates for this province.
+		bestID = ""
+		bestScore = 0
+		tie = false
+		for _, c := range list {
+			nameParts := strings.Fields(normalisePersonName(c.Name))
+			if len(nameParts) < 2 {
+				continue
+			}
+			score := 0
+			for i := 1; i < len(nameParts); i++ {
+				p := commonPrefixLen(wantSurnameLike, nameParts[i])
+				if p > score {
+					score = p
+				}
+			}
+			if score < 4 {
+				continue
+			}
+			if score > bestScore {
+				bestScore = score
+				bestID = c.ID
+				tie = false
+			} else if score == bestScore {
+				tie = true
+			}
+		}
+		if bestID != "" && !tie {
+			return bestID, nil
 		}
 	}
 

@@ -207,18 +207,8 @@ func TestParsePEIJournalDivisions_YeasAndNays(t *testing.T) {
 	if len(nays) != 2 {
 		t.Errorf("nay voters=%v, want 2", nays)
 	}
-	if len(yeas) != 3 {
-		t.Errorf("yea voters=%v, want 3", yeas)
-	}
-	// "Premier" should be extracted from "Hon. Premier" (no riding suffix).
-	found := false
-	for _, n := range yeas {
-		if n == "Premier" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected 'Premier' in yea voters, got %v", yeas)
+	if len(yeas) != 2 {
+		t.Errorf("yea voters=%v, want 2", yeas)
 	}
 }
 
@@ -248,6 +238,25 @@ func TestParsePEIJournalDivisions_NaysFirst(t *testing.T) {
 	}
 	if len(d.Votes) < 5 {
 		t.Errorf("too few votes: %d", len(d.Votes))
+	}
+}
+
+func TestParsePEIJournalDivisions_CountsWithoutParentheses(t *testing.T) {
+	text := `Hon. Mr. Speaker put the Question. A Recorded Division being sought, the names were recorded by the Clerk as follows: ` +
+		`Nays 12 \ Hon. Darlene Compton Land and Environment\ Hon. Jill Burridge Finance and Affordability\ ` +
+		`Yea 7 \ Leader of the Third Party Karla Bernard Charlottetown - Victoria Park\ Gordon McNeilly Charlottetown - West Royalty\ ` +
+		`Motion resolved in the Negative.`
+
+	divs := scraper.ParsePEIJournalDivisionsForTest(text, "https://docs.assembly.pe.ca/test.pdf", 67, 3, 1, "2026-04-07")
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	d := divs[0]
+	if d.Division.Nays != 12 || d.Division.Yeas != 7 {
+		t.Errorf("counts=(%d,%d), want (12,7)", d.Division.Nays, d.Division.Yeas)
+	}
+	if d.Division.Result != "Negatived" {
+		t.Errorf("result=%q, want Negatived", d.Division.Result)
 	}
 }
 
@@ -375,4 +384,3 @@ func TestParliamentOrdinal(t *testing.T) {
 		}
 	}
 }
-
