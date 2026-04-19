@@ -45,6 +45,25 @@ func TestExtractPlainVoteNames_CollapsesSplitUppercaseSurnames(t *testing.T) {
 	}
 }
 
+func TestManitobaSessionPageMatches(t *testing.T) {
+	tests := []struct {
+		href        string
+		legislature int
+		session     int
+		want        bool
+	}{
+		{href: "43rd/43rd_3rd.html", legislature: 43, session: 3, want: true},
+		{href: "43rd/43rd_2nd.html", legislature: 43, session: 3, want: false},
+		{href: "42nd/42nd_5th.html", legislature: 43, session: 3, want: false},
+	}
+
+	for _, tc := range tests {
+		if got := manitobaSessionPageMatches(tc.href, tc.legislature, tc.session); got != tc.want {
+			t.Fatalf("manitobaSessionPageMatches(%q, %d, %d)=%v, want %v", tc.href, tc.legislature, tc.session, got, tc.want)
+		}
+	}
+}
+
 func TestResolveProvincialMemberID_StripsTitlesAndMatchesInitialPlusSurname(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	conn, err := db.Open(path)

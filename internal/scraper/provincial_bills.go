@@ -595,6 +595,7 @@ func CrawlQuebecBills(indexURL string, legislature, session int, client *http.Cl
 }
 
 func CrawlSaskatchewanBills(indexURL string, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
+	indexURL = normalizeSaskatchewanBillsURL(indexURL)
 	if indexURL == "" {
 		indexURL = "https://www.legassembly.sk.ca/legislative-business/bills/"
 	}
@@ -606,6 +607,18 @@ func CrawlSaskatchewanBills(indexURL string, legislature, session int, client *h
 		return bills, nil
 	}
 	return crawlProvincialBillsFromIndexWithMatcher(indexURL, "sk", legislature, session, "saskatchewan", client, saskatchewanBillLinkRe)
+}
+
+func normalizeSaskatchewanBillsURL(indexURL string) string {
+	trimmed := strings.TrimSpace(indexURL)
+	if trimmed == "" {
+		return ""
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == "https://www.legassembly.sk.ca/legislative-business" || lower == "https://www.legassembly.sk.ca/legislative-business/" {
+		return "https://www.legassembly.sk.ca/legislative-business/bills/"
+	}
+	return trimmed
 }
 
 type bcProgressBillFile struct {

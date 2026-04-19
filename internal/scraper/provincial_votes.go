@@ -1846,6 +1846,14 @@ var mbMotionDescriptionRe = regexp.MustCompile(`(?is)(THAT\s+Bill(?:\s*\(No\.\s*
 // and session components), so the session number must also end with an ordinal.
 var mbSessionPageLinkRe = regexp.MustCompile(`(?i)\d+(?:rd|th|st|nd)/\d+(?:rd|th|st|nd)_\d+(?:rd|th|st|nd)\.html`)
 
+func manitobaSessionPageMatches(href string, legislature, session int) bool {
+	if href == "" {
+		return false
+	}
+	want := strings.ToLower(fmt.Sprintf("%s/%s_%s.html", parliamentOrdinal(legislature), parliamentOrdinal(legislature), parliamentOrdinal(session)))
+	return strings.Contains(strings.ToLower(href), want)
+}
+
 // crawlManitobaVotesFromPDF performs a two-level crawl:
 //
 //	votes_proceedings.html → 43rd/43rd_3rd.html → 3rd/votes_NNN.pdf → parsePDFDivisionsYeasNays
@@ -1861,6 +1869,7 @@ func crawlManitobaVotesFromPDF(indexURL string, legislature, session int, client
 
 	// Level 1: find session-index pages.
 	var sessionLinks []string
+	var matchingSessionLinks []string
 	seenSession := make(map[string]bool)
 	indexDoc.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
 		href := normalizeHref(a.AttrOr("href", ""))
@@ -1873,7 +1882,13 @@ func crawlManitobaVotesFromPDF(indexURL string, legislature, session int, client
 		}
 		seenSession[full] = true
 		sessionLinks = append(sessionLinks, full)
+		if manitobaSessionPageMatches(href, legislature, session) {
+			matchingSessionLinks = append(matchingSessionLinks, full)
+		}
 	})
+	if len(matchingSessionLinks) > 0 {
+		sessionLinks = matchingSessionLinks
+	}
 	if len(sessionLinks) == 0 {
 		log.Printf("[mb-votes] no session pages discovered; falling back to generic parser")
 		return crawlGenericProvincialVotesWithMatcher(indexURL, "mb", "manitoba", legislature, session, client, manitobaVotesLinkRe)
