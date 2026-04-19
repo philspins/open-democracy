@@ -15,6 +15,7 @@ func TestExtractProvincialBillNumber(t *testing.T) {
 	}{
 		{"Bill 12 - An Act", "12"},
 		{"BILL A-23 respecting schools", "A-23"},
+		{"Bill (No. M 201) intituled Example Act", "M-201"},
 		{"Motion on C-47", "C-47"},
 		{"No bill here", ""},
 	}
@@ -204,6 +205,60 @@ func TestProvinceSpecificBillCrawlerEntryPoints(t *testing.T) {
 	}
 }
 
+func TestCrawlPrinceEdwardIslandBills_HandlesCaptcha(t *testing.T) {
+	srv := newTestServer(`<html><body><link rel="stylesheet" href="https://captcha.perfdrive.com/challenge.css"></body></html>`)
+	defer srv.Close()
+
+	bills, err := scraper.CrawlPrinceEdwardIslandBills(srv.URL, 68, 1, srv.Client())
+	if err != nil {
+		t.Fatalf("expected no error on CAPTCHA, got: %v", err)
+	}
+	if len(bills) != 0 {
+		t.Fatalf("expected 0 bills on CAPTCHA, got %d", len(bills))
+	}
+}
+
+func TestCrawlPrinceEdwardIslandBills_UsesWorkflowAPI(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/services/api/workflow", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"results": [
+				{
+					"billNumber": "20",
+					"title": "An Act to Amend the Fisheries Act",
+					"detailUrl": "/bill/20",
+					"lastActivityDate": "2026-04-10"
+				},
+				{
+					"bill_number": "21",
+					"billTitle": "An Act Respecting Elections",
+					"url": "https://example.test/bill/21"
+				}
+			]
+		}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	bills, err := scraper.CrawlPrinceEdwardIslandBills(srv.URL+"/services/api/workflow", 68, 1, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlPrinceEdwardIslandBills workflow: %v", err)
+	}
+	if len(bills) != 2 {
+		t.Fatalf("len(bills)=%d want 2", len(bills))
+	}
+	if bills[0].ID == bills[1].ID {
+		t.Fatalf("expected distinct IDs, got duplicate %q", bills[0].ID)
+	}
+	if bills[0].Number == "" || bills[1].Number == "" {
+		t.Fatalf("expected non-empty bill numbers: %+v", bills)
+	}
+}
+
 func TestProvinceSpecificVoteCrawlerEntryPoints(t *testing.T) {
 	type voteCrawler func(string, int, int, *http.Client) ([]scraper.ProvincialDivisionResult, error)
 
@@ -267,4 +322,3 @@ func TestProvinceSpecificVoteCrawlerEntryPoints(t *testing.T) {
 		})
 	}
 }
-

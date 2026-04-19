@@ -7,6 +7,7 @@
 // Flags:
 //
 //	--bills           Crawl bills only (LEGISinfo RSS + detail)
+//	--provincial      Crawl provincial bills and votes
 //	--votes           Crawl Commons votes only
 //	--senate          Crawl Senate votes only
 //	--members         Crawl MP profiles only
@@ -123,7 +124,15 @@ func main() {
 		}()
 	}
 
-	// Build the set of crawl tasks the user selected (or all if none specified).
+	// Phase 1: crawl members before any bills or votes so that vote-member
+	// linkage can resolve against freshly-stored member records.
+	if *membersFlag || shouldRunAll {
+		if err := scraper.CrawlMembers(conn, client, delay, ""); err != nil {
+			log.Printf("[main] members error: %v", err)
+		}
+	}
+
+	// Phase 2: build the remaining crawl tasks and run them concurrently.
 	type task struct {
 		name string
 		fn   func() error
@@ -146,9 +155,6 @@ func main() {
 				}
 			})
 		}})
-	}
-	if *membersFlag || shouldRunAll {
-		tasks = append(tasks, task{"members", func() error { return scraper.CrawlMembers(conn, client, delay, "") }})
 	}
 	if *votesFlag || shouldRunAll {
 		tasks = append(tasks, task{"votes", func() error { return scraper.CrawlVotes(conn, client, delay, "") }})
@@ -213,6 +219,11 @@ func runAll(conn *sql.DB, client *http.Client, delay time.Duration, parallelism 
 		summaryResultCh <- summaryRunResult{processed: n, err: err}
 	}()
 
+	// Phase 1: crawl members before any bills or votes so that vote-member
+	// linkage can resolve against freshly-stored member records.
+	scraper.CrawlMembers(conn, client, delay, "")
+
+	// Phase 2: crawl all remaining domains concurrently.
 	fns := []func(){
 		func() { scraper.CrawlCalendar(conn, client, delay, "") },
 		func() {
@@ -228,7 +239,6 @@ func runAll(conn *sql.DB, client *http.Client, delay time.Duration, parallelism 
 				}
 			})
 		},
-		func() { scraper.CrawlMembers(conn, client, delay, "") },
 		func() { scraper.CrawlVotes(conn, client, delay, "") },
 		func() { scraper.CrawlSenate(conn, client, delay, "") },
 		func() {

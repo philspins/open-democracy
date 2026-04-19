@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/philspins/open-democracy/internal/utils"
@@ -31,7 +34,7 @@ type ProvincialBillStub struct {
 	LastScraped      string
 }
 
-var provincialBillNumberRe = regexp.MustCompile(`(?i)\bbill(?:\s+no\.?)?\s+([a-z]?-?\d+[a-z]?)\b`)
+var provincialBillNumberRe = regexp.MustCompile(`(?i)\bbill(?:\s*\(\s*no\.?|\s+no\.?)?\s+([a-z]?(?:[\s-]?\d+)[a-z]?)\s*\)?\b`)
 var provincialBillURLNumberRe = regexp.MustCompile(`(?i)(?:/bill-|/bill/|/bills?/)(\d{1,4}[a-z]?)(?:[/?#-]|$)`)
 var provincialNestedBillURLNumberRe = regexp.MustCompile(`(?i)/\d{1,3}/\d{1,2}/(\d{1,4}[a-z]?)(?:/|$)`)
 var provincialLeadingBillNumberRe = regexp.MustCompile(`(?m)^\s*(\d{1,4}[a-z]?)\s*(?:[.)]|\|)`)
@@ -42,7 +45,7 @@ var albertaBillStatusPDFRe = regexp.MustCompile(`(?i)/LAO/Bills/bsr\d+-\d+\.pdf(
 var albertaBillStatusEntryRe = regexp.MustCompile(`(?i)Bill\s+(Pr?\d+[A-Z]?)\s+--\s+(.+?)\s+First Reading\s+--`)
 var manitobaCurrentSessionLinkRe = regexp.MustCompile(`(?i)\.\./\d+-\d+/index\.php$`)
 var saskatchewanProgressPDFRe = regexp.MustCompile(`(?i)progress(?:-of)?-bills.*\.pdf$`)
-var saskatchewanProgressEntryRe = regexp.MustCompile(`(?i)\b(\d{1,3}[A-Z]?)\s*(?:EN\s*)?(?:\*\s*)?((?:The|An|Loi).{1,260}?)(?:\s+(?:Member\s+)?[A-Z][A-Za-z'’.\-]+,\s+[A-Z][A-Za-z'’.\-]+(?:\s+[A-Z][A-Za-z'’.\-]+)?|\s+1st Reading|\s+Royal Rec\.)`)
+var saskatchewanProgressEntryRe = regexp.MustCompile(`(?i)\b(\d{1,3}[A-Z]?)\s+(?:EN\s+)?\*\s+(.{1,260}?)\s+[A-Z][A-Za-z'’.\-]+,\s+[A-Z][A-Za-z'’.\-]+(?:\s+[A-Z][A-Za-z'’.\-]+)?\s+[A-Z][a-z]{2}\s+\d{2},\s+\d{4}`)
 var genericBillLinkRe = regexp.MustCompile(`(?i)(bill|legislation|legislative-business|housebusiness|bills-and-legislation|legis)`)
 var albertaBillLinkRe = regexp.MustCompile(`(?i)(assembly-business|bill|bills)`)
 var bcBillLinkRe = regexp.MustCompile(`(?i)(bills-and-legislation|bill)`)
@@ -54,11 +57,14 @@ var peiBillLinkRe = regexp.MustCompile(`(?i)(legislative-business|bill)`)
 var quebecBillLinkRe = regexp.MustCompile(`(?i)(travaux-parlementaires|projets-de-loi|bill)`)
 var saskatchewanBillLinkRe = regexp.MustCompile(`(?i)(legislative-business/bills|/bills/)`)
 
+const peiBillsWorkflowAPIURL = "https://wdf.princeedwardisland.ca/legislative-assembly/services/api/workflow"
+
 // ExtractProvincialBillNumber extracts a bill number from provincial text.
 // Examples: "Bill 12" -> "12", "bill a-23" -> "A-23".
 func ExtractProvincialBillNumber(text string) string {
 	if m := provincialBillNumberRe.FindStringSubmatch(text); len(m) == 2 {
-		return strings.ToUpper(strings.TrimSpace(m[1]))
+		billNumber := strings.ToUpper(strings.TrimSpace(m[1]))
+		return strings.Join(strings.Fields(billNumber), "-")
 	}
 	// Fall back to federal bill-number format (C-47 / S-209) when present.
 	return utils.ExtractBillNumber(text)
@@ -352,8 +358,10 @@ func CrawlOntarioBills(indexURL string, legislature, session int, client *http.C
 }
 
 func CrawlPrinceEdwardIslandBills(indexURL string, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
+	tryWorkflow := false
 	if indexURL == "" {
 		indexURL = "https://www.assembly.pe.ca/legislative-business/house-records/bills"
+		tryWorkflow = true
 	}
 	// assembly.pe.ca is protected by a Radware bot-manager CAPTCHA. Use the same
 	// browser-like transport used by CrawlPrinceEdwardIslandVotes when no client
@@ -361,7 +369,222 @@ func CrawlPrinceEdwardIslandBills(indexURL string, legislature, session int, cli
 	if client == nil {
 		client = newPEIHTTPClient()
 	}
-	return crawlProvincialBillsFromIndexWithMatcher(indexURL, "pe", legislature, session, "pei", client, peiBillLinkRe)
+	if strings.Contains(indexURL, "/services/api/workflow") {
+		return crawlPEIBillsWorkflowAPI(indexURL, legislature, session, client)
+	}
+	if tryWorkflow {
+		bills, err := crawlPEIBillsWorkflowAPI(peiBillsWorkflowAPIURL, legislature, session, client)
+		if err == nil && len(bills) > 0 {
+			log.Printf("[pe-bills] parsed %d bills from workflow API", len(bills))
+			return bills, nil
+		}
+		if err != nil {
+			log.Printf("[pe-bills] workflow API fallback to HTML: %v", err)
+		}
+	}
+	resp, err := client.Get(indexURL)
+	if err != nil {
+		return nil, fmt.Errorf("pei bills index: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("pei bills index read: %w", err)
+	}
+	if isPEICaptchaBody(body) {
+		log.Printf("[pe-bills] CAPTCHA detected — assembly.pe.ca is protected by Radware bot-manager; returning 0 bills.")
+		return nil, nil
+	}
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("pei bills parse: %w", err)
+	}
+	return parseProvincialBillsIndexDoc(doc, indexURL, "pe", legislature, session, "pei", peiBillLinkRe), nil
+}
+
+func crawlPEIBillsWorkflowAPI(workflowURL string, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
+	if client == nil {
+		client = newPEIHTTPClient()
+	}
+	payload := map[string]any{
+		"appName":     "LegislativeAssemblyBillProgress",
+		"featureName": "LegislativeAssemblyBillProgress",
+		"metaVars": map[string]any{
+			"service_id":    nil,
+			"save_location": nil,
+		},
+		"queryVars": map[string]any{
+			"search_bills":     "true",
+			"search":           "year",
+			"general_assembly": nil,
+			"session":          nil,
+			"year":             strconv.Itoa(time.Now().Year()),
+			"keyword":          nil,
+			"wdf_url_query":    "true",
+			"service":          "LegislativeAssemblyBillProgress",
+			"activity":         "LegislativeAssemblyBillSearch",
+		},
+		"queryName": "LegislativeAssemblyBillSearch",
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, workflowURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Origin", "https://www.assembly.pe.ca")
+	req.Header.Set("Referer", "https://www.assembly.pe.ca/legislative-business/house-records/bills")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	if isPEICaptchaBody(respBody) {
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("pei workflow status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	return parsePEIWorkflowBillResponse(respBody, workflowURL, legislature, session), nil
+}
+
+func parsePEIWorkflowBillResponse(raw []byte, sourceURL string, legislature, session int) []ProvincialBillStub {
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil
+	}
+	records := collectWorkflowRecords(decoded)
+	out := make([]ProvincialBillStub, 0, len(records))
+	seen := make(map[string]bool)
+	for _, record := range records {
+		billNumber := workflowBillNumber(record)
+		if billNumber == "" {
+			continue
+		}
+		id := ProvincialBillID("pe", legislature, session, billNumber)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		title := workflowBillTitle(record, billNumber)
+		detailURL := workflowBillURL(sourceURL, record)
+		lastActivity := workflowBillLastActivity(record)
+		out = append(out, ProvincialBillStub{
+			ID:               id,
+			ProvinceCode:     "pe",
+			Parliament:       legislature,
+			Session:          session,
+			Number:           billNumber,
+			Title:            title,
+			Chamber:          "pei",
+			DetailURL:        detailURL,
+			SourceURL:        sourceURL,
+			LastActivityDate: lastActivity,
+			LastScraped:      utils.NowISO(),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func collectWorkflowRecords(v any) []map[string]any {
+	var out []map[string]any
+	var walk func(any)
+	walk = func(node any) {
+		switch t := node.(type) {
+		case map[string]any:
+			if _, ok := t["appName"]; !ok && len(t) > 0 {
+				out = append(out, t)
+			}
+			for _, child := range t {
+				walk(child)
+			}
+		case []any:
+			for _, child := range t {
+				walk(child)
+			}
+		}
+	}
+	walk(v)
+	return out
+}
+
+func workflowBillNumber(record map[string]any) string {
+	for _, key := range []string{"billNumber", "bill_number", "billNo", "bill_no", "bill", "number"} {
+		if v, ok := record[key]; ok {
+			if s := strings.TrimSpace(fmt.Sprintf("%v", v)); s != "" {
+				if n := ExtractProvincialBillNumber("Bill " + s); n != "" {
+					return n
+				}
+				if n := ExtractProvincialBillNumber(s); n != "" {
+					return n
+				}
+			}
+		}
+	}
+	if s := strings.TrimSpace(strings.Join(recordStringValues(record), " ")); s != "" {
+		return ExtractProvincialBillNumber(s)
+	}
+	return ""
+}
+
+func workflowBillTitle(record map[string]any, billNumber string) string {
+	for _, key := range []string{"title", "billTitle", "bill_title", "name", "description"} {
+		if v, ok := record[key]; ok {
+			if s := strings.TrimSpace(fmt.Sprintf("%v", v)); s != "" {
+				return s
+			}
+		}
+	}
+	return "Bill " + billNumber
+}
+
+func workflowBillURL(sourceURL string, record map[string]any) string {
+	for _, key := range []string{"url", "detailUrl", "detail_url", "href", "link"} {
+		if v, ok := record[key]; ok {
+			if s := strings.TrimSpace(fmt.Sprintf("%v", v)); s != "" {
+				return resolveRelativeURL(sourceURL, s)
+			}
+		}
+	}
+	return sourceURL
+}
+
+func workflowBillLastActivity(record map[string]any) string {
+	for _, key := range []string{"lastActivityDate", "last_activity_date", "date", "introducedDate"} {
+		if v, ok := record[key]; ok {
+			if s := strings.TrimSpace(fmt.Sprintf("%v", v)); s != "" {
+				if d := utils.FindDateInText(s); d != "" {
+					return d
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func recordStringValues(record map[string]any) []string {
+	out := make([]string, 0, len(record))
+	for _, v := range record {
+		switch t := v.(type) {
+		case string:
+			if s := strings.TrimSpace(t); s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
 }
 
 func CrawlQuebecBills(indexURL string, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
@@ -372,6 +595,7 @@ func CrawlQuebecBills(indexURL string, legislature, session int, client *http.Cl
 }
 
 func CrawlSaskatchewanBills(indexURL string, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
+	indexURL = normalizeSaskatchewanBillsURL(indexURL)
 	if indexURL == "" {
 		indexURL = "https://www.legassembly.sk.ca/legislative-business/bills/"
 	}
@@ -383,6 +607,18 @@ func CrawlSaskatchewanBills(indexURL string, legislature, session int, client *h
 		return bills, nil
 	}
 	return crawlProvincialBillsFromIndexWithMatcher(indexURL, "sk", legislature, session, "saskatchewan", client, saskatchewanBillLinkRe)
+}
+
+func normalizeSaskatchewanBillsURL(indexURL string) string {
+	trimmed := strings.TrimSpace(indexURL)
+	if trimmed == "" {
+		return ""
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == "https://www.legassembly.sk.ca/legislative-business" || lower == "https://www.legassembly.sk.ca/legislative-business/" {
+		return "https://www.legassembly.sk.ca/legislative-business/bills/"
+	}
+	return trimmed
 }
 
 type bcProgressBillFile struct {
@@ -724,16 +960,22 @@ func crawlSaskatchewanBillsFromProgressPDF(indexURL string, legislature, session
 	if err != nil {
 		return nil, err
 	}
+	return parseSaskatchewanBillsFromProgressText(text, pdfURL, legislature, session), nil
+}
+
+func parseSaskatchewanBillsFromProgressText(text, sourceURL string, legislature, session int) []ProvincialBillStub {
 	normalized := strings.TrimSpace(strings.Join(strings.Fields(text), " "))
 	matches := saskatchewanProgressEntryRe.FindAllStringSubmatch(normalized, -1)
 	if len(matches) == 0 {
-		return nil, nil
+		return nil
 	}
 	seen := make(map[string]bool)
 	out := make([]ProvincialBillStub, 0, len(matches))
 	for _, match := range matches {
 		billNumber := strings.TrimSpace(match[1])
 		title := strings.TrimSpace(match[2])
+		title = strings.ReplaceAll(title, `\`, " ")
+		title = strings.Join(strings.Fields(title), " ")
 		id := ProvincialBillID("sk", legislature, session, billNumber)
 		if id == "" || seen[id] {
 			continue
@@ -747,12 +989,12 @@ func crawlSaskatchewanBillsFromProgressPDF(indexURL string, legislature, session
 			Number:       billNumber,
 			Title:        title,
 			Chamber:      "saskatchewan",
-			DetailURL:    pdfURL,
-			SourceURL:    pdfURL,
+			DetailURL:    sourceURL,
+			SourceURL:    sourceURL,
 			LastScraped:  utils.NowISO(),
 		})
 	}
-	return out, nil
+	return out
 }
 
 func parseStructuredProvincialBillRows(doc *goquery.Document, sourceURL, provinceCode string, legislature, session int, chamber string) []ProvincialBillStub {

@@ -3,6 +3,7 @@ package scraper
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -152,6 +153,39 @@ func CrawlOntarioVPDay(vpURL string, parliament, session int, date string, clien
 var ontarioDivCountRe = regexp.MustCompile(`\((\d+)\)`)
 var ontarioHouseDocDatePathRe = regexp.MustCompile(`/parliament-\d+/session-\d+/(\d{4}-\d{2}-\d{2})/`)
 
+func normaliseOntarioEventText(text string) string {
+	text = strings.TrimSpace(strings.Join(strings.Fields(text), " "))
+	text = strings.TrimSuffix(text, ":")
+	return text
+}
+
+func isOntarioDivisionOutcomeText(text string) bool {
+	switch strings.ToLower(normaliseOntarioEventText(text)) {
+	case "carried on the following division", "lost on the following division", "negatived on the following division":
+		return true
+	default:
+		return false
+	}
+}
+
+func extractOntarioDivisionDescription(wrapper *goquery.Selection) string {
+	baseTable := wrapper.Closest("table")
+	if baseTable.Length() == 0 {
+		return ""
+	}
+
+	desc := ""
+	baseTable.PrevAllFiltered("table").EachWithBreak(func(_ int, table *goquery.Selection) bool {
+		text := normaliseOntarioEventText(table.Find("td[lang='en']").First().Text())
+		if text == "" || isOntarioDivisionOutcomeText(text) {
+			return true
+		}
+		desc = text
+		return false
+	})
+	return desc
+}
+
 // parseOntarioVPDoc is the pure HTML-parsing logic for Ontario V&P pages.
 // Separated from CrawlOntarioVPDay so tests can call it without a network round-trip.
 func parseOntarioVPDoc(doc *goquery.Document, parliament, session int, date string) []ProvincialDivisionResult {
@@ -161,6 +195,10 @@ func parseOntarioVPDoc(doc *goquery.Document, parliament, session int, date stri
 	// Each recorded division is rendered inside a div.datawrapper that contains
 	// alternating h5.divisionHeader / table.votesList pairs (Ayes then Nays).
 	doc.Find("div.datawrapper").Each(func(_ int, wrapper *goquery.Selection) {
+		if wrapper.Find("h5.divisionHeader").Length() == 0 || wrapper.Find("table.votesList").Length() == 0 {
+			return
+		}
+
 		divNum++
 		divID := ProvincialDivisionID("on", parliament, session, divNum, date)
 
@@ -207,20 +245,7 @@ func parseOntarioVPDoc(doc *goquery.Document, parliament, session int, date stri
 			})
 		})
 
-		// Description: English text from the preceding sibling table, with the
-		// "Carried on the following division:" tail stripped.
-		desc := ""
-		wrapper.Closest("table").PrevAll().Filter("table").First().Each(func(_ int, t *goquery.Selection) {
-			t.Find("td[lang='en']").Each(func(_ int, cell *goquery.Selection) {
-				text := strings.TrimSpace(cell.Text())
-				if i := strings.Index(text, "Carried on the following division:"); i >= 0 {
-					text = strings.TrimSpace(text[:i])
-				}
-				if text != "" && desc == "" {
-					desc = text
-				}
-			})
-		})
+		desc := extractOntarioDivisionDescription(wrapper)
 
 		result := "Carried"
 		if nays > yeas {
@@ -600,7 +625,7 @@ var newBrunswickJournalPDFLinkRe = regexp.MustCompile(`(?i)\.pdf(?:\?.*)?$`)
 var newBrunswickPDFVoteCountRe = regexp.MustCompile(`(?is)(?:YEAS?|POUR)\s*[:\-]?\s*(\d{1,3}).{0,280}?(?:NAYS?|CONTRE)\s*[:\-]?\s*(\d{1,3})`)
 var newBrunswickVoteSectionRe = regexp.MustCompile(`(?is)(?:RECORDED\s+DIVISION\s+)?(YEAS?|POUR)\s*[-:–]\s*\d{1,3}\s+`)
 var newBrunswickVoteCountPairRe = regexp.MustCompile(`(?is)(YEAS?|POUR)\s*[-:–]\s*(\d{1,3}).*?(NAYS?|CONTRE)\s*[-:–]\s*(\d{1,3})`)
-var newBrunswickNameTokenRe = regexp.MustCompile(`(?i)(?:Hon\.\s+)?(?:Mr\.|Ms\.)\s+[A-Z][A-Za-z\.'\-]+(?:\s*\-\s*[A-Z][A-Za-z\.'\-]+)*`)
+var newBrunswickNameTokenRe = regexp.MustCompile(`(?i)(?:Hon\.\s+)?(?:Mr\.|Ms\.)\s+(?:[A-Z]\.\s+)?[A-Z][A-Za-z\.'\-]+(?:\s*\-\s*[A-Z][A-Za-z\.'\-]+)*`)
 
 func crawlNewBrunswickVotesFromPDF(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	indexDoc, err := fetchDoc(indexURL, client)
@@ -779,7 +804,7 @@ func extractProvincialPDFText(pdfPath string) (string, error) {
 		scanner := bufio.NewScanner(fp)
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
-			if strings.HasSuffix(line, "TJ") || strings.HasSuffix(line, "Tj") {
+			if hasPDFTextShowOperator(line) {
 				for _, match := range pdfParenTextRe.FindAllStringSubmatch(line, -1) {
 					if len(match) < 2 {
 						continue
@@ -801,6 +826,11 @@ func extractProvincialPDFText(pdfPath string) (string, error) {
 }
 
 var pdfParenTextRe = regexp.MustCompile(`\(([^()]*)\)`)
+
+func hasPDFTextShowOperator(line string) bool {
+	line = strings.TrimSpace(line)
+	return strings.Contains(line, " Tj") || strings.Contains(line, " TJ") || strings.HasSuffix(line, "Tj") || strings.HasSuffix(line, "TJ")
+}
 
 func decodePDFStringToken(token string) string {
 	token = strings.ReplaceAll(token, `\\(`, "(")
@@ -959,6 +989,7 @@ func parseNewBrunswickVoteNames(blockText string) []string {
 		if name == "" {
 			continue
 		}
+		name = strings.ReplaceAll(name, " - ", "-")
 		name = strings.TrimSpace(strings.TrimPrefix(name, "Hon. "))
 		name = strings.TrimSpace(strings.TrimPrefix(name, "Mr. "))
 		name = strings.TrimSpace(strings.TrimPrefix(name, "Ms. "))
@@ -1066,39 +1097,68 @@ var voteKeywords = map[string]bool{
 	"MINUTES": true, "REPORT": true, "PAGE": true,
 }
 
+var voteNamePrefixTokens = map[string]bool{
+	"DE": true, "DELA": true, "DEL": true, "DI": true, "DU": true,
+	"LA": true, "LE": true, "MAC": true, "MC": true, "SAINT": true,
+	"ST": true, "VAN": true, "VON": true,
+}
+
+var splitUppercaseNameTokenRe = regexp.MustCompile(`\b([A-Z])\s+([A-Z][A-Z][A-Z'’\-]*)\b`)
+
+func collapseSplitUppercaseNameTokens(text string) string {
+	for {
+		next := splitUppercaseNameTokenRe.ReplaceAllString(text, `$1$2`)
+		if next == text {
+			return text
+		}
+		text = next
+	}
+}
+
+func cleanPlainVoteToken(tok string) string {
+	tok = strings.TrimRight(tok, ".,;:)'\"")
+	tok = strings.TrimLeft(tok, "('\"")
+	return tok
+}
+
+func isPlainVoteNameToken(tok string) bool {
+	if len(tok) < 2 {
+		return false
+	}
+	if tok[0] < 'A' || tok[0] > 'Z' {
+		return false
+	}
+	if voteKeywords[strings.ToUpper(tok)] {
+		return false
+	}
+	allDigit := true
+	for _, c := range tok {
+		if c < '0' || c > '9' {
+			allDigit = false
+			break
+		}
+	}
+	return !allDigit
+}
+
 // extractPlainVoteNames extracts member surnames from a vote-block text where
 // names appear as plain capitalized tokens without "Mr./Ms." prefixes (AB, MB, NS).
 func extractPlainVoteNames(blockText string) []string {
+	blockText = collapseSplitUppercaseNameTokens(strings.ReplaceAll(blockText, "\u00a0", " "))
+	rawTokens := strings.Fields(blockText)
 	seen := make(map[string]bool)
 	names := make([]string, 0)
-	for _, tok := range strings.Fields(strings.ReplaceAll(blockText, "\u00a0", " ")) {
-		tok = strings.TrimRight(tok, ".,;:)'\"")
-		tok = strings.TrimLeft(tok, "('\"")
-		if len(tok) < 2 {
+	for i := 0; i < len(rawTokens); i++ {
+		tok := cleanPlainVoteToken(rawTokens[i])
+		if !isPlainVoteNameToken(tok) {
 			continue
 		}
-		// Must start with an ASCII uppercase letter.
-		if tok[0] < 'A' || tok[0] > 'Z' {
-			continue
-		}
-		// Skip known vote-section keywords.
-		if voteKeywords[strings.ToUpper(tok)] {
-			continue
-		}
-		// Skip purely numeric tokens.
-		allDigit := true
-		for _, c := range tok {
-			if c < '0' || c > '9' {
-				allDigit = false
-				break
+		if i+1 < len(rawTokens) {
+			nextTok := cleanPlainVoteToken(rawTokens[i+1])
+			if voteNamePrefixTokens[strings.ToUpper(tok)] && isPlainVoteNameToken(nextTok) {
+				tok = tok + " " + nextTok
+				i++
 			}
-		}
-		if allDigit {
-			continue
-		}
-		// Skip all-uppercase tokens > 3 chars (headings / acronyms).
-		if len(tok) > 3 && strings.ToUpper(tok) == tok {
-			continue
 		}
 		key := strings.ToLower(tok)
 		if seen[key] {
@@ -1224,13 +1284,14 @@ var albertaVotesPDFLinkRe = regexp.MustCompile(`(?i)docs\.assembly\.ab\.ca[^"'\s
 var abForCountRe = regexp.MustCompile(`(?i)For\s+the\s+[^:]{1,60}:\s*(\d+)`)
 var abAgainstCountRe = regexp.MustCompile(`(?i)Against\s+the\s+[^:]{1,60}:\s*(\d+)`)
 var abDivisionSplitRe = regexp.MustCompile(`(?i)DIVISION\s+\d+`)
+var abQuestionVoteMarkerRe = regexp.MustCompile(`(?is)The question being put,.*?names being called for were taken as follows:\s*`)
 
 // parseAlbertaVPDivisions parses recorded vote divisions from normalised AB V&P PDF text.
 // Alberta uses "For the [phrase]: N" / "Against the [phrase]: N" format with plain surname lists.
 func parseAlbertaVPDivisions(text, detailURL string, legislature, session, startDivisionNumber int, date string) []ProvincialDivisionResult {
 	divBlocks := abDivisionSplitRe.FindAllStringIndex(text, -1)
 	if len(divBlocks) == 0 {
-		return nil
+		return parseAlbertaQuestionBlocks(text, detailURL, legislature, session, startDivisionNumber, date)
 	}
 	results := make([]ProvincialDivisionResult, 0, len(divBlocks))
 	for i, span := range divBlocks {
@@ -1302,6 +1363,107 @@ func parseAlbertaVPDivisions(text, detailURL string, legislature, session, start
 	}
 	log.Printf("[ab-votes] parsed %d divisions", len(results))
 	return results
+}
+
+func parseAlbertaQuestionBlocks(text, detailURL string, legislature, session, startDivisionNumber int, date string) []ProvincialDivisionResult {
+	markers := abQuestionVoteMarkerRe.FindAllStringIndex(text, -1)
+	if len(markers) == 0 {
+		return nil
+	}
+	results := make([]ProvincialDivisionResult, 0, len(markers))
+	for i, marker := range markers {
+		end := len(text)
+		if i+1 < len(markers) {
+			end = markers[i+1][0]
+		}
+		block := text[marker[1]:end]
+		forM := abForCountRe.FindStringSubmatchIndex(block)
+		agaM := abAgainstCountRe.FindStringSubmatchIndex(block)
+		if forM == nil || agaM == nil {
+			continue
+		}
+		yeas, _ := strconv.Atoi(block[forM[2]:forM[3]])
+		nays, _ := strconv.Atoi(block[agaM[2]:agaM[3]])
+		if yeas == 0 && nays == 0 {
+			continue
+		}
+
+		yeaBlock := ""
+		nayBlock := ""
+		forEnd := forM[1]
+		agaStart := agaM[0]
+		agaEnd := agaM[1]
+		if forEnd <= agaStart {
+			yeaBlock = block[forEnd:agaStart]
+		}
+		if agaEnd < len(block) {
+			nayBlock = block[agaEnd:]
+		}
+
+		divNum := startDivisionNumber + len(results)
+		divID := ProvincialDivisionID("ab", legislature, session, divNum, date)
+		desc := extractAlbertaQuestionDescription(text, marker[0])
+		result := "Carried"
+		if nays > yeas {
+			result = "Negatived"
+		}
+
+		votes := make([]ProvincialMemberVote, 0, yeas+nays)
+		for _, name := range extractPlainVoteNames(yeaBlock) {
+			votes = append(votes, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "Yea"})
+		}
+		for _, name := range extractPlainVoteNames(nayBlock) {
+			votes = append(votes, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "Nay"})
+		}
+
+		results = append(results, ProvincialDivisionResult{
+			Division: DivisionStub{
+				ID: divID, Parliament: legislature, Session: session,
+				Number: divNum, Date: date, Description: desc,
+				Yeas: yeas, Nays: nays, Result: result,
+				Chamber: "alberta", DetailURL: detailURL, LastScraped: utils.NowISO(),
+			},
+			Votes: votes,
+		})
+	}
+	log.Printf("[ab-votes] parsed %d divisions", len(results))
+	return results
+}
+
+func extractAlbertaQuestionDescription(text string, markerStart int) string {
+	start := markerStart - 500
+	if start < 0 {
+		start = 0
+	}
+	context := strings.TrimSpace(strings.Join(strings.Fields(strings.ReplaceAll(text[start:markerStart], "\u00a0", " ")), " "))
+	if context == "" {
+		return "Recorded division"
+	}
+	lower := strings.ToLower(context)
+	anchors := []string{
+		"on the motion that",
+		"be it resolved that",
+		" moved pursuant to ",
+		" moved adjournment of ",
+		" moved the following amendment",
+	}
+	best := -1
+	for _, anchor := range anchors {
+		if idx := strings.LastIndex(lower, anchor); idx > best {
+			best = idx
+		}
+	}
+	if best >= 0 {
+		context = strings.TrimSpace(context[best:])
+	}
+	context = regexp.MustCompile(`^(?:[A-Z][A-Z\s]{3,}\s+)+`).ReplaceAllString(context, "")
+	if len(context) > 220 {
+		context = context[len(context)-220:]
+	}
+	if context == "" {
+		return "Recorded division"
+	}
+	return context
 }
 
 // ParseAlbertaVPDivisionsForTest is test-only access to AB V&P parsing logic.
@@ -1389,10 +1551,10 @@ const bcLIMSBase = "https://lims.leg.bc.ca"
 
 // bcLIMSVotesFile describes a single V&P HTML document returned by the BC LIMS API.
 type bcLIMSVotesFile struct {
-	FileName  string `json:"fileName"`
-	FilePath  string `json:"filePath"`
-	Published bool   `json:"published"`
-	Date      string `json:"date"`
+	FileName                string `json:"fileName"`
+	FilePath                string `json:"filePath"`
+	Published               bool   `json:"published"`
+	Date                    string `json:"date"`
 	VotesAttributesByFileId struct {
 		Nodes []struct {
 			VoteNumbers string `json:"voteNumbers"`
@@ -1483,6 +1645,27 @@ func parseBCDivisionTable(table *goquery.Selection) (yeas, nays int, yeaNames, n
 	return
 }
 
+func normaliseBCDivisionText(text string) string {
+	return strings.TrimSpace(strings.Join(strings.Fields(text), " "))
+}
+
+func isBCDivisionOutcomeText(text string) bool {
+	return strings.Contains(strings.ToLower(normaliseBCDivisionText(text)), "on the following division")
+}
+
+func extractBCDivisionDescription(table *goquery.Selection) string {
+	desc := ""
+	table.PrevAllFiltered("p").EachWithBreak(func(_ int, p *goquery.Selection) bool {
+		text := normaliseBCDivisionText(p.Text())
+		if text == "" || isBCDivisionOutcomeText(text) {
+			return true
+		}
+		desc = text
+		return false
+	})
+	return desc
+}
+
 // parseBCVotesDivisions parses all recorded divisions from a BC V&P HTML document.
 func parseBCVotesDivisions(doc *goquery.Document, sourceURL, date, province string, legislature, session, startDivNum int) []ProvincialDivisionResult {
 	var results []ProvincialDivisionResult
@@ -1493,9 +1676,7 @@ func parseBCVotesDivisions(doc *goquery.Document, sourceURL, date, province stri
 		if goquery.NodeName(sel) != "table" {
 			return
 		}
-		// Found a division table.  Grab the immediately-preceding <p> for the description.
-		desc := strings.TrimSpace(sel.Prev().Text())
-		desc = strings.Join(strings.Fields(desc), " ")
+		desc := extractBCDivisionDescription(sel)
 
 		yeas, nays, yeaNames, nayNames := parseBCDivisionTable(sel)
 		if yeas == 0 && nays == 0 {
@@ -1510,10 +1691,10 @@ func parseBCVotesDivisions(doc *goquery.Document, sourceURL, date, province stri
 		divID := ProvincialDivisionID("bc", legislature, session, divNum, date)
 		mv := make([]ProvincialMemberVote, 0, len(yeaNames)+len(nayNames))
 		for _, name := range yeaNames {
-			mv = append(mv, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "yea"})
+			mv = append(mv, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "Yea"})
 		}
 		for _, name := range nayNames {
-			mv = append(mv, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "nay"})
+			mv = append(mv, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "Nay"})
 		}
 
 		results = append(results, ProvincialDivisionResult{
@@ -1657,11 +1838,21 @@ func ParliamentOrdinalForTest(n int) string { return parliamentOrdinal(n) }
 
 // mbVotesPDFLinkRe matches per-day Votes and Proceedings PDF links on MB session pages.
 var mbVotesPDFLinkRe = regexp.MustCompile(`(?i)\d+(?:rd|th|st|nd)/votes_\d+\.pdf`)
+var mbAyeNaySectionRe = regexp.MustCompile(`(?is)\bAYE\b\s+(.{1,1000}?)\.{3,}\s*(\d{1,3})\s+\bNAY\b\s+(.{0,600}?)\.{3,}\s*(\d{1,3})`)
+var mbMotionDescriptionRe = regexp.MustCompile(`(?is)(THAT\s+Bill(?:\s*\(No\.\s*\d+\)|\s+No\.\s*\d+).{0,320}?|Resolution\s+No\.\s*\d+\s*:.{0,320}?)(?:And\s+the\s+Question\s+being\s+put|It\s+was\s+(?:agreed|negatived)\s+to,\s+on\s+the\s+following\s+division|$)`)
 
 // mbSessionPageLinkRe matches session-index page links on the MB V&P index page.
 // Links have the form "43rd/43rd_3rd.html" (ordinal suffix on both the legislature
 // and session components), so the session number must also end with an ordinal.
 var mbSessionPageLinkRe = regexp.MustCompile(`(?i)\d+(?:rd|th|st|nd)/\d+(?:rd|th|st|nd)_\d+(?:rd|th|st|nd)\.html`)
+
+func manitobaSessionPageMatches(href string, legislature, session int) bool {
+	if href == "" {
+		return false
+	}
+	want := strings.ToLower(fmt.Sprintf("%s/%s_%s.html", parliamentOrdinal(legislature), parliamentOrdinal(legislature), parliamentOrdinal(session)))
+	return strings.Contains(strings.ToLower(href), want)
+}
 
 // crawlManitobaVotesFromPDF performs a two-level crawl:
 //
@@ -1678,6 +1869,7 @@ func crawlManitobaVotesFromPDF(indexURL string, legislature, session int, client
 
 	// Level 1: find session-index pages.
 	var sessionLinks []string
+	var matchingSessionLinks []string
 	seenSession := make(map[string]bool)
 	indexDoc.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
 		href := normalizeHref(a.AttrOr("href", ""))
@@ -1690,7 +1882,13 @@ func crawlManitobaVotesFromPDF(indexURL string, legislature, session int, client
 		}
 		seenSession[full] = true
 		sessionLinks = append(sessionLinks, full)
+		if manitobaSessionPageMatches(href, legislature, session) {
+			matchingSessionLinks = append(matchingSessionLinks, full)
+		}
 	})
+	if len(matchingSessionLinks) > 0 {
+		sessionLinks = matchingSessionLinks
+	}
 	if len(sessionLinks) == 0 {
 		log.Printf("[mb-votes] no session pages discovered; falling back to generic parser")
 		return crawlGenericProvincialVotesWithMatcher(indexURL, "mb", "manitoba", legislature, session, client, manitobaVotesLinkRe)
@@ -1747,7 +1945,10 @@ func crawlManitobaVotesFromPDF(indexURL string, legislature, session int, client
 		if date == "" {
 			date = utils.TodayISO()
 		}
-		divs := parsePDFDivisionsYeasNays(text, pdfURL, "mb", "manitoba", legislature, session, nextDivNum, date, extractPlainVoteNames)
+		divs := parseManitobaAyeNayDivisions(text, pdfURL, legislature, session, nextDivNum, date)
+		if len(divs) == 0 {
+			divs = parsePDFDivisionsYeasNays(text, pdfURL, "mb", "manitoba", legislature, session, nextDivNum, date, extractPlainVoteNames)
+		}
 		results = append(results, divs...)
 		nextDivNum += len(divs)
 		if len(divs) == 0 {
@@ -1756,6 +1957,67 @@ func crawlManitobaVotesFromPDF(indexURL string, legislature, session int, client
 	}
 	log.Printf("[mb-votes] parsed %d divisions from %d PDFs", len(results), len(pdfLinks))
 	return results, nil
+}
+
+func parseManitobaAyeNayDivisions(text, detailURL string, legislature, session, startDivisionNumber int, date string) []ProvincialDivisionResult {
+	matches := mbAyeNaySectionRe.FindAllStringSubmatchIndex(text, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	results := make([]ProvincialDivisionResult, 0, len(matches))
+	for _, match := range matches {
+		yeaBlock := text[match[2]:match[3]]
+		yeas, _ := strconv.Atoi(text[match[4]:match[5]])
+		nayBlock := text[match[6]:match[7]]
+		nays, _ := strconv.Atoi(text[match[8]:match[9]])
+		if yeas == 0 && nays == 0 {
+			continue
+		}
+		divNum := startDivisionNumber + len(results)
+		divID := ProvincialDivisionID("mb", legislature, session, divNum, date)
+		desc := extractManitobaDivisionDescription(text, match[0])
+		if desc == "" {
+			desc = "Recorded division"
+		}
+		result := "Carried"
+		if nays > yeas {
+			result = "Negatived"
+		}
+		votes := make([]ProvincialMemberVote, 0, yeas+nays)
+		for _, name := range extractPlainVoteNames(yeaBlock) {
+			votes = append(votes, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "Yea"})
+		}
+		for _, name := range extractPlainVoteNames(nayBlock) {
+			votes = append(votes, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "Nay"})
+		}
+		results = append(results, ProvincialDivisionResult{
+			Division: DivisionStub{
+				ID: divID, Parliament: legislature, Session: session,
+				Number: divNum, Date: date, Description: desc,
+				Yeas: yeas, Nays: nays, Result: result,
+				Chamber: "manitoba", DetailURL: detailURL, LastScraped: utils.NowISO(),
+			},
+			Votes: votes,
+		})
+	}
+	return results
+}
+
+func extractManitobaDivisionDescription(text string, markerStart int) string {
+	start := markerStart - 1200
+	if start < 0 {
+		start = 0
+	}
+	context := strings.TrimSpace(strings.Join(strings.Fields(strings.ReplaceAll(text[start:markerStart], "\u00a0", " ")), " "))
+	if matches := mbMotionDescriptionRe.FindAllStringSubmatch(context, -1); len(matches) > 0 {
+		return strings.TrimSpace(matches[len(matches)-1][1])
+	}
+	return newBrunswickDescriptionFromContext(text, markerStart)
+}
+
+// ParseManitobaAyeNayDivisionsForTest is test-only access to the Manitoba AYE/NAY parser.
+func ParseManitobaAyeNayDivisionsForTest(text, detailURL string, legislature, session, startDivisionNumber int, date string) []ProvincialDivisionResult {
+	return parseManitobaAyeNayDivisions(text, detailURL, legislature, session, startDivisionNumber, date)
 }
 
 // CrawlManitobaVotes crawls Manitoba recorded votes/journal pages.
@@ -1769,8 +2031,6 @@ func CrawlManitobaVotes(indexURL string, legislature, session int, client *http.
 	}
 	return crawlManitobaVotesFromPDF(indexURL, legislature, session, client)
 }
-
-
 
 // CrawlQuebecVotes crawls Quebec registre/votes pages.
 func CrawlQuebecVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
@@ -2101,40 +2361,103 @@ func CrawlNewfoundlandAndLabradorVotes(indexURL string, legislature, session int
 
 // ── 5A.6 Nova Scotia ─────────────────────────────────────────────────────────
 
-// nsVotesPDFLinkRe matches NS journal PDF links under the default files path.
-var nsVotesPDFLinkRe = regexp.MustCompile(`(?i)/sites/default/files/pdfs/proceedings/journals/[^"'\s]+\.pdf`)
+// nsVotesPDFLinkRe matches NS journals and Hansard PDF links under the default
+// files path.
+var nsVotesPDFLinkRe = regexp.MustCompile(`(?i)/sites/default/files/pdfs/proceedings/(?:journals|hansard)/[^"'\s]+\.pdf(?:\?[^"'\s]*)?`)
 
-// crawlNovaScotiaVotesFromPDF fetches the NS journals index page (using an extended
-// HTTP timeout because the Drupal page is ~368KB) and parses each discovered PDF.
-func crawlNovaScotiaVotesFromPDF(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
-	log.Printf("[ns-votes] fetching index: %s", indexURL)
-	indexDoc, err := fetchDoc(indexURL, client)
-	if err != nil {
-		return nil, fmt.Errorf("ns votes index: %w", err)
+func novaScotiaHansardSessionURL(indexURL string, legislature, session int) string {
+	trimmed := strings.TrimSpace(indexURL)
+	if strings.Contains(trimmed, "/assembly-") && strings.Contains(trimmed, "/hansard-debates/") {
+		return trimmed
 	}
+	if legislature <= 1 || session <= 0 {
+		return trimmed
+	}
+	return fmt.Sprintf("https://nslegislature.ca/legislative-business/hansard-debates/assembly-%d-session-%d", legislature, session)
+}
 
+func includeNovaScotiaVotePDF(fullURL string, legislature, session int) bool {
+	lower := strings.ToLower(fullURL)
+	if strings.Contains(lower, "/proceedings/hansard/") {
+		return true
+	}
+	if !strings.Contains(lower, "/proceedings/journals/") {
+		return false
+	}
+	if legislature > 1 && session > 0 {
+		wantDir := fmt.Sprintf("/%d-%d/", legislature, session)
+		combinedDir := fmt.Sprintf("/%d-1and2/", legislature)
+		if !strings.Contains(lower, wantDir) && !(session <= 2 && strings.Contains(lower, combinedDir)) {
+			return false
+		}
+	}
+	for _, token := range []string{
+		"index", "appendix", "appendices", "cabinet", "cab%20list", "memberlist", "member%20list", "reports", "tabled", "bills",
+	} {
+		if strings.Contains(lower, token) {
+			return false
+		}
+	}
+	return true
+}
+
+func discoverNovaScotiaVotePDFLinks(doc *goquery.Document, baseURL string, legislature, session int) []string {
 	var pdfLinks []string
 	seen := make(map[string]bool)
-	indexDoc.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
+	doc.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
 		href := normalizeHref(a.AttrOr("href", ""))
 		if href == "" || !nsVotesPDFLinkRe.MatchString(href) {
 			return
 		}
-		full := resolveRelativeURL(indexURL, href)
+		full := resolveRelativeURL(baseURL, href)
 		if seen[full] {
+			return
+		}
+		if !includeNovaScotiaVotePDF(full, legislature, session) {
 			return
 		}
 		seen[full] = true
 		pdfLinks = append(pdfLinks, full)
 	})
-
 	sort.Strings(pdfLinks)
-	if len(pdfLinks) > 100 {
-		pdfLinks = pdfLinks[len(pdfLinks)-100:]
+	return pdfLinks
+}
+
+// crawlNovaScotiaVotesFromPDF fetches the NS Hansard session page for the
+// requested legislature/session and parses each discovered PDF. Older journal
+// listings remain as a fallback when no Hansard PDFs are exposed.
+func crawlNovaScotiaVotesFromPDF(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	sessionURL := novaScotiaHansardSessionURL(indexURL, legislature, session)
+	log.Printf("[ns-votes] fetching hansard session index: %s", sessionURL)
+	indexDoc, err := fetchDoc(sessionURL, client)
+	if err != nil {
+		if indexURL != "" && indexURL != sessionURL {
+			log.Printf("[ns-votes] hansard session index unavailable, falling back to %s: %v", indexURL, err)
+			indexDoc, err = fetchDoc(indexURL, client)
+			if err != nil {
+				return nil, fmt.Errorf("ns votes index: %w", err)
+			}
+			sessionURL = indexURL
+		} else {
+			return nil, fmt.Errorf("ns votes index: %w", err)
+		}
 	}
+
+	pdfLinks := discoverNovaScotiaVotePDFLinks(indexDoc, sessionURL, legislature, session)
 	if len(pdfLinks) == 0 {
-		log.Printf("[ns-votes] no journal PDFs discovered (64th/65th Assembly data not yet accessible as static files)")
-		return nil, nil
+		if indexURL != "" && indexURL != sessionURL {
+			log.Printf("[ns-votes] no hansard PDFs discovered at %s; falling back to %s", sessionURL, indexURL)
+			fallbackDoc, ferr := fetchDoc(indexURL, client)
+			if ferr != nil {
+				return nil, fmt.Errorf("ns votes fallback index: %w", ferr)
+			}
+			pdfLinks = discoverNovaScotiaVotePDFLinks(fallbackDoc, indexURL, legislature, session)
+			sessionURL = indexURL
+		}
+		if len(pdfLinks) == 0 {
+			log.Printf("[ns-votes] no vote PDFs discovered for legislature=%d session=%d", legislature, session)
+			return nil, nil
+		}
 	}
 
 	var results []ProvincialDivisionResult
@@ -2165,19 +2488,17 @@ func crawlNovaScotiaVotesFromPDF(indexURL string, legislature, session int, clie
 
 // CrawlNovaScotiaVotes crawls NS journals/proceedings pages.
 //
-// The NS journals index page (nslegislature.ca) is a ~368KB Drupal response and
-// reliably times out with the default 15s HTTP client. A 45s timeout is used when
-// the caller does not supply a client. Historical session data (through 63rd
-// Assembly, 3rd Session, April 2021) is available as static PDFs under
-// /sites/default/files/pdfs/proceedings/journals/. The 64th and 65th Assembly
-// journals are not yet accessible as static files; the scraper logs a note when
-// no PDFs are found.
+// The live NS journals page no longer publishes current-session PDFs. Current
+// divisions are exposed from per-session Hansard pages whose PDFs contain
+// recorded YEAS/NAYS blocks that the generic PDF parser can consume. The old
+// journals listing remains as a fallback for older sessions.
 func CrawlNovaScotiaVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	if indexURL == "" {
-		indexURL = "https://nslegislature.ca/legislative-business/journals-votes-proceedings"
+		indexURL = novaScotiaHansardSessionURL("", legislature, session)
 	}
 	if client == nil {
-		// The NS journals index page is large (~368KB); use an extended timeout.
+		// NS Hansard session pages are still large Drupal responses; use an
+		// extended timeout.
 		client = utils.NewHTTPClientWithTimeout(45 * time.Second)
 	}
 	return crawlNovaScotiaVotesFromPDF(indexURL, legislature, session, client)
@@ -2188,6 +2509,13 @@ func CrawlNovaScotiaVotes(indexURL string, legislature, session int, client *htt
 // peiCaptchaSignature is a substring present in Radware bot-manager CAPTCHA pages
 // returned by assembly.pe.ca for automated clients.
 const peiCaptchaSignature = "captcha.perfdrive.com"
+const peiBotManagerSignature = "perfdrive.com"
+const peiJournalsWorkflowAPIURL = "https://wdf.princeedwardisland.ca/legislative-assembly/services/api/workflow"
+
+func isPEICaptchaBody(body []byte) bool {
+	lower := strings.ToLower(string(body))
+	return strings.Contains(lower, peiCaptchaSignature) || strings.Contains(lower, peiBotManagerSignature)
+}
 
 // peiTransport adds browser-like request headers to bypass Radware bot-manager.
 type peiTransport struct {
@@ -2208,6 +2536,17 @@ func (t *peiTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // crawlPEIVotes is the inner PEI crawl that checks for CAPTCHA and falls back
 // to the generic HTML scraper when the site is accessible.
 func crawlPEIVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	if strings.Contains(indexURL, "/services/api/workflow") {
+		return crawlPEIVotesFromWorkflowAPI(indexURL, legislature, session, client)
+	}
+	if indexURL == "https://www.assembly.pe.ca/legislative-business" {
+		if divs, err := crawlPEIVotesFromWorkflowAPI(peiJournalsWorkflowAPIURL, legislature, session, client); err == nil && len(divs) > 0 {
+			log.Printf("[pe-votes] parsed %d divisions from workflow API", len(divs))
+			return divs, nil
+		} else if err != nil {
+			log.Printf("[pe-votes] workflow API fallback to HTML: %v", err)
+		}
+	}
 	log.Printf("[pe-votes] fetching index: %s", indexURL)
 	resp, err := client.Get(indexURL)
 	if err != nil {
@@ -2220,7 +2559,7 @@ func crawlPEIVotes(indexURL string, legislature, session int, client *http.Clien
 		return nil, fmt.Errorf("pe votes index read: %w", err)
 	}
 
-	if strings.Contains(string(body), peiCaptchaSignature) {
+	if isPEICaptchaBody(body) {
 		log.Printf("[pe-votes] CAPTCHA detected — assembly.pe.ca is protected by Radware bot-manager; returning 0 divisions. See docs/implementation-plan-detailed.md § 5A.7 for escalation path.")
 		return nil, nil
 	}
@@ -2247,6 +2586,121 @@ func crawlPEIVotes(indexURL string, legislature, session int, client *http.Clien
 	}
 	log.Printf("[pe-votes] parsed %d divisions", len(results))
 	return results, nil
+}
+
+func crawlPEIVotesFromWorkflowAPI(workflowURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	year := strconv.Itoa(time.Now().Year())
+	links, err := crawlPEIVotesWorkflowLinks(workflowURL, client, &year)
+	if err != nil {
+		return nil, err
+	}
+	if len(links) == 0 {
+		links, err = crawlPEIVotesWorkflowLinks(workflowURL, client, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(links) == 0 {
+		return nil, nil
+	}
+	var results []ProvincialDivisionResult
+	for _, link := range links {
+		dayDoc, derr := fetchDoc(link, client)
+		if derr != nil {
+			log.Printf("[pe-votes] skip workflow day link %s: %v", link, derr)
+			continue
+		}
+		date := extractDateFromURL(link)
+		parsed := parseGenericProvincialVotesDoc(dayDoc, "pe", "pei", legislature, session, date)
+		results = append(results, parsed...)
+	}
+	return results, nil
+}
+
+func crawlPEIVotesWorkflowLinks(workflowURL string, client *http.Client, year *string) ([]string, error) {
+	payload := map[string]any{
+		"appName":     "LegislativeAssemblyJournals",
+		"featureName": "LegislativeAssemblyJournals",
+		"metaVars": map[string]any{
+			"service_id":    nil,
+			"save_location": nil,
+		},
+		"queryVars": map[string]any{
+			"search":           "sitting",
+			"general_assembly": nil,
+			"session":          nil,
+			"sitting":          nil,
+			"year":             year,
+			"keyword":          nil,
+			"wdf_url_query":    "true",
+			"service":          "LegislativeAssemblyJournals",
+			"activity":         "LegislativeAssemblyJournalsSearch",
+		},
+		"queryName": "LegislativeAssemblyJournalsSearch",
+	}
+	reqBody, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, workflowURL, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Origin", "https://www.assembly.pe.ca")
+	req.Header.Set("Referer", "https://www.assembly.pe.ca/legislative-business")
+	req.Header.Set("Client-Show-Status", "true")
+	req.Header.Set("X-Origin", "https://www.assembly.pe.ca")
+	req.Header.Set("X-Referer", "https://www.assembly.pe.ca/legislative-business")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	if isPEICaptchaBody(body) {
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("pei workflow status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	links := extractPEIWorkflowLinks(body, workflowURL)
+	return links, nil
+}
+
+func extractPEIWorkflowLinks(raw []byte, baseURL string) []string {
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil
+	}
+	records := collectWorkflowRecords(decoded)
+	seen := map[string]bool{}
+	var links []string
+	for _, r := range records {
+		for _, key := range []string{"url", "detailUrl", "detail_url", "href", "link"} {
+			v, ok := r[key]
+			if !ok {
+				continue
+			}
+			s := strings.TrimSpace(fmt.Sprintf("%v", v))
+			if s == "" {
+				continue
+			}
+			full := resolveRelativeURL(baseURL, s)
+			if seen[full] {
+				continue
+			}
+			seen[full] = true
+			links = append(links, full)
+		}
+	}
+	sort.Strings(links)
+	return links
 }
 
 // CrawlPrinceEdwardIslandVotes crawls PEI votes/proceedings pages.
@@ -2279,8 +2733,6 @@ func CrawlPrinceEdwardIslandVotes(indexURL string, legislature, session int, cli
 	}
 	return crawlPEIVotes(indexURL, legislature, session, client)
 }
-
-
 
 // CrawlGenericProvincialVotes fetches a provincial votes/proceedings index page,
 // discovers likely per-day links, then parses divisions from each page using

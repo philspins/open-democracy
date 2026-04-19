@@ -1,0 +1,174 @@
+package scraper
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/PuerkitoBio/goquery"
+	"github.com/philspins/open-democracy/internal/db"
+)
+
+func mustDocFromHTML(t *testing.T, html string) *goquery.Document {
+	t.Helper()
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatalf("goquery.NewDocumentFromReader: %v", err)
+	}
+	return doc
+}
+
+func TestHasPDFTextShowOperator(t *testing.T) {
+	if !hasPDFTextShowOperator("BT /F9 7.999 Tf 0 0 0 rg 380.167 TL 242.496 325.155 Td (Kaeding, ) Tj T* ET") {
+		t.Fatal("expected line with inline Tj operator to be detected")
+	}
+	if !hasPDFTextShowOperator("(Members\376\377\000'\000 )Tj") {
+		t.Fatal("expected line ending in Tj without preceding space to be detected")
+	}
+	if !hasPDFTextShowOperator("[(Legislati)-6.2(v)1(e Assem)-6(b)2.2(ly )]TJ") {
+		t.Fatal("expected line ending in TJ without preceding space to be detected")
+	}
+	if hasPDFTextShowOperator("q 16.622 368.075 754.532 14.0 re W n") {
+		t.Fatal("expected non-text operator line to be ignored")
+	}
+}
+
+func TestIsPEICaptchaBody_CaseInsensitive(t *testing.T) {
+	if !isPEICaptchaBody([]byte(`<html><head><link href="HTTPS://CAPTCHA.PERFDRIVE.COM/challenge.css"></head></html>`)) {
+		t.Fatal("expected captcha signature to be detected case-insensitively")
+	}
+	if !isPEICaptchaBody([]byte(`<script src="https://cdn.perfdrive.com/aperture/aperture.js"></script>`)) {
+		t.Fatal("expected generic perfdrive bot-manager signature to be detected")
+	}
+}
+
+func TestExtractPlainVoteNames_CollapsesSplitUppercaseSurnames(t *testing.T) {
+	block := `AYE B ALCAEN B EREZA D ELA C RUZ W OWCHUK ................................ ..... 46 NAY ................................ 0`
+	names := extractPlainVoteNames(block)
+	want := []string{"BALCAEN", "BEREZA", "DELA CRUZ", "WOWCHUK"}
+	if len(names) != len(want) {
+		t.Fatalf("len(names)=%d, want %d (%v)", len(names), len(want), names)
+	}
+	for i, got := range names {
+		if got != want[i] {
+			t.Fatalf("names[%d]=%q, want %q", i, got, want[i])
+		}
+	}
+}
+
+func TestManitobaSessionPageMatches(t *testing.T) {
+	tests := []struct {
+		href        string
+		legislature int
+		session     int
+		want        bool
+	}{
+		{href: "43rd/43rd_3rd.html", legislature: 43, session: 3, want: true},
+		{href: "43rd/43rd_2nd.html", legislature: 43, session: 3, want: false},
+		{href: "42nd/42nd_5th.html", legislature: 43, session: 3, want: false},
+	}
+
+	for _, tc := range tests {
+		if got := manitobaSessionPageMatches(tc.href, tc.legislature, tc.session); got != tc.want {
+			t.Fatalf("manitobaSessionPageMatches(%q, %d, %d)=%v, want %v", tc.href, tc.legislature, tc.session, got, tc.want)
+		}
+	}
+}
+
+func TestNovaScotiaHansardSessionURL(t *testing.T) {
+	got := novaScotiaHansardSessionURL("https://nslegislature.ca/legislative-business/journals", 64, 1)
+	want := "https://nslegislature.ca/legislative-business/hansard-debates/assembly-64-session-1"
+	if got != want {
+		t.Fatalf("novaScotiaHansardSessionURL()=%q, want %q", got, want)
+	}
+
+	if got := novaScotiaHansardSessionURL("https://nslegislature.ca/legislative-business/journals", 1, 1); got != "https://nslegislature.ca/legislative-business/journals" {
+		t.Fatalf("novaScotiaHansardSessionURL(unresolved)=%q, want journals URL", got)
+	}
+
+	alreadySession := "https://nslegislature.ca/legislative-business/hansard-debates/assembly-65-session-1"
+	if got := novaScotiaHansardSessionURL(alreadySession, 65, 1); got != alreadySession {
+		t.Fatalf("novaScotiaHansardSessionURL(sessionURL)=%q, want %q", got, alreadySession)
+	}
+}
+
+func TestDiscoverNovaScotiaVotePDFLinks(t *testing.T) {
+	doc := mustDocFromHTML(t, `<html><body>
+		<a href="/sites/default/files/pdfs/proceedings/hansard/64-1/h111apr04.pdf?4058">Hansard PDF</a>
+		<a href="/sites/default/files/pdfs/proceedings/hansard/64-1/h111apr04.pdf?4058">Hansard PDF duplicate</a>
+		<a href="/sites/default/files/pdfs/proceedings/journals/63-3/020%202021Apr19.pdf">Journal PDF</a>
+		<a href="/sites/default/files/pdfs/proceedings/journals/63-3/Appendix%20C%20Bills.pdf">Appendix</a>
+		<a href="/sites/default/files/pdfs/proceedings/journals/61-1/04%20Cab%20list%20June19.09.pdf">Cabinet list</a>
+		<a href="/sites/default/files/pdfs/proceedings/journals/62-1/001%202013oct24.pdf">Wrong session journal PDF</a>
+		<a href="/legislative-business/hansard-debates/assembly-64-session-1/house_24apr04">Detail page</a>
+	</body></html>`)
+
+	got := discoverNovaScotiaVotePDFLinks(doc, "https://nslegislature.ca/legislative-business/hansard-debates/assembly-64-session-1", 63, 3)
+	want := []string{
+		"https://nslegislature.ca/sites/default/files/pdfs/proceedings/hansard/64-1/h111apr04.pdf?4058",
+		"https://nslegislature.ca/sites/default/files/pdfs/proceedings/journals/63-3/020%202021Apr19.pdf",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len(got)=%d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got[%d]=%q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestResolveProvincialMemberID_StripsTitlesAndMatchesInitialPlusSurname(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	conn, err := db.Open(path)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer conn.Close()
+
+	_, err = conn.Exec(`INSERT INTO members (id, name, province, chamber, active, government_level) VALUES
+		('nb-legislature-wilson-sherry', 'Sherry Wilson', 'New Brunswick', 'new_brunswick', 1, 'provincial'),
+		('nb-legislature-wilson-mary', 'Mary Wilson', 'New Brunswick', 'new_brunswick', 1, 'provincial'),
+		('nb-legislature-savoie-glen', 'Glen Savoie', 'New Brunswick', 'new_brunswick', 1, 'provincial'),
+		('nb-legislature-chiasson-chuck', 'Chuck Chiasson', 'New Brunswick', 'new_brunswick', 1, 'provincial'),
+		('manitoba-legislature-dela-cruz-nellie', 'Nellie Kennedy Dela Cruz', 'Manitoba', 'manitoba', 1, 'provincial')`)
+	if err != nil {
+		t.Fatalf("insert members: %v", err)
+	}
+
+	tests := []struct {
+		province   string
+		sourceName string
+		wantID     string
+	}{
+		{"New Brunswick", "Hon. Ms. S. Wilson", "nb-legislature-wilson-sherry"},
+		{"New Brunswick", "Hon. Ms. M. Wilson", "nb-legislature-wilson-mary"},
+		{"New Brunswick", "Hon. Mr. G. Savoie", "nb-legislature-savoie-glen"},
+		{"New Brunswick", "Mr. C. Chiasson", "nb-legislature-chiasson-chuck"},
+		{"Manitoba", "DELA CRUZ", "manitoba-legislature-dela-cruz-nellie"},
+	}
+
+	for _, tc := range tests {
+		got, err := resolveProvincialMemberID(conn, tc.province, tc.sourceName)
+		if err != nil {
+			t.Fatalf("resolveProvincialMemberID(%q): %v", tc.sourceName, err)
+		}
+		if got != tc.wantID {
+			t.Fatalf("resolveProvincialMemberID(%q)=%q, want %q", tc.sourceName, got, tc.wantID)
+		}
+	}
+}
+
+func TestParseNewBrunswickVoteNames_KeepsInitialAndSurname(t *testing.T) {
+	block := `YEAS - 25 Hon. Mr. Hogan Hon. Ms. S. Wilson Ms. Scott - Wallace Mr. J. LeBlanc Hon. Mr. G. Savoie`
+	names := parseNewBrunswickVoteNames(block)
+	want := []string{"Hogan", "S. Wilson", "Scott-Wallace", "J. LeBlanc", "G. Savoie"}
+	if len(names) != len(want) {
+		t.Fatalf("len(names)=%d, want %d (%v)", len(names), len(want), names)
+	}
+	for i, got := range names {
+		if got != want[i] {
+			t.Fatalf("names[%d]=%q, want %q (all=%v)", i, got, want[i], names)
+		}
+	}
+}

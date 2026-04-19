@@ -133,6 +133,62 @@ func TestListBills_LevelFilter(t *testing.T) {
 	}
 }
 
+func TestListBills_ProvinceFilter(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, err := conn.Exec(`INSERT INTO bills (id, parliament, session, number, title, category, current_stage, chamber)
+		VALUES ('on-43-1-12', 43, 1, '12', 'Ontario Bill', 'Housing', '1st_reading', 'ontario'),
+		       ('bc-43-1-7', 43, 1, '7', 'British Columbia Bill', 'Health', '1st_reading', 'british_columbia'),
+		       ('45-1-c-1', 45, 1, 'C-1', 'Federal Bill', 'Housing', '1st_reading', 'commons')`)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	bills, total, err := st.ListBills(store.BillFilter{Province: "Ontario", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListBills Ontario: %v", err)
+	}
+	if total != 1 || len(bills) != 1 || bills[0].ID != "on-43-1-12" {
+		t.Fatalf("unexpected Ontario results: total=%d bills=%+v", total, bills)
+	}
+
+	bills, total, err = st.ListBills(store.BillFilter{Province: "BC", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListBills BC: %v", err)
+	}
+	if total != 1 || len(bills) != 1 || bills[0].ID != "bc-43-1-7" {
+		t.Fatalf("unexpected BC results: total=%d bills=%+v", total, bills)
+	}
+	for _, b := range bills {
+		if b.ID == "45-1-c-1" {
+			t.Fatalf("federal bill included in province filter: %+v", b)
+		}
+	}
+}
+
+func TestListDistinctBillProvinces(t *testing.T) {
+	conn := tempDB(t)
+	st := store.New(conn)
+
+	_, err := conn.Exec(`INSERT INTO bills (id, parliament, session, number, title, category, current_stage, chamber)
+		VALUES ('bc-43-1-7', 43, 1, '7', 'British Columbia Bill', 'Health', '1st_reading', 'british_columbia'),
+		       ('on-43-1-12', 43, 1, '12', 'Ontario Bill', 'Housing', '1st_reading', 'ontario'),
+		       ('45-1-c-1', 45, 1, 'C-1', 'Federal Bill', 'Housing', '1st_reading', 'commons')`)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	provinces, err := st.ListDistinctBillProvinces()
+	if err != nil {
+		t.Fatalf("ListDistinctBillProvinces: %v", err)
+	}
+	want := []string{"British Columbia", "Ontario"}
+	if fmt.Sprint(provinces) != fmt.Sprint(want) {
+		t.Fatalf("provinces=%v want %v", provinces, want)
+	}
+}
+
 func TestGetBill_NotFound(t *testing.T) {
 	conn := tempDB(t)
 	st := store.New(conn)

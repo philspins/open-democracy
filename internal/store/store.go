@@ -49,6 +49,11 @@ func (s *Store) ListBills(f BillFilter) ([]BillRow, int, error) {
 		where = append(where, "b.chamber = ?")
 		args = append(args, f.Chamber)
 	}
+	if f.Province != "" {
+		province := normalizeProvinceFilter(f.Province)
+		where = append(where, billProvinceCaseExpr()+" = ?")
+		args = append(args, province)
+	}
 	if f.Level == "provincial" {
 		where = append(where, provincialPredicate)
 	}
@@ -113,6 +118,29 @@ func (s *Store) ListBills(f BillFilter) ([]BillRow, int, error) {
 		bills = append(bills, b)
 	}
 	return bills, total, rows.Err()
+}
+
+// ListDistinctBillProvinces returns provinces that currently have provincial bills.
+func (s *Store) ListDistinctBillProvinces() ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT DISTINCT ` + billProvinceCaseExpr() + ` AS province
+		FROM bills b
+		WHERE ` + billProvinceCaseExpr() + ` <> ''
+		ORDER BY province`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var provinces []string
+	for rows.Next() {
+		var province string
+		if err := rows.Scan(&province); err != nil {
+			return nil, err
+		}
+		provinces = append(provinces, province)
+	}
+	return provinces, rows.Err()
 }
 
 // GetBill returns a single bill by ID.
@@ -257,6 +285,30 @@ var provinceAbbrevToName = map[string]string{
 	"YT":  "Yukon",
 }
 
+func normalizeProvinceFilter(province string) string {
+	trimmed := strings.TrimSpace(province)
+	if full, ok := provinceAbbrevToName[strings.ToUpper(trimmed)]; ok {
+		return full
+	}
+	return trimmed
+}
+
+func billProvinceCaseExpr() string {
+	return `CASE
+		WHEN b.chamber = 'alberta' OR b.id LIKE 'ab-%' THEN 'Alberta'
+		WHEN b.chamber = 'british_columbia' OR b.id LIKE 'bc-%' THEN 'British Columbia'
+		WHEN b.chamber = 'manitoba' OR b.id LIKE 'mb-%' THEN 'Manitoba'
+		WHEN b.chamber = 'new_brunswick' OR b.id LIKE 'nb-%' THEN 'New Brunswick'
+		WHEN b.chamber = 'newfoundland_labrador' OR b.id LIKE 'nl-%' THEN 'Newfoundland and Labrador'
+		WHEN b.chamber = 'nova_scotia' OR b.id LIKE 'ns-%' THEN 'Nova Scotia'
+		WHEN b.chamber = 'ontario' OR b.id LIKE 'on-%' THEN 'Ontario'
+		WHEN b.chamber = 'pei' OR b.id LIKE 'pe-%' THEN 'Prince Edward Island'
+		WHEN b.chamber = 'quebec' OR b.id LIKE 'qc-%' THEN 'Quebec'
+		WHEN b.chamber = 'saskatchewan' OR b.id LIKE 'sk-%' THEN 'Saskatchewan'
+		ELSE ''
+	END`
+}
+
 // ListMembers returns members matching optional search/party/province/riding/governmentLevel filters.
 // search matches against member name only.
 func (s *Store) ListMembers(search, party, province, riding, governmentLevel string) ([]MemberRow, error) {
@@ -274,9 +326,7 @@ func (s *Store) ListMembers(search, party, province, riding, governmentLevel str
 	if province != "" {
 		// Expand common province abbreviations (e.g. "BC") to their full names
 		// (e.g. "British Columbia") so that the filter matches stored values.
-		if full, ok := provinceAbbrevToName[strings.ToUpper(strings.TrimSpace(province))]; ok {
-			province = full
-		}
+		province = normalizeProvinceFilter(province)
 		where = append(where, "province = ?")
 		args = append(args, province)
 	}

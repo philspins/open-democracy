@@ -54,7 +54,7 @@ var ProvincialSources = []ProvincialSource{
 	{Code: "on", Province: "Ontario", Chamber: "ontario", BillsURL: "https://www.ola.org/en/legislative-business/bills/current", VotesURL: OntarioVPIndexURL, Special: "on"},
 	{Code: "pe", Province: "Prince Edward Island", Chamber: "pei", BillsURL: "https://www.assembly.pe.ca/legislative-business/house-records/bills", VotesURL: "https://www.assembly.pe.ca/legislative-business/house-records/journals"},
 	{Code: "qc", Province: "Quebec", Chamber: "quebec", BillsURL: "https://www.assnat.qc.ca/en/travaux-parlementaires/projets-loi/index.html", VotesURL: "https://www.assnat.qc.ca/en/travaux-parlementaires/registre-des-votes/index.html"},
-	{Code: "sk", Province: "Saskatchewan", Chamber: "saskatchewan", BillsURL: "https://www.legassembly.sk.ca/legislative-business", VotesURL: SaskatchewanArchiveURL, Special: "sk"},
+	{Code: "sk", Province: "Saskatchewan", Chamber: "saskatchewan", BillsURL: "https://www.legassembly.sk.ca/legislative-business/bills/", VotesURL: SaskatchewanArchiveURL, Special: "sk"},
 }
 
 // CrawlBills runs federal bill crawl + detail enrichment + optional summary enqueue.
@@ -569,7 +569,12 @@ type legislatureSession struct {
 var parliamentSessionRe = regexp.MustCompile(`(?i)(\d{1,3})(?:st|nd|rd|th)\s*parliament[^\d]{0,40}(\d{1,2})(?:st|nd|rd|th)\s*session`)
 var legislatureSessionRe = regexp.MustCompile(`(?i)(\d{1,3})(?:st|nd|rd|th)\s*(?:legislature|general assembly)[^\d]{0,40}(\d{1,2})(?:st|nd|rd|th)?\s*session`)
 var parliamentSessionURLRe = regexp.MustCompile(`(?i)(\d{1,3})(?:st|nd|rd|th)?[-_/]parliament[-_/](\d{1,2})(?:st|nd|rd|th)?[-_/]session`)
+var assemblySessionURLRe = regexp.MustCompile(`(?i)assembly[-_/](\d{1,3})[-_/]session[-_/](\d{1,2})(?:/|$)`) // e.g. /assembly-65-session-1
 var compactLegSessionURLRe = regexp.MustCompile(`(?i)/(\d{1,3})-(\d{1,2})(?:/|$)`) // e.g. /43-2/
+var albertaLegislatureSessionLabelRe = regexp.MustCompile(`(?i)legislature\s*,?\s*session\s+(\d{1,3})-(\d{1,2})`)
+var albertaLegislatureSessionCommaRe = regexp.MustCompile(`(?i)legislature\s+(\d{1,3})\s*,\s*session\s+(\d{1,2})`)
+var albertaLegislatureSessionQueryRe = regexp.MustCompile(`(?i)[?&]legl=(\d{1,3})&session=(\d{1,2})(?:[&#]|$)`)
+var manitobaLegislatureSessionPairRe = regexp.MustCompile(`(?i)\b(\d{1,3})\s*-\s*(\d{1,2})\s*\((?:\d{4}|current)`) // e.g. 43 - 3 (2025- )
 
 func candidateScore(text string, base int) int {
 	score := base
@@ -615,14 +620,12 @@ func resolveProvincialLegislatureSession(conn *sql.DB, src ProvincialSource, cli
 			href, _ := s.Attr("href")
 			text := strings.TrimSpace(s.Text())
 			snippet := strings.TrimSpace(text + " " + href)
+			linkCandidates := extractLegislatureSessionCandidates(src.Code, snippet, 55)
 			lower := strings.ToLower(snippet)
-			if !strings.Contains(lower, "parliament") && !strings.Contains(lower, "legislature") && !strings.Contains(lower, "session") && !strings.Contains(lower, "assembly") {
+			if len(linkCandidates) == 0 && !strings.Contains(lower, "parliament") && !strings.Contains(lower, "legislature") && !strings.Contains(lower, "session") && !strings.Contains(lower, "assembly") {
 				return
 			}
-			if href, ok := s.Attr("href"); ok {
-				text += " " + href
-			}
-			candidates = append(candidates, extractLegislatureSessionCandidates(src.Code, text, 55)...)
+			candidates = append(candidates, linkCandidates...)
 		})
 	}
 
@@ -646,7 +649,7 @@ func resolveProvincialLegislatureSession(conn *sql.DB, src ProvincialSource, cli
 
 func extractLegislatureSessionCandidates(provinceCode, text string, baseScore int) []legislatureSession {
 	out := make([]legislatureSession, 0)
-	for _, re := range []*regexp.Regexp{parliamentSessionRe, legislatureSessionRe, parliamentSessionURLRe} {
+	for _, re := range []*regexp.Regexp{parliamentSessionRe, legislatureSessionRe, parliamentSessionURLRe, assemblySessionURLRe} {
 		matches := re.FindAllStringSubmatch(text, -1)
 		for _, m := range matches {
 			if len(m) < 3 {
@@ -658,6 +661,43 @@ func extractLegislatureSessionCandidates(provinceCode, text string, baseScore in
 				continue
 			}
 			out = append(out, legislatureSession{Legislature: l, Session: s, Score: candidateScore(text, baseScore)})
+		}
+	}
+
+	if provinceCode == "ab" {
+		for _, re := range []*regexp.Regexp{albertaLegislatureSessionLabelRe, albertaLegislatureSessionCommaRe, albertaLegislatureSessionQueryRe} {
+			matches := re.FindAllStringSubmatch(text, -1)
+			for _, m := range matches {
+				if len(m) < 3 {
+					continue
+				}
+				l, lerr := strconv.Atoi(m[1])
+				s, serr := strconv.Atoi(m[2])
+				if lerr != nil || serr != nil || l <= 0 || s <= 0 {
+					continue
+				}
+				out = append(out, legislatureSession{Legislature: l, Session: s, Score: candidateScore(text, baseScore+20)})
+			}
+		}
+	}
+
+	if provinceCode == "mb" {
+		for _, re := range []*regexp.Regexp{compactLegSessionURLRe, manitobaLegislatureSessionPairRe} {
+			matches := re.FindAllStringSubmatch(text, -1)
+			for _, m := range matches {
+				if len(m) < 3 {
+					continue
+				}
+				l, lerr := strconv.Atoi(m[1])
+				s, serr := strconv.Atoi(m[2])
+				if lerr != nil || serr != nil || l <= 0 || s <= 0 {
+					continue
+				}
+				if l > 99 || s > 9 {
+					continue
+				}
+				out = append(out, legislatureSession{Legislature: l, Session: s, Score: candidateScore(text, baseScore+20)})
+			}
 		}
 	}
 
@@ -771,6 +811,33 @@ func provincialSetSlugForCode(code string) string {
 	}
 }
 
+
+	func cleanupManitobaStaleSessionDivisions(conn *sql.DB, legislature, session int) (int64, error) {
+		if conn == nil {
+			return 0, nil
+		}
+		idLike := fmt.Sprintf("mb-%d-%d-%%", legislature, session)
+		wantPath := fmt.Sprintf("%%%s/%s/%%", parliamentOrdinal(legislature), parliamentOrdinal(session))
+
+		res, err := conn.Exec(`
+			DELETE FROM member_votes
+			WHERE division_id IN (
+				SELECT id FROM divisions
+				WHERE id LIKE ? AND sitting_url IS NOT NULL AND sitting_url NOT LIKE ?
+			)`, idLike, wantPath)
+		if err != nil {
+			return 0, err
+		}
+		_, _ = res.RowsAffected()
+
+		divRes, err := conn.Exec(`
+			DELETE FROM divisions
+			WHERE id LIKE ? AND sitting_url IS NOT NULL AND sitting_url NOT LIKE ?`, idLike, wantPath)
+		if err != nil {
+			return 0, err
+		}
+		return divRes.RowsAffected()
+	}
 func ensureProvincialMembersForSource(conn *sql.DB, client *http.Client, delay time.Duration, src ProvincialSource) error {
 	if conn == nil {
 		return nil
@@ -817,9 +884,22 @@ func provincialBillIDFromDescription(conn *sql.DB, provinceCode string, legislat
 
 func normalisePersonName(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, " - ", "-")
+	s = strings.ReplaceAll(s, "- ", "-")
+	s = strings.ReplaceAll(s, " -", "-")
 	s = strings.ReplaceAll(s, ".", " ")
 	s = strings.ReplaceAll(s, ",", " ")
-	s = strings.Join(strings.Fields(s), " ")
+	fields := strings.Fields(s)
+	filtered := fields[:0]
+	for _, field := range fields {
+		switch field {
+		case "hon", "mr", "mrs", "ms", "mme", "mlle", "dr", "kc", "k", "c":
+			continue
+		default:
+			filtered = append(filtered, field)
+		}
+	}
+	s = strings.Join(filtered, " ")
 	return s
 }
 
@@ -856,8 +936,53 @@ func resolveProvincialMemberID(conn *sql.DB, province, sourceName string) (strin
 		}
 	}
 
-	// Ontario and some journals list only the surname in vote lists.
 	parts := strings.Fields(want)
+	if len(parts) == 2 && len(parts[0]) == 1 {
+		initial := parts[0]
+		last := parts[1]
+		matchedID := ""
+		for _, c := range list {
+			nameParts := strings.Fields(normalisePersonName(c.Name))
+			if len(nameParts) < 2 {
+				continue
+			}
+			candidateLast := nameParts[len(nameParts)-1]
+			candidateFirst := nameParts[0]
+			if candidateLast != last || !strings.HasPrefix(candidateFirst, initial) {
+				continue
+			}
+			if matchedID != "" {
+				return "", nil
+			}
+			matchedID = c.ID
+		}
+		if matchedID != "" {
+			return matchedID, nil
+		}
+	}
+
+	if len(parts) >= 2 {
+		matchedID := ""
+		for _, c := range list {
+			nameParts := strings.Fields(normalisePersonName(c.Name))
+			if len(nameParts) < len(parts) {
+				continue
+			}
+			suffix := strings.Join(nameParts[len(nameParts)-len(parts):], " ")
+			if suffix != want {
+				continue
+			}
+			if matchedID != "" {
+				return "", nil
+			}
+			matchedID = c.ID
+		}
+		if matchedID != "" {
+			return matchedID, nil
+		}
+	}
+
+	// Ontario and some journals list only the surname in vote lists.
 	if len(parts) == 1 {
 		last := parts[0]
 		for _, c := range list {

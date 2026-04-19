@@ -1,17 +1,19 @@
 package summarizer
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestParseSummaryJSON_FencedJSON(t *testing.T) {
-	raw := "```json\n{\"one_sentence\":\"One line\",\"plain_summary\":\"Two lines\",\"key_changes\":[\"a\"],\"who_is_affected\":[\"b\"],\"notable_considerations\":[],\"estimated_cost\":\"Not specified\",\"category\":\"Other\"}\n```"
+	raw := "```json\n{\"one_sentence\":\"One line\",\"plain_summary\":\"Two lines\",\"key_changes\":[\"a\"],\"who_is_affected\":[\"b\"],\"notable_considerations\":[],\"category\":\"Other\"}\n```"
 
 	got, err := parseSummaryJSON(raw)
 	if err != nil {
@@ -26,7 +28,7 @@ func TestParseSummaryJSON_FencedJSON(t *testing.T) {
 }
 
 func TestParseSummaryJSON_MixedTextWithJSONObject(t *testing.T) {
-	raw := "Here is your result:\n{\"one_sentence\":\"One line\",\"plain_summary\":\"Two lines\",\"key_changes\":[\"a\"],\"who_is_affected\":[\"b\"],\"notable_considerations\":[\"c\"],\"estimated_cost\":\"Not specified\",\"category\":\"Housing\"}\nThanks!"
+	raw := "Here is your result:\n{\"one_sentence\":\"One line\",\"plain_summary\":\"Two lines\",\"key_changes\":[\"a\"],\"who_is_affected\":[\"b\"],\"notable_considerations\":[\"c\"],\"category\":\"Housing\"}\nThanks!"
 
 	got, err := parseSummaryJSON(raw)
 	if err != nil {
@@ -54,7 +56,6 @@ func TestParseSummaryResult(t *testing.T) {
 		KeyChanges:            []string{"Increases housing tax credit", "Requires landlord transparency"},
 		WhoIsAffected:         []string{"Renters", "Landlords", "Government"},
 		NotableConsiderations: []string{"Citizens must give up privacy rights", "Excludes rural municipalities from some requirements"},
-		EstimatedCost:         "$2 billion over 10 years",
 		Category:              "Housing",
 		BillID:                "45-1-C-123",
 		GeneratedAt:           "2026-04-11T00:00:00Z",
@@ -112,7 +113,6 @@ func TestSummaryResultStructure(t *testing.T) {
 		KeyChanges:            []string{"test"},
 		WhoIsAffected:         []string{"test"},
 		NotableConsiderations: []string{"test"},
-		EstimatedCost:         "test",
 		Category:              "Housing",
 		BillID:                "45-1-C-1",
 		GeneratedAt:           "2026-04-11T00:00:00Z",
@@ -187,5 +187,27 @@ func TestSummarizeBillsFromChannel_Clears404FullTextURL(t *testing.T) {
 	db.QueryRow(`SELECT COALESCE(full_text_url,'') FROM bills WHERE id='45-1-s-1'`).Scan(&storedURL)
 	if storedURL != "" {
 		t.Errorf("expected full_text_url to be cleared after 404, got %q", storedURL)
+	}
+}
+
+func TestFetchBillText_FallsBackForDeeplyNestedHTML(t *testing.T) {
+	const deepNesting = 600 // exceeds x/net/html parser stack limit (512)
+	deep := strings.Repeat("<div>", deepNesting) + "Bill body text" + strings.Repeat("</div>", deepNesting)
+	html := `<html><head><style>.x{display:none}</style></head><body><script>ignored()</script>` + deep + `</body></html>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(html))
+	}))
+	defer srv.Close()
+
+	text, err := fetchBillText(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("fetchBillText returned error: %v", err)
+	}
+	if !strings.Contains(text, "Bill body text") {
+		t.Fatalf("expected extracted text to contain bill text, got %q", text)
+	}
+	if strings.Contains(text, "ignored()") {
+		t.Fatalf("expected script content to be removed, got %q", text)
 	}
 }

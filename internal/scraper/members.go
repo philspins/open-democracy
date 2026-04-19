@@ -4,6 +4,7 @@ package scraper
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -29,43 +30,58 @@ const (
 
 	// RepresentBaseURL is the root URL of the Represent OpenNorth API.
 	RepresentBaseURL = "https://represent.opennorth.ca"
+
+	// NLMembersJSURL is the URL for the Newfoundland and Labrador House of
+	// Assembly member-index JavaScript data file.  The page at
+	// https://www.assembly.nl.ca/Members/members.aspx loads its member table
+	// from this file via JavaScript, so we read it directly to obtain the
+	// member profile URLs (and from those, the BioPhoto URLs).
+	NLMembersJSURL = "https://www.assembly.nl.ca/js/members-index.js"
+
+	// NLMembersBase is the base URL used to resolve relative photo and profile
+	// paths found in the NL member JS file.
+	NLMembersBase = "https://www.assembly.nl.ca"
 )
 
 // ProvincialLegislatureAPIs lists the Represent OpenNorth API endpoints for
 // each provincial and territorial legislature, keyed by the representative-set
 // slug. The slug is used to generate deterministic member IDs.
 var ProvincialLegislatureAPIs = map[string]string{
-	"alberta-legislature":                "https://represent.opennorth.ca/representatives/alberta-legislature/?format=json&limit=1000",
-	"bc-legislature":                     "https://represent.opennorth.ca/representatives/bc-legislature/?format=json&limit=1000",
-	"manitoba-legislature":               "https://represent.opennorth.ca/representatives/manitoba-legislature/?format=json&limit=1000",
-	"nb-legislature":                     "https://represent.opennorth.ca/representatives/nb-legislature/?format=json&limit=1000",
-	"newfoundland-labrador-legislature":  "https://represent.opennorth.ca/representatives/newfoundland-labrador-legislature/?format=json&limit=1000",
-	"nova-scotia-legislature":            "https://represent.opennorth.ca/representatives/nova-scotia-legislature/?format=json&limit=1000",
-	"northwest-territories-legislature":  "https://represent.opennorth.ca/representatives/northwest-territories-legislature/?format=json&limit=1000",
-	"ontario-legislature":                "https://represent.opennorth.ca/representatives/ontario-legislature/?format=json&limit=1000",
-	"pei-legislature":                    "https://represent.opennorth.ca/representatives/pei-legislature/?format=json&limit=1000",
-	"quebec-assemblee-nationale":         "https://represent.opennorth.ca/representatives/quebec-assemblee-nationale/?format=json&limit=1000",
-	"saskatchewan-legislature":           "https://represent.opennorth.ca/representatives/saskatchewan-legislature/?format=json&limit=1000",
-	"yukon-legislature":                  "https://represent.opennorth.ca/representatives/yukon-legislature/?format=json&limit=1000",
+	"alberta-legislature":               "https://represent.opennorth.ca/representatives/alberta-legislature/?format=json&limit=1000",
+	"bc-legislature":                    "https://represent.opennorth.ca/representatives/bc-legislature/?format=json&limit=1000",
+	"manitoba-legislature":              "https://represent.opennorth.ca/representatives/manitoba-legislature/?format=json&limit=1000",
+	"nb-legislature":                    "https://represent.opennorth.ca/representatives/nb-legislature/?format=json&limit=1000",
+	"newfoundland-labrador-legislature": "https://represent.opennorth.ca/representatives/newfoundland-labrador-legislature/?format=json&limit=1000",
+	"nova-scotia-legislature":           "https://represent.opennorth.ca/representatives/nova-scotia-legislature/?format=json&limit=1000",
+	"northwest-territories-legislature": "https://represent.opennorth.ca/representatives/northwest-territories-legislature/?format=json&limit=1000",
+	"ontario-legislature":               "https://represent.opennorth.ca/representatives/ontario-legislature/?format=json&limit=1000",
+	"pei-legislature":                   "https://represent.opennorth.ca/representatives/pei-legislature/?format=json&limit=1000",
+	"quebec-assemblee-nationale":        "https://represent.opennorth.ca/representatives/quebec-assemblee-nationale/?format=json&limit=1000",
+	"saskatchewan-legislature":          "https://represent.opennorth.ca/representatives/saskatchewan-legislature/?format=json&limit=1000",
+	"yukon-legislature":                 "https://represent.opennorth.ca/representatives/yukon-legislature/?format=json&limit=1000",
 }
 
 // setSlugToProvince maps each representative-set slug to its full province or
 // territory name. This is used as a fallback when a member's office records do
 // not contain a postal address with a recognisable province abbreviation.
 var setSlugToProvince = map[string]string{
-	"alberta-legislature":                "Alberta",
-	"bc-legislature":                     "British Columbia",
-	"manitoba-legislature":               "Manitoba",
-	"nb-legislature":                     "New Brunswick",
-	"newfoundland-labrador-legislature":  "Newfoundland and Labrador",
-	"nova-scotia-legislature":            "Nova Scotia",
-	"northwest-territories-legislature":  "Northwest Territories",
-	"ontario-legislature":                "Ontario",
-	"pei-legislature":                    "Prince Edward Island",
-	"quebec-assemblee-nationale":         "Quebec",
-	"saskatchewan-legislature":           "Saskatchewan",
-	"yukon-legislature":                  "Yukon",
+	"alberta-legislature":               "Alberta",
+	"bc-legislature":                    "British Columbia",
+	"manitoba-legislature":              "Manitoba",
+	"nb-legislature":                    "New Brunswick",
+	"newfoundland-labrador-legislature": "Newfoundland and Labrador",
+	"nova-scotia-legislature":           "Nova Scotia",
+	"northwest-territories-legislature": "Northwest Territories",
+	"ontario-legislature":               "Ontario",
+	"pei-legislature":                   "Prince Edward Island",
+	"quebec-assemblee-nationale":        "Quebec",
+	"saskatchewan-legislature":          "Saskatchewan",
+	"yukon-legislature":                 "Yukon",
 }
+
+// NLMembersJSURLOverride may be set in tests to redirect enrichNLMemberPhotos
+// to a local test server instead of the live NL assembly website.
+var NLMembersJSURLOverride string
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -217,7 +233,16 @@ func CrawlProvincialMembersFromAPI(setSlug, apiURL string, client *http.Client) 
 	if client == nil {
 		client = utils.NewHTTPClient()
 	}
-	return fetchRepresentPages(apiURL, "provincial", setSlug, client)
+	profiles, err := fetchRepresentPages(apiURL, "provincial", setSlug, client)
+	if err != nil {
+		return nil, err
+	}
+	// The Newfoundland and Labrador Represent API does not include photo URLs.
+	// Enrich member photos from the legislature's own JavaScript member-index.
+	if setSlug == "newfoundland-labrador-legislature" {
+		profiles = enrichNLMemberPhotos(profiles, client)
+	}
+	return profiles, nil
 }
 
 // fetchRepresentPages is the shared pagination engine used by both federal and
@@ -297,7 +322,7 @@ func fetchRepresentPages(apiURL, governmentLevel, setSlug string, client *http.C
 				Riding:          item.DistrictName,
 				Province:        province,
 				Role:            role,
-				PhotoURL:        item.PhotoURL,
+				PhotoURL:        normalizeRepresentPhotoURL(item.PhotoURL, item.URL),
 				Email:           item.Email,
 				Website:         item.PersonalURL,
 				Chamber:         chamber,
@@ -321,13 +346,52 @@ func fetchRepresentPages(apiURL, governmentLevel, setSlug string, client *http.C
 	return profiles, nil
 }
 
+// normalizeRepresentPhotoURL converts Represent API photo_url values to an
+// absolute URL. Relative photo paths are resolved against the member profile
+// URL when available, and otherwise against the Represent API base URL.
+func normalizeRepresentPhotoURL(photoURL, memberURL string) string {
+	photoURL = strings.TrimSpace(photoURL)
+	if photoURL == "" {
+		return ""
+	}
+	photoRef, err := url.Parse(photoURL)
+	if err != nil {
+		return photoURL
+	}
+	if photoRef.IsAbs() {
+		return photoURL
+	}
+	if memberURL != "" {
+		base, err := url.Parse(memberURL)
+		if err == nil {
+			return base.ResolveReference(photoRef).String()
+		}
+	}
+	return ""
+}
+
+// genericPageSegments is the set of path-segment values that are shared across
+// all members of a legislature (i.e. all members have the same path, differing
+// only by query parameters).  When urlLastSegment returns one of these values
+// the segment cannot be used as a unique member identifier, so
+// extractProvincialMemberID falls back to deriving the slug from item.Name.
+//
+// Known cases:
+//   - Alberta: .../member-information?mid=0924…  (all share "member-information")
+//   - Saskatchewan: .../member-details?first=…&last=…  (all share "member-details")
+var genericPageSegments = map[string]bool{
+	"member-information": true,
+	"member-details":     true,
+}
+
 // extractProvincialMemberID builds a deterministic ID for a provincial member
 // as "{setSlug}-{name-slug}" where the name slug is derived from the last
 // path segment of item.URL (a slugified name on most provincial sites), or
-// falls back to a slugified version of item.Name when the URL is empty.
+// falls back to a slugified version of item.Name when the URL is empty or its
+// last path segment is a known generic page name shared by all members.
 func extractProvincialMemberID(setSlug string, item representAPIItem) string {
 	nameSlug := urlLastSegment(item.URL)
-	if nameSlug == "" {
+	if nameSlug == "" || genericPageSegments[nameSlug] {
 		nameSlug = nameToSlug(item.Name)
 	}
 	if nameSlug == "" {
@@ -346,12 +410,26 @@ func urlLastSegment(rawURL string) string {
 	// Parse the URL so that query strings (e.g. ?id=42) and fragments (#foo)
 	// are stripped before we look at the path.
 	parsed, err := url.Parse(rawURL)
+	parsedPath := rawURL
 	if err == nil && parsed.Path != "" {
+		parsedPath = parsed.Path
 		rawURL = parsed.Path
 	}
 	rawURL = strings.TrimSuffix(rawURL, "/")
 	if i := strings.LastIndex(rawURL, "/"); i >= 0 {
 		rawURL = rawURL[i+1:]
+	}
+	// Many provincial profile URLs end with "/index.html"; in those cases we
+	// need the parent path segment for stable unique IDs.
+	if strings.EqualFold(rawURL, "index.html") || strings.EqualFold(rawURL, "index.htm") || strings.EqualFold(rawURL, "default.aspx") {
+		parent := strings.TrimSuffix(parsedPath, "/")
+		if i := strings.LastIndex(parent, "/"); i >= 0 {
+			parent = parent[:i]
+		}
+		parent = strings.TrimSuffix(parent, "/")
+		if i := strings.LastIndex(parent, "/"); i >= 0 {
+			rawURL = parent[i+1:]
+		}
 	}
 	// URL-decode the segment so that percent-encoded characters (e.g. %20)
 	// don't end up in member IDs where they would cause URL routing mismatches.
@@ -474,8 +552,10 @@ func CrawlNewBrunswickMembersFromWebsite(indexURL string, client *http.Client) (
 	return profiles, nil
 }
 
-// nbConvertMemberName converts a name in "LastName, FirstName" format (as used
-// by the NB legislature website) to "FirstName LastName" for consistent storage.
+// nbConvertMemberName converts a name in "LastName, FirstName" format to
+// "FirstName LastName" for consistent storage.  It is used for both New
+// Brunswick (NB) member pages and Newfoundland and Labrador (NL) member-index
+// entries, both of which use the same comma-separated name format.
 // Names that don't contain a comma are returned unchanged.
 func nbConvertMemberName(raw string) string {
 	if idx := strings.Index(raw, ", "); idx >= 0 {
@@ -486,6 +566,95 @@ func nbConvertMemberName(raw string) string {
 		}
 	}
 	return raw
+}
+
+// ── Newfoundland and Labrador photo enrichment ────────────────────────────────
+
+// nlMemberHrefRe matches a member profile href in the NL members-index.js file.
+// Each entry looks like:  href="/Members/YourMember/DwyerJeff.aspx"
+var nlMemberHrefRe = regexp.MustCompile(`href="(/Members/YourMember/([^"]+)\.aspx)"`)
+
+// nlMemberNameRe matches the display name in the NL members-index.js file.
+// Each entry looks like:  >Dwyer, Jeff</a>
+var nlMemberNameRe = regexp.MustCompile(`>([^<]+)</a>`)
+
+// enrichNLMemberPhotos fetches the Newfoundland and Labrador House of Assembly
+// member-index JavaScript file and fills in the PhotoURL field for any member
+// whose photo is currently empty.
+//
+// The NL Represent API returns member records without photo URLs.  The
+// legislature website exposes a JavaScript data file that lists all members
+// with their individual profile paths; photos live at a predictable sibling
+// path:  /Members/YourMember/BioPhotos/{slug}.jpg
+//
+// Members are matched by normalised full name (case-insensitive, whitespace
+// collapsed). Unmatched members are left unchanged.
+func enrichNLMemberPhotos(profiles []MemberProfile, client *http.Client) []MemberProfile {
+	jsURL := NLMembersJSURL
+	// Allow tests to redirect to a local server via NLMembersJSURLOverride.
+	if NLMembersJSURLOverride != "" {
+		jsURL = NLMembersJSURLOverride
+	}
+	if client == nil {
+		client = utils.NewHTTPClient()
+	}
+
+	resp, err := client.Get(jsURL)
+	if err != nil {
+		log.Printf("[members] NL photo enrichment: GET %s: %v", jsURL, err)
+		return profiles
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[members] NL photo enrichment: read body: %v", err)
+		return profiles
+	}
+	content := string(body)
+
+	// Split on the entry separator (`},`) to process each member block.
+	// Build a map: normalised "firstname lastname" → absolute photo URL.
+	photoMap := make(map[string]string)
+	// Each entry spans from `{` to `}`.  We scan for href/name pairs within
+	// blocks delimited by `{` and `}`.
+	blocks := strings.Split(content, "},")
+	for _, block := range blocks {
+		hrefMatch := nlMemberHrefRe.FindStringSubmatch(block)
+		nameMatch := nlMemberNameRe.FindStringSubmatch(block)
+		if hrefMatch == nil || nameMatch == nil {
+			continue
+		}
+		slug := hrefMatch[2] // e.g. "DwyerJeff"
+		// Unescape JS string escapes in the display name (e.g. "O\'Driscoll" → "O'Driscoll").
+		rawName := strings.TrimSpace(strings.ReplaceAll(nameMatch[1], `\'`, "'"))
+		// Convert "LastName, FirstName" to normalised "firstname lastname".
+		displayName := nbConvertMemberName(rawName)
+		normName := normalisePersonName(displayName)
+		if normName == "" || slug == "" {
+			continue
+		}
+		photoPath := "/Members/YourMember/BioPhotos/" + slug + ".jpg"
+		photoMap[normName] = NLMembersBase + photoPath
+	}
+
+	if len(photoMap) == 0 {
+		log.Printf("[members] NL photo enrichment: no entries parsed from %s", jsURL)
+		return profiles
+	}
+
+	enriched := 0
+	for i, p := range profiles {
+		if p.PhotoURL != "" {
+			continue
+		}
+		norm := normalisePersonName(p.Name)
+		if photo, ok := photoMap[norm]; ok {
+			profiles[i].PhotoURL = photo
+			enriched++
+		}
+	}
+	log.Printf("[members] NL photo enrichment: matched %d/%d members", enriched, len(profiles))
+	return profiles
 }
 
 // ── Members list ──────────────────────────────────────────────────────────────

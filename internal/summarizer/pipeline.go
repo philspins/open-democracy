@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/philspins/open-democracy/internal/utils"
+	"golang.org/x/net/html"
 )
 
 // ErrBillTextNotFound is returned by fetchBillText when the remote server
@@ -30,8 +32,9 @@ import (
 var ErrBillTextNotFound = errors.New("bill text not found (HTTP 404)")
 
 const (
-	claudeModel = "claude-sonnet-4-6"
-	claudeURL   = "https://api.anthropic.com/v1/messages"
+	claudeModel              = "claude-sonnet-4-6"
+	claudeURL                = "https://api.anthropic.com/v1/messages"
+	maxBillTextResponseBytes = 8 * 1024 * 1024
 )
 
 func selectedClaudeModels() []string {
@@ -114,12 +117,15 @@ func summarizerParallelism() int {
 var systemPrompt = `You are a non-partisan Canadian civic education assistant.
 Your job is to summarize bills from the Parliament of Canada in plain English.
 You must be accurate, neutral, and clear. Never editorialize or express opinions.
-Always write for a Canadian high school student — no legal jargon.
+Always write for a Canadian high school student, or an adult who dropped out of high 
+school and has limited reading skills — no legal jargon.
 
-In addition to the main summary, identify any notable considerations: provisions,
-exceptions, side effects, carve-outs, enforcement details, or hidden trade-offs
-that may not be obvious at first read. Describe these neutrally and factually.
-If no notable considerations are found, explicitly state that.
+In addition to the main summary, identify any notable considerations, gotchas
+or other 'hidden shit': provisions, exceptions, side effects, carve-outs, enforcement 
+details, or hidden trade-offs that may not be obvious at first read. Highlight any
+clauses unrelated to the bill such as a civil rights issue in a Trade or Health bill.
+Describe these neutrally and factually. If no notable considerations are found, explicitly 
+state that.
 
 Provide your response as valid JSON only (no markdown or extra text):
 {
@@ -128,7 +134,6 @@ Provide your response as valid JSON only (no markdown or extra text):
   "key_changes": ["List of 3–6 specific things this bill would change or create"],
   "who_is_affected": ["List of groups, industries, or people most affected"],
   "notable_considerations": ["List of 0–5 potential caveats, non-obvious trade-offs, or implementation considerations in neutral language"],
-  "estimated_cost": "Fiscal impact if mentioned in the bill, or 'Not specified'",
   "category": "One of: Budget, Criminal Justice, Environment, Health, Housing, Immigration, Indigenous, Infrastructure, Justice, Labour, National Security, Social Policy, Trade, Veterans"
 }`
 
@@ -139,7 +144,6 @@ type SummaryResult struct {
 	KeyChanges            []string `json:"key_changes"`
 	WhoIsAffected         []string `json:"who_is_affected"`
 	NotableConsiderations []string `json:"notable_considerations"`
-	EstimatedCost         string   `json:"estimated_cost"`
 	Category              string   `json:"category"`
 	BillID                string   `json:"bill_id"`
 	GeneratedAt           string   `json:"generated_at"`
@@ -577,10 +581,20 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 		)
 	}
 
-	// Use goquery to parse HTML and extract text.
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	// Cap read size at 8 MiB (8 * 1024 * 1024 bytes) to avoid unbounded memory
+	// use on unexpectedly large responses while keeping enough headroom for
+	// typical HTML bill text pages.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBillTextResponseBytes))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read response body: %w", err)
+	}
+
+	// Use goquery to parse HTML and extract text.
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		log.Printf("[summarizer] goquery parse failed for %s: %v; falling back to tokenizer extraction", sanitizeLogURL(url), err)
+		fallbackText := extractTextWithTokenizer(body)
+		return strings.TrimSpace(collapseWhitespace(fallbackText)), nil
 	}
 
 	// Remove script and style tags to clean text.
@@ -595,6 +609,54 @@ func fetchBillText(ctx context.Context, url string) (string, error) {
 	return strings.TrimSpace(text), nil
 }
 
+// extractTextWithTokenizer extracts visible text from HTML using a streaming
+// tokenizer. It is used as a fallback when full DOM parsing fails on malformed
+// input (for example, extremely deep nesting). script/style content is excluded
+// by tracking whether the tokenizer is currently inside those tags.
+func extractTextWithTokenizer(raw []byte) string {
+	z := html.NewTokenizer(bytes.NewReader(raw))
+	var b strings.Builder
+	var skipDepth int
+
+	for {
+		tt := z.Next()
+		switch tt {
+		case html.ErrorToken:
+			return b.String()
+		case html.StartTagToken:
+			tok := z.Token()
+			tag := strings.ToLower(tok.Data)
+			if tag == "script" || tag == "style" {
+				skipDepth++
+			}
+		case html.EndTagToken:
+			tok := z.Token()
+			tag := strings.ToLower(tok.Data)
+			if (tag == "script" || tag == "style") && skipDepth > 0 {
+				skipDepth--
+			}
+		case html.TextToken:
+			if skipDepth > 0 {
+				continue
+			}
+			b.WriteString(z.Token().Data)
+			b.WriteByte(' ')
+		}
+	}
+}
+
 func collapseWhitespace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
+}
+
+func sanitizeLogURL(raw string) string {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return (&neturl.URL{
+		Scheme: u.Scheme,
+		Host:   u.Host,
+		Path:   u.Path,
+	}).String()
 }
