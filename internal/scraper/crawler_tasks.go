@@ -569,6 +569,7 @@ type legislatureSession struct {
 var parliamentSessionRe = regexp.MustCompile(`(?i)(\d{1,3})(?:st|nd|rd|th)\s*parliament[^\d]{0,40}(\d{1,2})(?:st|nd|rd|th)\s*session`)
 var legislatureSessionRe = regexp.MustCompile(`(?i)(\d{1,3})(?:st|nd|rd|th)\s*(?:legislature|general assembly)[^\d]{0,40}(\d{1,2})(?:st|nd|rd|th)?\s*session`)
 var parliamentSessionURLRe = regexp.MustCompile(`(?i)(\d{1,3})(?:st|nd|rd|th)?[-_/]parliament[-_/](\d{1,2})(?:st|nd|rd|th)?[-_/]session`)
+var assemblySessionURLRe = regexp.MustCompile(`(?i)assembly[-_/](\d{1,3})[-_/]session[-_/](\d{1,2})(?:/|$)`) // e.g. /assembly-65-session-1
 var compactLegSessionURLRe = regexp.MustCompile(`(?i)/(\d{1,3})-(\d{1,2})(?:/|$)`) // e.g. /43-2/
 var albertaLegislatureSessionLabelRe = regexp.MustCompile(`(?i)legislature\s*,?\s*session\s+(\d{1,3})-(\d{1,2})`)
 var albertaLegislatureSessionCommaRe = regexp.MustCompile(`(?i)legislature\s+(\d{1,3})\s*,\s*session\s+(\d{1,2})`)
@@ -648,7 +649,7 @@ func resolveProvincialLegislatureSession(conn *sql.DB, src ProvincialSource, cli
 
 func extractLegislatureSessionCandidates(provinceCode, text string, baseScore int) []legislatureSession {
 	out := make([]legislatureSession, 0)
-	for _, re := range []*regexp.Regexp{parliamentSessionRe, legislatureSessionRe, parliamentSessionURLRe} {
+	for _, re := range []*regexp.Regexp{parliamentSessionRe, legislatureSessionRe, parliamentSessionURLRe, assemblySessionURLRe} {
 		matches := re.FindAllStringSubmatch(text, -1)
 		for _, m := range matches {
 			if len(m) < 3 {

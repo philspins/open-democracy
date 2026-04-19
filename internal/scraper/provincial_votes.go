@@ -2361,40 +2361,103 @@ func CrawlNewfoundlandAndLabradorVotes(indexURL string, legislature, session int
 
 // ── 5A.6 Nova Scotia ─────────────────────────────────────────────────────────
 
-// nsVotesPDFLinkRe matches NS journal PDF links under the default files path.
-var nsVotesPDFLinkRe = regexp.MustCompile(`(?i)/sites/default/files/pdfs/proceedings/journals/[^"'\s]+\.pdf`)
+// nsVotesPDFLinkRe matches NS journals and Hansard PDF links under the default
+// files path.
+var nsVotesPDFLinkRe = regexp.MustCompile(`(?i)/sites/default/files/pdfs/proceedings/(?:journals|hansard)/[^"'\s]+\.pdf(?:\?[^"'\s]*)?`)
 
-// crawlNovaScotiaVotesFromPDF fetches the NS journals index page (using an extended
-// HTTP timeout because the Drupal page is ~368KB) and parses each discovered PDF.
-func crawlNovaScotiaVotesFromPDF(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
-	log.Printf("[ns-votes] fetching index: %s", indexURL)
-	indexDoc, err := fetchDoc(indexURL, client)
-	if err != nil {
-		return nil, fmt.Errorf("ns votes index: %w", err)
+func novaScotiaHansardSessionURL(indexURL string, legislature, session int) string {
+	trimmed := strings.TrimSpace(indexURL)
+	if strings.Contains(trimmed, "/assembly-") && strings.Contains(trimmed, "/hansard-debates/") {
+		return trimmed
 	}
+	if legislature <= 1 || session <= 0 {
+		return trimmed
+	}
+	return fmt.Sprintf("https://nslegislature.ca/legislative-business/hansard-debates/assembly-%d-session-%d", legislature, session)
+}
 
+func includeNovaScotiaVotePDF(fullURL string, legislature, session int) bool {
+	lower := strings.ToLower(fullURL)
+	if strings.Contains(lower, "/proceedings/hansard/") {
+		return true
+	}
+	if !strings.Contains(lower, "/proceedings/journals/") {
+		return false
+	}
+	if legislature > 1 && session > 0 {
+		wantDir := fmt.Sprintf("/%d-%d/", legislature, session)
+		combinedDir := fmt.Sprintf("/%d-1and2/", legislature)
+		if !strings.Contains(lower, wantDir) && !(session <= 2 && strings.Contains(lower, combinedDir)) {
+			return false
+		}
+	}
+	for _, token := range []string{
+		"index", "appendix", "appendices", "cabinet", "cab%20list", "memberlist", "member%20list", "reports", "tabled", "bills",
+	} {
+		if strings.Contains(lower, token) {
+			return false
+		}
+	}
+	return true
+}
+
+func discoverNovaScotiaVotePDFLinks(doc *goquery.Document, baseURL string, legislature, session int) []string {
 	var pdfLinks []string
 	seen := make(map[string]bool)
-	indexDoc.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
+	doc.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
 		href := normalizeHref(a.AttrOr("href", ""))
 		if href == "" || !nsVotesPDFLinkRe.MatchString(href) {
 			return
 		}
-		full := resolveRelativeURL(indexURL, href)
+		full := resolveRelativeURL(baseURL, href)
 		if seen[full] {
+			return
+		}
+		if !includeNovaScotiaVotePDF(full, legislature, session) {
 			return
 		}
 		seen[full] = true
 		pdfLinks = append(pdfLinks, full)
 	})
-
 	sort.Strings(pdfLinks)
-	if len(pdfLinks) > 100 {
-		pdfLinks = pdfLinks[len(pdfLinks)-100:]
+	return pdfLinks
+}
+
+// crawlNovaScotiaVotesFromPDF fetches the NS Hansard session page for the
+// requested legislature/session and parses each discovered PDF. Older journal
+// listings remain as a fallback when no Hansard PDFs are exposed.
+func crawlNovaScotiaVotesFromPDF(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
+	sessionURL := novaScotiaHansardSessionURL(indexURL, legislature, session)
+	log.Printf("[ns-votes] fetching hansard session index: %s", sessionURL)
+	indexDoc, err := fetchDoc(sessionURL, client)
+	if err != nil {
+		if indexURL != "" && indexURL != sessionURL {
+			log.Printf("[ns-votes] hansard session index unavailable, falling back to %s: %v", indexURL, err)
+			indexDoc, err = fetchDoc(indexURL, client)
+			if err != nil {
+				return nil, fmt.Errorf("ns votes index: %w", err)
+			}
+			sessionURL = indexURL
+		} else {
+			return nil, fmt.Errorf("ns votes index: %w", err)
+		}
 	}
+
+	pdfLinks := discoverNovaScotiaVotePDFLinks(indexDoc, sessionURL, legislature, session)
 	if len(pdfLinks) == 0 {
-		log.Printf("[ns-votes] no journal PDFs discovered (64th/65th Assembly data not yet accessible as static files)")
-		return nil, nil
+		if indexURL != "" && indexURL != sessionURL {
+			log.Printf("[ns-votes] no hansard PDFs discovered at %s; falling back to %s", sessionURL, indexURL)
+			fallbackDoc, ferr := fetchDoc(indexURL, client)
+			if ferr != nil {
+				return nil, fmt.Errorf("ns votes fallback index: %w", ferr)
+			}
+			pdfLinks = discoverNovaScotiaVotePDFLinks(fallbackDoc, indexURL, legislature, session)
+			sessionURL = indexURL
+		}
+		if len(pdfLinks) == 0 {
+			log.Printf("[ns-votes] no vote PDFs discovered for legislature=%d session=%d", legislature, session)
+			return nil, nil
+		}
 	}
 
 	var results []ProvincialDivisionResult
@@ -2425,19 +2488,17 @@ func crawlNovaScotiaVotesFromPDF(indexURL string, legislature, session int, clie
 
 // CrawlNovaScotiaVotes crawls NS journals/proceedings pages.
 //
-// The NS journals page (nslegislature.ca) is a large Drupal response and reliably
-// times out with the default 15s HTTP client. A 45s timeout is used when the
-// caller does not supply a client. Historical session data (through 63rd
-// Assembly, 3rd Session, April 2021) is available as static PDFs under
-// /sites/default/files/pdfs/proceedings/journals/. The previous
-// /journals-votes-proceedings path is now a business-centre landing page; the
-// actual journal listing lives under /legislative-business/journals.
+// The live NS journals page no longer publishes current-session PDFs. Current
+// divisions are exposed from per-session Hansard pages whose PDFs contain
+// recorded YEAS/NAYS blocks that the generic PDF parser can consume. The old
+// journals listing remains as a fallback for older sessions.
 func CrawlNovaScotiaVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	if indexURL == "" {
-		indexURL = "https://nslegislature.ca/legislative-business/journals"
+		indexURL = novaScotiaHansardSessionURL("", legislature, session)
 	}
 	if client == nil {
-		// The NS journals index page is large (~368KB); use an extended timeout.
+		// NS Hansard session pages are still large Drupal responses; use an
+		// extended timeout.
 		client = utils.NewHTTPClientWithTimeout(45 * time.Second)
 	}
 	return crawlNovaScotiaVotesFromPDF(indexURL, legislature, session, client)

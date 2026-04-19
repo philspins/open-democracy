@@ -65,6 +65,17 @@ func TestExtractLegislatureSessionCandidates_ManitobaFormats(t *testing.T) {
 	}
 }
 
+func TestExtractLegislatureSessionCandidates_NovaScotiaHansardURL(t *testing.T) {
+	candidates := extractLegislatureSessionCandidates("ns", "https://nslegislature.ca/legislative-business/hansard-debates/assembly-65-session-1", 50)
+	best, ok := maxLegislatureSession(candidates)
+	if !ok {
+		t.Fatal("no candidates for Nova Scotia Hansard session URL")
+	}
+	if best.Legislature != 65 || best.Session != 1 {
+		t.Fatalf("best=%+v, want legislature=65 session=1", best)
+	}
+}
+
 func TestNormalizeSaskatchewanBillsURL(t *testing.T) {
 	tests := []struct {
 		in   string
