@@ -359,6 +359,9 @@ func CrawlOntarioBills(indexURL string, legislature, session int, client *http.C
 const (
 	peiWorkflowBills    = "LegislativeAssemblyBillProgress"
 	peiWDFActivityBills = "LegislativeAssemblyBillSearch"
+
+	// peiBillsIndexURL is the default index page for PEI bills.
+	peiBillsIndexURL = peiAssemblyBase + "/legislative-business/house-records/bills"
 )
 
 // crawlPEIBillsFromWorkflow queries the WDF bill-progress workflow for PEI bill stubs.
@@ -447,7 +450,7 @@ func crawlPEIBillsFromWorkflow(wdfBase string, year, legislature, session int, c
 		if title == "" {
 			title = "Bill " + billNumber
 		}
-		detailURL = resolveRelativeURL("https://www.assembly.pe.ca", detailURL)
+		detailURL = resolveRelativeURL(peiAssemblyBase, detailURL)
 
 		out = append(out, ProvincialBillStub{
 			ID:               id,
@@ -472,7 +475,7 @@ func crawlPEIBillsFromWorkflow(wdfBase string, year, legislature, session int, c
 func CrawlPrinceEdwardIslandBills(indexURL string, legislature, session int, client *http.Client) ([]ProvincialBillStub, error) {
 	defaultURL := indexURL == ""
 	if defaultURL {
-		indexURL = "https://www.assembly.pe.ca/legislative-business/house-records/bills"
+		indexURL = peiBillsIndexURL
 	}
 	// When no client is supplied (production), create a PEI-specific client with
 	// browser-like headers and the production rate-limit delay.  When the caller

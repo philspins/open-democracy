@@ -651,6 +651,10 @@ func resolveProvincialLegislatureSession(conn *sql.DB, src ProvincialSource, cli
 	}
 
 	if src.Code == "pe" {
+		if l, s, ok := fetchPEICurrentAssemblySession(); ok {
+			log.Printf("[pe] auto-detected assembly=%d session=%d from WDF API", l, s)
+			return l, s
+		}
 		return peiGeneralAssembly, peiAssemblySession
 	}
 	switch src.Special {

@@ -2194,6 +2194,12 @@ const peiCaptchaSignature = "captcha.perfdrive.com"
 // hosts the legislative assembly workflow API.
 const peiWDFAPIBase = "https://wdf.princeedwardisland.ca"
 
+// peiAssemblyBase is the root URL for the PEI Legislative Assembly website.
+const peiAssemblyBase = "https://www.assembly.pe.ca"
+
+// peiJournalsIndexURL is the default index page for PEI journals (votes and proceedings).
+const peiJournalsIndexURL = peiAssemblyBase + "/legislative-business/house-records/journals"
+
 // peiDefaultDelay is the per-request rate-limit interval for production PEI
 // crawls: 6 seconds ≈ 10 requests per minute, reducing the chance of triggering
 // Radware bot-manager detection.
@@ -2202,13 +2208,99 @@ const peiDefaultDelay = 6 * time.Second
 // peiWorkflowJournals is the WDF workflow name for the PEI legislative journals search.
 const peiWorkflowJournals = "LegislativeAssemblyJournals"
 
-// peiGeneralAssembly and peiAssemblySession are the current legislature/session for PEI.
+// peiGeneralAssembly and peiAssemblySession are last-resort fallback values for
+// the current PEI legislature and session. They are used only when the WDF API
+// auto-detection and the DB lookup both fail. Keep them up to date manually if
+// automatic detection stops working.
 // 67th General Assembly, 3rd Session (opened March 25, 2026).
-// Updated when a new assembly or session is opened.
-const peiGeneralAssembly = 67
-const peiAssemblySession = 3
+var peiGeneralAssembly = 67
+var peiAssemblySession = 3
 
-// wdfNode is one node in the WDF component tree returned by the workflow API.
+// fetchPEICurrentAssemblySession queries the WDF bills workflow to determine
+// the current PEI legislature (General Assembly) and session numbers. It scans
+// the query params and router-link paths on bill links for known patterns.
+//
+// Returns (legislature, session, true) on success, or (0, 0, false) when the
+// WDF API is unavailable or no assembly/session information can be extracted.
+// In test environments (no Node.js / pei_fetch.js), this always returns false
+// and the caller falls back to peiGeneralAssembly / peiAssemblySession.
+func fetchPEICurrentAssemblySession() (int, int, bool) {
+	queryVars := map[string]string{
+		"year":          strconv.Itoa(time.Now().Year()),
+		"search":        "year",
+		"search_bills":  "true",
+		"wdf_url_query": "true",
+	}
+	data, err := invokePEIFetchJS(peiWorkflowBills, peiWDFActivityBills, queryVars)
+	if err != nil || data == nil {
+		return 0, 0, false
+	}
+	var resp wdfTreeResponse
+	if err := json.Unmarshal(data, &resp); err != nil || resp.Data == nil {
+		return 0, 0, false
+	}
+	for _, row := range wdfCollectRows(resp.Data) {
+		for _, cell := range row.Children {
+			for _, child := range cell.Children {
+				if child.Type != "LinkV2" {
+					continue
+				}
+				var ld wdfLinkData
+				if json.Unmarshal(child.Data, &ld) != nil {
+					continue
+				}
+				// Try query params: the Angular router may pass assembly/session
+				// numbers as explicit query parameters on each bill link.
+				if l, s, ok := peiAssemblySessionFromQueryParams(ld.QueryParams); ok {
+					return l, s, true
+				}
+				// Fall back to pattern matching on the router-link path.
+				if ld.RouterLink != nil && *ld.RouterLink != "" {
+					if candidates := extractLegislatureSessionCandidates("pe", *ld.RouterLink, 50); len(candidates) > 0 {
+						best := candidates[0]
+						for _, c := range candidates[1:] {
+							if c.Score > best.Score {
+								best = c
+							}
+						}
+						return best.Legislature, best.Session, true
+					}
+				}
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// peiAssemblySessionFromQueryParams extracts the legislature and session numbers
+// from Angular router query params on a WDF bill link. It recognises keys that
+// contain "assembly", "legislature", or "ga" (for General Assembly) as the
+// legislature number, and keys that contain "session" as the session number.
+func peiAssemblySessionFromQueryParams(params map[string]string) (int, int, bool) {
+	if len(params) == 0 {
+		return 0, 0, false
+	}
+	var legislature, session int
+	for k, v := range params {
+		kl := strings.ToLower(k)
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n <= 0 {
+			continue
+		}
+		switch {
+		case strings.Contains(kl, "assembly") || strings.Contains(kl, "legislature") || kl == "ga":
+			legislature = n
+		case strings.Contains(kl, "session"):
+			session = n
+		}
+	}
+	if legislature > 0 && session > 0 {
+		return legislature, session, true
+	}
+	return 0, 0, false
+}
+
+
 // The Type field identifies the component (TableV2Row, LinkV2, Paginator, etc.).
 // Data is kept as raw JSON because its structure varies by node type.
 type wdfNode struct {
@@ -2396,12 +2488,19 @@ var peiTitlePrefixes = []string{
 	"Leader of the Opposition",
 }
 
+// peiRidingStartWords is the set of first words of all known PEI electoral
+// district names (67th and 66th General Assemblies). It is used to detect the
+// boundary between a member's name and the following riding name in journal
+// PDF text, where names and ridings appear consecutively without a delimiter.
 var peiRidingStartWords = map[string]struct{}{
-	"Land": {}, "Finance": {}, "Agriculture": {}, "Justice": {}, "Public": {},
-	"Workforce": {}, "Fisheries": {}, "Transportation": {}, "Infrastructure": {},
-	"Health": {}, "Social": {}, "Education": {}, "Economic": {}, "Housing": {},
-	"Communities": {}, "Charlottetown": {}, "Summerside": {}, "Georgetown": {},
-	"Kensington": {}, "Tyne": {}, "New": {}, "O'Leary": {},
+	// 67th General Assembly districts (2023–present)
+	"Charlottetown": {}, "Summerside": {}, "Stanhope": {}, "Mermaid": {},
+	"Morell": {}, "Kellys": {}, "New": {}, "Borden": {}, "Brackley": {},
+	"Evangeline": {}, "Alberton": {}, "Tignish": {}, "O'Leary": {},
+	"Tyne": {}, "Kensington": {}, "Crapaud": {}, "Georgetown": {},
+	"Vernon": {}, "Murray": {}, "Rustico": {},
+	// Additional first words from 66th General Assembly districts
+	"Cornwall": {}, "Souris": {}, "Stratford": {}, "Kinkora": {},
 }
 
 // parsePEIJournalDivisions extracts recorded division results from the normalized
@@ -2711,7 +2810,7 @@ func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, c
 			continue
 		}
 
-		fullLink := resolveRelativeURL("https://www.assembly.pe.ca", link)
+		fullLink := resolveRelativeURL(peiAssemblyBase, link)
 		doc, derr := fetchDoc(fullLink, client)
 		if derr != nil {
 			log.Printf("[pe-votes] wdf journal %s: %v", fullLink, derr)
@@ -2820,7 +2919,7 @@ func newPEIHTTPClient(delay time.Duration) *http.Client {
 func CrawlPrinceEdwardIslandVotes(indexURL string, legislature, session int, client *http.Client) ([]ProvincialDivisionResult, error) {
 	defaultURL := indexURL == ""
 	if defaultURL {
-		indexURL = "https://www.assembly.pe.ca/legislative-business/house-records/journals"
+		indexURL = peiJournalsIndexURL
 	}
 	// When no client is supplied (production), create a PEI-specific client with
 	// browser-like headers and the production rate-limit delay.  When the caller
