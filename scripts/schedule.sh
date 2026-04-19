@@ -1,1 +1,0 @@
-(crontab -l 2>/dev/null; echo "0 2 * * * cd ${HOME}/open-democracy && ./open-democracy-crawler >> /var/log/open-democracy-crawler.log 2>&1") | crontab -

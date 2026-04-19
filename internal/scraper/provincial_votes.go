@@ -4,6 +4,7 @@ package scraper
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	neturl "net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -2208,166 +2210,476 @@ const peiWorkflowJournals = "LegislativeAssemblyJournals"
 const peiGeneralAssembly = 67
 const peiAssemblySession = 3
 
-// peiWDFEnvelope is the top-level JSON wrapper returned by all WDF workflow POST
-// responses. The actual payload is in the Data field (null when no results).
-type peiWDFEnvelope struct {
-	Data json.RawMessage `json:"data"`
+// wdfNode is one node in the WDF component tree returned by the workflow API.
+// The Type field identifies the component (TableV2Row, LinkV2, Paginator, etc.).
+// Data is kept as raw JSON because its structure varies by node type.
+type wdfNode struct {
+	ID       string          `json:"id"`
+	Type     string          `json:"type"`
+	Data     json.RawMessage `json:"data"`
+	Children []wdfNode       `json:"children"`
 }
 
-// peiWDFJournalItem is one journal record from the WDF journals workflow response.
-// Field names match the camelCase convention used by PEI's Angular WDF frontend.
-type peiWDFJournalItem struct {
-	Title   string `json:"title"`
-	Date    string `json:"date"`
-	URL     string `json:"url"`
-	PDFUrl  string `json:"pdfUrl"`
-	FileUrl string `json:"fileUrl"`
+// wdfTreeResponse is the top-level envelope of a WDF workflow API response.
+type wdfTreeResponse struct {
+	ProcessInstanceID string    `json:"processInstanceId"`
+	Messages          struct {
+		Error []string `json:"error"`
+	} `json:"messages"`
+	Data []wdfNode `json:"data"`
 }
+
+// wdfCellData holds the typed fields of a TableV2Cell node's data object.
+type wdfCellData struct {
+	Text *string `json:"text"`
+}
+
+// wdfLinkData holds the typed fields of a LinkV2 node's data object.
+type wdfLinkData struct {
+	Text        string            `json:"text"`
+	Href        *string           `json:"href"`
+	RouterLink  *string           `json:"routerLink"`
+	QueryParams map[string]string `json:"queryParams"`
+}
+
+// wdfCollectRows recursively collects all TableV2Row nodes from a WDF node tree.
+func wdfCollectRows(nodes []wdfNode) []wdfNode {
+	var out []wdfNode
+	for _, n := range nodes {
+		if n.Type == "TableV2Row" {
+			out = append(out, n)
+		}
+		out = append(out, wdfCollectRows(n.Children)...)
+	}
+	return out
+}
+
+// peiWDFActivityJournals is the WDF activity name for the PEI journals search.
+const peiWDFActivityJournals = "LegislativeAssemblyJournalsSearch"
 
 // postPEIWorkflow POSTs a workflow request to the PEI WDF API and returns the raw
 // response body. It sends CORS-mode headers so the Spring Boot backend routes the
 // request correctly; a no-redirect policy makes Radware bot-manager 302 challenges
 // visible as non-200 status codes. Returns (nil, nil) when the API is unavailable.
 //
-// params are merged into the POST body alongside workflowName; callers supply
-// the flat form fields the Angular WDF frontend sends (year, search, etc.).
-// http.DefaultTransport is always used so peiTransport's navigate-mode header
-// overrides do not interfere with the CORS API call.
-// delay is the rate-limit pause inserted after a successful response.
-func postPEIWorkflow(wdfBase, workflowName, xReferer string, params map[string]string, client *http.Client, delay time.Duration) ([]byte, error) {
-	apiURL := strings.TrimRight(wdfBase, "/") + "/legislative-assembly/api/workflow"
+// postPEIWorkflow fetches WDF API data for PEI. In production (wdfBase ==
+// peiWDFAPIBase) it invokes the pei_fetch.js Node subprocess which uses a real
+// Chrome browser to bypass Radware bot-manager. In tests (wdfBase != "") it
+// falls back to a direct HTTP POST to the mock server using the correct WDF
+// body structure. Returns (nil, nil) when the API is unavailable.
+func postPEIWorkflow(wdfBase, workflowName, activityName string, queryVars map[string]string, client *http.Client, delay time.Duration) ([]byte, error) {
+	// Use the Node/Chrome bridge for any real remote URL; fall back to direct
+	// HTTP only for local test servers (127.0.0.1 / localhost).
+	isTestServer := strings.HasPrefix(wdfBase, "http://127.0.0.1") || strings.HasPrefix(wdfBase, "http://localhost")
+	if !isTestServer {
+		data, err := invokePEIFetchJS(workflowName, activityName, queryVars)
+		if err != nil {
+			log.Printf("[pe-wdf] pei_fetch.js error: %v; will fall back to HTML", err)
+			return nil, nil
+		}
+		if data != nil {
+			time.Sleep(delay)
+		}
+		return data, nil
+	}
+	// Test path: direct HTTP to mock server.
+	return postPEIWorkflowHTTP(wdfBase, workflowName, activityName, queryVars, delay)
+}
 
-	payload := make(map[string]string, len(params)+1)
-	payload["workflowName"] = workflowName
-	for k, v := range params {
-		payload[k] = v
+// invokePEIFetchJS calls scripts/pei_fetch.js via Node to fetch WDF data
+// through a real Chrome browser. Returns (nil, nil) when Node or the script
+// is not available, so callers can fall back to HTML scraping.
+func invokePEIFetchJS(workflowName, activityName string, queryVars map[string]string) ([]byte, error) {
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		return nil, nil
+	}
+	scriptPath := filepath.Join("scripts", "pei_fetch.js")
+	if _, err := os.Stat(scriptPath); err != nil {
+		return nil, nil
+	}
+	qvJSON, err := json.Marshal(queryVars)
+	if err != nil {
+		return nil, fmt.Errorf("marshal queryVars: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, nodePath, scriptPath, workflowName, activityName, string(qvJSON))
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		log.Printf("[pe-wdf] pei_fetch.js: %v stderr=%s", err, stderr.String())
+		return nil, nil
+	}
+	return stdout.Bytes(), nil
+}
+
+// postPEIWorkflowHTTP posts the WDF body directly to wdfBase (used by tests).
+func postPEIWorkflowHTTP(wdfBase, workflowName, activityName string, queryVars map[string]string, delay time.Duration) ([]byte, error) {
+	apiURL := strings.TrimRight(wdfBase, "/") + "/legislative-assembly/services/api/workflow"
+
+	// Build queryVars with service/activity merged in.
+	merged := make(map[string]interface{}, len(queryVars)+2)
+	merged["service"] = workflowName
+	merged["activity"] = activityName
+	for k, v := range queryVars {
+		merged[k] = v
+	}
+	payload := map[string]interface{}{
+		"appName":     workflowName,
+		"featureName": workflowName,
+		"metaVars":    map[string]interface{}{"service_id": nil, "save_location": nil},
+		"queryVars":   merged,
+		"queryName":   activityName,
 	}
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("pe wdf marshal: %w", err)
 	}
-
 	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("pe wdf request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Origin", "https://www.assembly.pe.ca")
-	req.Header.Set("Referer", "https://www.assembly.pe.ca/")
-	req.Header.Set("client-show-status", "false")
-	req.Header.Set("x-origin", "https://www.assembly.pe.ca")
-	req.Header.Set("x-referer", xReferer)
-	req.Header.Set("sec-fetch-site", "cross-site")
-	req.Header.Set("sec-fetch-mode", "cors")
-	req.Header.Set("sec-fetch-dest", "empty")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Client-Show-Status", "true")
 
-	// Use http.DefaultTransport directly so peiTransport's navigate-mode header
-	// overrides (Sec-Fetch-Mode: navigate) do not reach the WDF API.  The Spring
-	// Boot backend requires cors-mode headers to route the request to the workflow
-	// controller; navigate-mode causes a 404 from the application layer.
-	// The no-redirect wrapper makes Radware 302 bot-challenges surface as non-200.
 	noRedirect := &http.Client{
 		Transport:     http.DefaultTransport,
 		Timeout:       20 * time.Second,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 	}
-
 	resp, err := noRedirect.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("pe wdf do: %w", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("[pe-wdf] %s returned HTTP %d; will fall back to HTML", workflowName, resp.StatusCode)
 		return nil, nil
 	}
-
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
 		return nil, fmt.Errorf("pe wdf read: %w", err)
 	}
-
-	if strings.Contains(string(data), peiCaptchaSignature) {
-		log.Printf("[pe-wdf] %s: CAPTCHA page detected; will fall back to HTML", workflowName)
-		return nil, nil
-	}
-
-	// Rate-limit outbound requests to PEI servers.
 	time.Sleep(delay)
 	return data, nil
 }
 
-// crawlPEIVotesFromWorkflow queries the WDF journals workflow for PEI journal links
-// and parses each linked HTML journal page for recorded divisions.
+// ── PEI journal PDF division parser ──────────────────────────────────────────
+
+// peiDivTriggerRe matches the recorded-division announcement in PEI journals.
+var peiDivTriggerRe = regexp.MustCompile(`(?i)A\s+Recorded\s+Division\s+being\s+sought[^.]*?the\s+names\s+were\s+recorded[^.]*?as\s+follows:`)
+
+// peiDivCountRe matches "Nays (7\" or "Yeas ( 12 \" — the closing `\` is how
+// pdfcpu renders the PDF `\)` escape that ends a string literal.
+var peiDivCountRe = regexp.MustCompile(`(?i)(Nays|Yeas)\s*\(\s*(\d[\d\s]*)\s*\\`)
+
+// peiMemberRidingRe matches a constituency/portfolio suffix like "(Land and Environment\"
+// that terminates a member entry. Requires at least one letter so bare-number
+// count markers like "(7\" are excluded.
+var peiMemberRidingRe = regexp.MustCompile(`\([^(\\]*[A-Za-z][^(\\]*\\`)
+
+// peiDivOutcomeRe matches the outcome sentence that closes a recorded division.
+var peiDivOutcomeRe = regexp.MustCompile(`(?i)(?:Motion\s+(?:was\s+)?(?:CARRIED|NEGATIVED)|CARRIED\s+UNANIMOUSLY|Motion\s+resolved\s+in\s+the)`)
+
+// peiJournalPageHeaderRe matches the running header injected by pdfcpu into the
+// extracted text at every page boundary.
+var peiJournalPageHeaderRe = regexp.MustCompile(`JOURNAL OF THE LEGISLATIVE ASSEMBLY`)
+
+// peiOctalEscapeRe matches PDF octal-escape sequences like \222 (→ apostrophe).
+var peiOctalEscapeRe = regexp.MustCompile(`\\(\d{3})`)
+
+// peiPremierRe matches the "Hon. Premier" title which appears without a riding suffix.
+var peiPremierRe = regexp.MustCompile(`(?i)Hon\.\s+Premier`)
+
+// peiTitlePrefixes are leadership titles that precede a member's name.
+var peiTitlePrefixes = []string{
+	"Hon. Leader of the Opposition",
+	"Hon. Leader of the Third Party",
+	"Leader of the Third Party",
+	"Leader of the Opposition",
+}
+
+// parsePEIJournalDivisions extracts recorded division results from the normalized
+// text of a PEI legislative journal PDF. Division numbers begin at startDivNum.
+func parsePEIJournalDivisions(rawText, pdfURL string, legislature, session, startDivNum int, date string) []ProvincialDivisionResult {
+	// Decode PDF octal escapes (\222 → ') so the only remaining backslashes are
+	// the riding-name terminators used by pdfcpu to encode closing string parens.
+	text := peiOctalEscapeRe.ReplaceAllStringFunc(rawText, func(m string) string {
+		n, err := strconv.ParseInt(m[1:], 8, 32)
+		if err != nil || n < 32 || n > 255 {
+			return "'"
+		}
+		return string(rune(n))
+	})
+	text = peiJournalPageHeaderRe.ReplaceAllString(text, " ")
+	text = strings.Join(strings.Fields(text), " ")
+
+	triggers := peiDivTriggerRe.FindAllStringIndex(text, -1)
+	if len(triggers) == 0 {
+		return nil
+	}
+
+	var results []ProvincialDivisionResult
+	divNum := startDivNum
+	for i, trigger := range triggers {
+		blockStart := trigger[1]
+		blockEnd := len(text)
+		if i+1 < len(triggers) {
+			blockEnd = triggers[i+1][0]
+		}
+		// Trim block to just after the outcome sentence.
+		if m := peiDivOutcomeRe.FindStringIndex(text[blockStart:blockEnd]); m != nil {
+			end := blockStart + m[1] + 80
+			if end < blockEnd {
+				blockEnd = end
+			}
+		}
+		block := text[blockStart:blockEnd]
+
+		counts := peiDivCountRe.FindAllStringSubmatchIndex(block, -1)
+		if len(counts) == 0 {
+			continue
+		}
+
+		var yeas, nays int
+		var yeasBlock, naysBlock string
+
+		firstLabel := strings.ToLower(block[counts[0][2]:counts[0][3]])
+		firstCountStr := strings.ReplaceAll(block[counts[0][4]:counts[0][5]], " ", "")
+		firstCount, _ := strconv.Atoi(firstCountStr)
+
+		if len(counts) >= 2 {
+			firstMemberBlock := block[counts[0][1]:counts[1][0]]
+			_ = strings.ToLower(block[counts[1][2]:counts[1][3]]) // label unused; position drives block split
+			secondCountStr := strings.ReplaceAll(block[counts[1][4]:counts[1][5]], " ", "")
+			secondCount, _ := strconv.Atoi(secondCountStr)
+			secondMemberBlock := block[counts[1][1]:]
+
+			if firstLabel == "yeas" {
+				yeas, yeasBlock = firstCount, firstMemberBlock
+				nays, naysBlock = secondCount, secondMemberBlock
+			} else {
+				nays, naysBlock = firstCount, firstMemberBlock
+				yeas, yeasBlock = secondCount, secondMemberBlock
+			}
+		} else {
+			memberBlock := block[counts[0][1]:]
+			if firstLabel == "yeas" {
+				yeas, yeasBlock = firstCount, memberBlock
+			} else {
+				nays, naysBlock = firstCount, memberBlock
+			}
+		}
+
+		if yeas == 0 && nays == 0 {
+			continue
+		}
+
+		// Extract description from the context just before the division trigger.
+		desc := "Recorded division"
+		descStart := trigger[0] - 250
+		if descStart < 0 {
+			descStart = 0
+		}
+		if ctx := strings.TrimSpace(text[descStart:trigger[0]]); ctx != "" {
+			if idx := strings.LastIndexAny(ctx, ".;"); idx >= 0 {
+				ctx = strings.TrimSpace(ctx[idx+1:])
+			}
+			if len(ctx) > 200 {
+				ctx = ctx[:200]
+			}
+			if ctx = strings.Join(strings.Fields(ctx), " "); ctx != "" {
+				desc = ctx
+			}
+		}
+
+		divID := ProvincialDivisionID("pe", legislature, session, divNum, date)
+		result := "Carried"
+		if nays > yeas {
+			result = "Negatived"
+		}
+
+		var votes []ProvincialMemberVote
+		for _, name := range parsePEIJournalMembers(yeasBlock) {
+			votes = append(votes, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "Yea"})
+		}
+		for _, name := range parsePEIJournalMembers(naysBlock) {
+			votes = append(votes, ProvincialMemberVote{DivisionID: divID, MemberName: name, Vote: "Nay"})
+		}
+
+		results = append(results, ProvincialDivisionResult{
+			Division: DivisionStub{
+				ID: divID, Parliament: legislature, Session: session,
+				Number: divNum, Date: date, Description: desc,
+				Yeas: yeas, Nays: nays, Result: result,
+				Chamber: "pei", DetailURL: pdfURL, LastScraped: utils.NowISO(),
+			},
+			Votes: votes,
+		})
+		divNum++
+	}
+	return results
+}
+
+// parsePEIJournalMembers extracts MLA names from a Yeas or Nays member-list block.
+// Each entry ends with a "(Constituency\" riding/portfolio suffix; "Hon. Premier"
+// appears without a riding suffix and is handled specially.
+func parsePEIJournalMembers(block string) []string {
+	if strings.TrimSpace(block) == "" {
+		return nil
+	}
+	positions := peiMemberRidingRe.FindAllStringIndex(block, -1)
+	var names []string
+	prev := 0
+	for _, pos := range positions {
+		chunk := strings.TrimSpace(block[prev:pos[0]])
+		prev = pos[1]
+		names = append(names, peiExtractNamesFromChunk(chunk)...)
+	}
+	return names
+}
+
+// peiExtractNamesFromChunk derives one or two member names from the text chunk
+// that precedes a riding/portfolio suffix. Handles "Hon. Premier" (no riding)
+// and optional title prefixes like "Leader of the Third Party".
+func peiExtractNamesFromChunk(chunk string) []string {
+	chunk = strings.TrimSpace(chunk)
+	// Skip empty chunks and orphaned riding fragments like "- Inverness".
+	if chunk == "" || strings.HasPrefix(chunk, "- ") {
+		return nil
+	}
+
+	var results []string
+
+	// "Hon. Premier" has no riding suffix; extract it before processing the rest.
+	if peiPremierRe.MatchString(chunk) {
+		results = append(results, "Premier")
+		chunk = strings.TrimSpace(peiPremierRe.ReplaceAllString(chunk, ""))
+		if chunk == "" {
+			return results
+		}
+	}
+
+	// Strip leadership title prefixes that precede the member's actual name.
+	for _, title := range peiTitlePrefixes {
+		if strings.HasPrefix(chunk, title) {
+			chunk = strings.TrimSpace(chunk[len(title):])
+			break
+		}
+	}
+	chunk = strings.TrimPrefix(chunk, "Hon. ")
+	chunk = strings.TrimSpace(chunk)
+
+	if chunk != "" && !strings.HasPrefix(chunk, "- ") {
+		results = append(results, chunk)
+	}
+	return results
+}
+
+// ParsePEIJournalDivisionsForTest is test-only access to the PEI journal parser.
+func ParsePEIJournalDivisionsForTest(text, pdfURL string, legislature, session, startDivNum int, date string) []ProvincialDivisionResult {
+	return parsePEIJournalDivisions(text, pdfURL, legislature, session, startDivNum, date)
+}
+
+// crawlPEIVotesFromWorkflow queries the WDF journals workflow for PEI journal
+// PDF links and parses each PDF for recorded divisions.
 // Returns (nil, nil) when the workflow API is unavailable or returns no items.
-// delay is the rate-limit pause inserted after each HTTP request.
 func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, client *http.Client, delay time.Duration) ([]ProvincialDivisionResult, error) {
-	xReferer := "https://www.assembly.pe.ca/legislative-business/house-records/journals"
-	params := map[string]string{
+	queryVars := map[string]string{
 		"year":          strconv.Itoa(year),
-		"search":        "sitting",
-		"sitting":       "",
+		"search":        "year",
 		"wdf_url_query": "true",
 	}
-	body, err := postPEIWorkflow(wdfBase, peiWorkflowJournals, xReferer, params, client, delay)
+	body, err := postPEIWorkflow(wdfBase, peiWorkflowJournals, peiWDFActivityJournals, queryVars, client, delay)
 	if err != nil || body == nil {
 		return nil, err
 	}
 
-	var env peiWDFEnvelope
-	if err := json.Unmarshal(body, &env); err != nil {
-		log.Printf("[pe-votes] wdf json decode: %v; falling back to HTML", err)
+	var resp wdfTreeResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		log.Printf("[pe-votes] wdf tree decode: %v; falling back to HTML", err)
 		return nil, nil
 	}
-	if len(env.Data) == 0 || string(env.Data) == "null" {
-		log.Printf("[pe-votes] wdf returned empty data; falling back to HTML")
+	if resp.Data == nil {
+		log.Printf("[pe-votes] wdf returned null data; falling back to HTML")
 		return nil, nil
 	}
 
-	var items []peiWDFJournalItem
-	if err := json.Unmarshal(env.Data, &items); err != nil {
-		log.Printf("[pe-votes] wdf data decode: %v; falling back to HTML", err)
+	rows := wdfCollectRows(resp.Data)
+	if len(rows) == 0 {
+		log.Printf("[pe-votes] wdf returned 0 journal rows; falling back to HTML")
 		return nil, nil
 	}
-	if len(items) == 0 {
-		log.Printf("[pe-votes] wdf returned 0 journal items; falling back to HTML")
-		return nil, nil
+
+	// WDF returns newest-first; reverse to process oldest-first for sequential numbering.
+	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
+		rows[i], rows[j] = rows[j], rows[i]
 	}
 
 	var results []ProvincialDivisionResult
-	for _, item := range items {
-		link := item.URL
-		if link == "" {
-			link = item.PDFUrl
+	nextDivNum := 1
+	for _, row := range rows {
+		if len(row.Children) == 0 {
+			continue
 		}
-		if link == "" {
-			link = item.FileUrl
+		// Cell 0: date link — PDF href from docs.assembly.pe.ca or an HTML page link.
+		var link, date string
+		if len(row.Children[0].Children) > 0 {
+			lnk := row.Children[0].Children[0]
+			if lnk.Type == "LinkV2" {
+				var ld wdfLinkData
+				if json.Unmarshal(lnk.Data, &ld) == nil {
+					if ld.Href != nil && *ld.Href != "" {
+						link = *ld.Href
+					}
+					date = utils.FindDateInText(ld.Text)
+				}
+			}
 		}
 		if link == "" {
 			continue
 		}
-
-		fullLink := resolveRelativeURL("https://www.assembly.pe.ca", link)
-		date := utils.FindDateInText(item.Date + " " + item.Title)
 		if date == "" {
-			date = extractDateFromURL(fullLink)
+			date = extractDateFromURL(link)
 		}
 
+		if strings.Contains(link, "docs.assembly.pe.ca") {
+			// The WDF href may contain unencoded spaces in query params (e.g. in
+			// the fileName value). Re-encode via url.Values.Encode() so the HTTP
+			// client sends a valid request.
+			safeLink := link
+			if u, uerr := neturl.Parse(link); uerr == nil {
+				u.RawQuery = u.Query().Encode()
+				safeLink = u.String()
+			}
+			text, terr := downloadAndExtractPDFText(safeLink, "pe", client)
+			if terr != nil {
+				log.Printf("[pe-votes] wdf journal %s: %v; skipping", link, terr)
+				continue
+			}
+			parsed := parsePEIJournalDivisions(text, link, legislature, session, nextDivNum, date)
+			nextDivNum += len(parsed)
+			results = append(results, parsed...)
+			time.Sleep(delay)
+			continue
+		}
+
+		fullLink := resolveRelativeURL("https://www.assembly.pe.ca", link)
 		doc, derr := fetchDoc(fullLink, client)
 		if derr != nil {
 			log.Printf("[pe-votes] wdf journal %s: %v", fullLink, derr)
 			continue
 		}
 		parsed := parseGenericProvincialVotesDoc(doc, "pe", "pei", legislature, session, date)
+		nextDivNum += len(parsed)
 		results = append(results, parsed...)
-		// Rate-limit per-journal page fetches to stay within the caller-specified
-		// requests-per-minute budget.
 		time.Sleep(delay)
 	}
 
-	log.Printf("[pe-votes] wdf parsed %d divisions from %d journals", len(results), len(items))
+	log.Printf("[pe-votes] wdf parsed %d divisions from %d journals", len(results), len(rows))
 	return results, nil
 }
 

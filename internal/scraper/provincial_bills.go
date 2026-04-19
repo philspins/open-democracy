@@ -356,69 +356,86 @@ func CrawlOntarioBills(indexURL string, legislature, session int, client *http.C
 // peiWorkflowBills is the WDF workflow name for the PEI legislative bill search.
 // The name is taken from the default-service attribute on the <gpei-root> web
 // component on assembly.pe.ca/legislative-business/house-records/bills.
-const peiWorkflowBills = "LegislativeAssemblyBillProgress"
-
-// peiWDFBillItem is one bill record from the WDF bill-progress workflow response.
-// Field names match the camelCase JSON convention used by PEI's Angular WDF frontend.
-type peiWDFBillItem struct {
-	Title        string `json:"title"`
-	BillNumber   string `json:"billNumber"`
-	URL          string `json:"url"`
-	PDFUrl       string `json:"pdfUrl"`
-	Status       string `json:"status"`
-	Date         string `json:"date"`
-	LastActivity string `json:"lastActivityDate"`
-	Year         int    `json:"year"`
-}
+const (
+	peiWorkflowBills    = "LegislativeAssemblyBillProgress"
+	peiWDFActivityBills = "LegislativeAssemblyBillSearch"
+)
 
 // crawlPEIBillsFromWorkflow queries the WDF bill-progress workflow for PEI bill stubs.
 // wdfBase overrides the WDF service root URL (useful for tests); it defaults to
 // peiWDFAPIBase when empty. Returns (nil, nil) when the API is unavailable.
 // delay is the rate-limit pause threaded to postPEIWorkflow.
 func crawlPEIBillsFromWorkflow(wdfBase string, year, legislature, session int, client *http.Client, delay time.Duration) ([]ProvincialBillStub, error) {
-	xReferer := "https://www.assembly.pe.ca/legislative-business/house-records/bills"
 	params := map[string]string{
 		"year":          strconv.Itoa(year),
 		"search":        "year",
 		"search_bills":  "true",
 		"wdf_url_query": "true",
 	}
-	body, err := postPEIWorkflow(wdfBase, peiWorkflowBills, xReferer, params, client, delay)
+	body, err := postPEIWorkflow(wdfBase, peiWorkflowBills, peiWDFActivityBills, params, client, delay)
 	if err != nil || body == nil {
 		return nil, err
 	}
 
-	var env peiWDFEnvelope
-	if err := json.Unmarshal(body, &env); err != nil {
-		log.Printf("[pe-bills] wdf json decode: %v; falling back to HTML", err)
+	var resp wdfTreeResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		log.Printf("[pe-bills] wdf tree decode: %v; falling back to HTML", err)
 		return nil, nil
 	}
-	if len(env.Data) == 0 || string(env.Data) == "null" {
-		log.Printf("[pe-bills] wdf returned empty data; falling back to HTML")
+	if resp.Data == nil {
+		log.Printf("[pe-bills] wdf returned null data; falling back to HTML")
 		return nil, nil
 	}
 
-	var items []peiWDFBillItem
-	if err := json.Unmarshal(env.Data, &items); err != nil {
-		log.Printf("[pe-bills] wdf data decode: %v; falling back to HTML", err)
-		return nil, nil
-	}
-	if len(items) == 0 {
-		log.Printf("[pe-bills] wdf returned 0 bill items; falling back to HTML")
+	rows := wdfCollectRows(resp.Data)
+	if len(rows) == 0 {
+		log.Printf("[pe-bills] wdf returned 0 bill rows; falling back to HTML")
 		return nil, nil
 	}
 
 	seen := make(map[string]bool)
-	out := make([]ProvincialBillStub, 0, len(items))
-	for _, item := range items {
-		// Derive bill number from the dedicated field first, then fall back to
-		// extracting it from the title text.
-		billNumber := strings.ToUpper(strings.TrimSpace(item.BillNumber))
+	out := make([]ProvincialBillStub, 0, len(rows))
+	for _, row := range rows {
+		if len(row.Children) < 2 {
+			continue
+		}
+		// Cell 0: title link (LinkV2 inside TableV2Cell)
+		var title, detailURL string
+		if len(row.Children[0].Children) > 0 {
+			lnk := row.Children[0].Children[0]
+			if lnk.Type == "LinkV2" {
+				var ld wdfLinkData
+				if json.Unmarshal(lnk.Data, &ld) == nil {
+					title = strings.TrimSpace(ld.Text)
+					if ld.Href != nil && *ld.Href != "" {
+						detailURL = *ld.Href
+					} else if ld.RouterLink != nil && *ld.RouterLink != "" {
+						detailURL = *ld.RouterLink
+					}
+				}
+			}
+		}
+
+		// Cell 1: bill number text
+		billNumber := ""
+		var cd1 wdfCellData
+		if json.Unmarshal(row.Children[1].Data, &cd1) == nil && cd1.Text != nil {
+			billNumber = strings.ToUpper(strings.TrimSpace(*cd1.Text))
+		}
 		if billNumber == "" {
-			billNumber = ExtractProvincialBillNumber(item.Title)
+			billNumber = ExtractProvincialBillNumber(title)
 		}
 		if billNumber == "" {
 			continue
+		}
+
+		// Cell 3: last activity date ("April 16, 2026" → "2026-04-16")
+		lastActivity := ""
+		if len(row.Children) > 3 {
+			var cd wdfCellData
+			if json.Unmarshal(row.Children[3].Data, &cd) == nil && cd.Text != nil {
+				lastActivity = utils.FindDateInText(*cd.Text)
+			}
 		}
 
 		id := ProvincialBillID("pe", legislature, session, billNumber)
@@ -427,20 +444,10 @@ func crawlPEIBillsFromWorkflow(wdfBase string, year, legislature, session int, c
 		}
 		seen[id] = true
 
-		detailURL := resolveRelativeURL("https://www.assembly.pe.ca", item.URL)
-		if detailURL == "" {
-			detailURL = item.PDFUrl
-		}
-
-		title := strings.TrimSpace(item.Title)
 		if title == "" {
 			title = "Bill " + billNumber
 		}
-
-		lastActivity := item.LastActivity
-		if lastActivity == "" {
-			lastActivity = item.Date
-		}
+		detailURL = resolveRelativeURL("https://www.assembly.pe.ca", detailURL)
 
 		out = append(out, ProvincialBillStub{
 			ID:               id,
@@ -451,7 +458,7 @@ func crawlPEIBillsFromWorkflow(wdfBase string, year, legislature, session int, c
 			Title:            title,
 			Chamber:          "pei",
 			DetailURL:        detailURL,
-			SourceURL:        strings.TrimRight(wdfBase, "/") + "/legislative-assembly/api/workflow",
+			SourceURL:        strings.TrimRight(wdfBase, "/") + "/legislative-assembly/services/api/workflow",
 			LastActivityDate: lastActivity,
 			LastScraped:      utils.NowISO(),
 		})
