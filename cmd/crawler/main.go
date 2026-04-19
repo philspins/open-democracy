@@ -6,16 +6,19 @@
 //
 // Flags:
 //
-//	--bills           Crawl bills only (LEGISinfo RSS + detail)
-//	--votes           Crawl Commons votes only
-//	--senate          Crawl Senate votes only
-//	--members         Crawl MP profiles only
-//	--calendar        Crawl sitting calendar only
-//	--schedule        Run the background scheduler (blocks indefinitely)
-//	--db PATH         Path to SQLite database file (default: open-democracy.db)
-//	--delay MS        Milliseconds between HTTP requests (default: 500)
-//	--parallelism N   Max domain crawlers to run concurrently (default: 5, env: CRAWLER_PARALLELISM)
-//	-v                Verbose logging
+//	--bills              Crawl bills only (LEGISinfo RSS + detail)
+//	--votes              Crawl Commons votes only
+//	--senate             Crawl Senate votes only
+//	--members            Crawl MP profiles only
+//	--calendar           Crawl sitting calendar only
+//	--provincial         Crawl all provincial bills and votes
+//	--province CODES     Comma-separated province codes to crawl (e.g. pe,on,bc).
+//	                     Implies --provincial; ignored when --provincial is not set.
+//	--schedule           Run the background scheduler (blocks indefinitely)
+//	--db PATH            Path to SQLite database file (default: open-democracy.db)
+//	--delay MS           Milliseconds between HTTP requests (default: 500)
+//	--parallelism N      Max domain crawlers to run concurrently (default: 5, env: CRAWLER_PARALLELISM)
+//	-v                   Verbose logging
 //
 // If no specific domain flag is provided, all crawlers run once.
 package main
@@ -46,6 +49,7 @@ func main() {
 	votesFlag := flag.Bool("votes", false, "Crawl Commons votes only")
 	senateFlag := flag.Bool("senate", false, "Crawl Senate votes only")
 	provincialFlag := flag.Bool("provincial", false, "Crawl provincial bills and votes")
+	provinceCodes := flag.String("province", "", "Comma-separated province codes to crawl (e.g. pe,on,bc); implies --provincial")
 	membersFlag := flag.Bool("members", false, "Crawl MP profiles only")
 	calendarFlag := flag.Bool("calendar", false, "Crawl sitting calendar only")
 	scheduleFlag := flag.Bool("schedule", false, "Run the background scheduler (blocks indefinitely)")
@@ -54,6 +58,18 @@ func main() {
 	parallelism := flag.Int("parallelism", scraper.DefaultParallelism(), "Max domain crawlers to run concurrently (env: CRAWLER_PARALLELISM)")
 	verbose := flag.Bool("v", false, "Verbose logging")
 	flag.Parse()
+
+	if *provinceCodes != "" {
+		*provincialFlag = true
+	}
+	var provinceFilter []string
+	if *provinceCodes != "" {
+		for _, c := range strings.Split(*provinceCodes, ",") {
+			if c := strings.ToLower(strings.TrimSpace(c)); c != "" {
+				provinceFilter = append(provinceFilter, c)
+			}
+		}
+	}
 
 	if !*verbose {
 		log.SetFlags(log.LstdFlags)
@@ -157,8 +173,12 @@ func main() {
 		tasks = append(tasks, task{"senate", func() error { return scraper.CrawlSenate(conn, client, delay, "") }})
 	}
 	if *provincialFlag || shouldRunAll {
+		filter := provinceFilter // nil when running all
+		if shouldRunAll {
+			filter = nil
+		}
 		tasks = append(tasks, task{"provincial", func() error {
-			return scraper.CrawlProvincial(conn, client, delay, *parallelism, func(billID, billTitle, fullTextURL, lastActivityDate string) {
+			return scraper.CrawlProvincial(conn, client, delay, *parallelism, filter, func(billID, billTitle, fullTextURL, lastActivityDate string) {
 				if summaryRequests == nil || strings.TrimSpace(fullTextURL) == "" {
 					return
 				}
@@ -232,7 +252,7 @@ func runAll(conn *sql.DB, client *http.Client, delay time.Duration, parallelism 
 		func() { scraper.CrawlVotes(conn, client, delay, "") },
 		func() { scraper.CrawlSenate(conn, client, delay, "") },
 		func() {
-			scraper.CrawlProvincial(conn, client, delay, parallelism, func(billID, billTitle, fullTextURL, lastActivityDate string) {
+			scraper.CrawlProvincial(conn, client, delay, parallelism, nil, func(billID, billTitle, fullTextURL, lastActivityDate string) {
 				if strings.TrimSpace(fullTextURL) == "" {
 					return
 				}

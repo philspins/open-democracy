@@ -2202,6 +2202,12 @@ const peiDefaultDelay = 6 * time.Second
 // peiWorkflowJournals is the WDF workflow name for the PEI legislative journals search.
 const peiWorkflowJournals = "LegislativeAssemblyJournals"
 
+// peiGeneralAssembly and peiAssemblySession are the current legislature/session for PEI.
+// 67th General Assembly, 3rd Session (opened March 25, 2026).
+// Updated when a new assembly or session is opened.
+const peiGeneralAssembly = 67
+const peiAssemblySession = 3
+
 // peiWDFEnvelope is the top-level JSON wrapper returned by all WDF workflow POST
 // responses. The actual payload is in the Data field (null when no results).
 type peiWDFEnvelope struct {
@@ -2229,7 +2235,7 @@ type peiWDFJournalItem struct {
 // overrides do not interfere with the CORS API call.
 // delay is the rate-limit pause inserted after a successful response.
 func postPEIWorkflow(wdfBase, workflowName, xReferer string, params map[string]string, client *http.Client, delay time.Duration) ([]byte, error) {
-	apiURL := strings.TrimRight(wdfBase, "/") + "/legislative-assembly/services/api/workflow"
+	apiURL := strings.TrimRight(wdfBase, "/") + "/legislative-assembly/api/workflow"
 
 	payload := make(map[string]string, len(params)+1)
 	payload["workflowName"] = workflowName
@@ -2301,7 +2307,8 @@ func crawlPEIVotesFromWorkflow(wdfBase string, year, legislature, session int, c
 	xReferer := "https://www.assembly.pe.ca/legislative-business/house-records/journals"
 	params := map[string]string{
 		"year":          strconv.Itoa(year),
-		"search":        "year",
+		"search":        "sitting",
+		"sitting":       "",
 		"wdf_url_query": "true",
 	}
 	body, err := postPEIWorkflow(wdfBase, peiWorkflowJournals, xReferer, params, client, delay)

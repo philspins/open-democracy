@@ -451,7 +451,7 @@ func crawlPEIBillsFromWorkflow(wdfBase string, year, legislature, session int, c
 			Title:            title,
 			Chamber:          "pei",
 			DetailURL:        detailURL,
-			SourceURL:        strings.TrimRight(wdfBase, "/") + "/legislative-assembly/services/api/workflow",
+			SourceURL:        strings.TrimRight(wdfBase, "/") + "/legislative-assembly/api/workflow",
 			LastActivityDate: lastActivity,
 			LastScraped:      utils.NowISO(),
 		})

@@ -295,10 +295,26 @@ func CrawlSenate(conn *sql.DB, client *http.Client, delay time.Duration, indexUR
 	return nil
 }
 
-// CrawlProvincial runs all configured provincial crawlers with bounded concurrency.
-func CrawlProvincial(conn *sql.DB, client *http.Client, delay time.Duration, parallelism int, enqueueSummary BillSummaryEnqueue) error {
-	fns := make([]func(), 0, len(ProvincialSources))
-	for _, src := range ProvincialSources {
+// CrawlProvincial runs configured provincial crawlers with bounded concurrency.
+// If codes is non-empty only the named province codes (e.g. "pe", "on") are
+// crawled; otherwise all sources in ProvincialSources run.
+func CrawlProvincial(conn *sql.DB, client *http.Client, delay time.Duration, parallelism int, codes []string, enqueueSummary BillSummaryEnqueue) error {
+	sources := ProvincialSources
+	if len(codes) > 0 {
+		set := make(map[string]bool, len(codes))
+		for _, c := range codes {
+			set[strings.ToLower(strings.TrimSpace(c))] = true
+		}
+		filtered := make([]ProvincialSource, 0, len(codes))
+		for _, src := range ProvincialSources {
+			if set[src.Code] {
+				filtered = append(filtered, src)
+			}
+		}
+		sources = filtered
+	}
+	fns := make([]func(), 0, len(sources))
+	for _, src := range sources {
 		src := src
 		fns = append(fns, func() {
 			if err := CrawlProvinceSource(conn, client, delay, src, enqueueSummary); err != nil {
@@ -634,6 +650,9 @@ func resolveProvincialLegislatureSession(conn *sql.DB, src ProvincialSource, cli
 		return l, s
 	}
 
+	if src.Code == "pe" {
+		return peiGeneralAssembly, peiAssemblySession
+	}
 	switch src.Special {
 	case "on":
 		return OntarioParliament, OntarioSession

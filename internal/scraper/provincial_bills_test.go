@@ -277,7 +277,7 @@ func TestCrawlPrinceEdwardIslandBills_UsesWorkflowAPI(t *testing.T) {
 	const billsJSON = `{"data":[{"title":"Bill 1 - An Act to Amend the Highway Traffic Act","billNumber":"1","url":"/bills/bill-1","status":"First Reading","date":"2026-03-15"}]}`
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/legislative-assembly/services/api/workflow", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/legislative-assembly/api/workflow", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -307,7 +307,7 @@ func TestCrawlPrinceEdwardIslandBills_UsesWorkflowAPI(t *testing.T) {
 // non-200 response from the WDF API causes the scraper to fall back to HTML.
 func TestCrawlPrinceEdwardIslandBills_FallsBackOnWorkflowNon200(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/legislative-assembly/services/api/workflow", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/legislative-assembly/api/workflow", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
@@ -341,7 +341,7 @@ func TestCrawlPrinceEdwardIslandVotes_UsesWorkflowAPI(t *testing.T) {
 
 	journalsJSON := `{"data":[{"title":"Journal April 7 2026","date":"2026-04-07","url":"` + srv.URL + `/journals/2026-04-07"}]}`
 
-	mux.HandleFunc("/legislative-assembly/services/api/workflow", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/legislative-assembly/api/workflow", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -371,7 +371,7 @@ func TestCrawlPrinceEdwardIslandVotes_UsesWorkflowAPI(t *testing.T) {
 // the existing HTML-based journals parser.
 func TestCrawlPrinceEdwardIslandVotes_FallsBackOnWorkflowNon200(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/legislative-assembly/services/api/workflow", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/legislative-assembly/api/workflow", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
