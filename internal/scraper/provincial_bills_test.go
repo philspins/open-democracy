@@ -268,3 +268,129 @@ func TestProvinceSpecificVoteCrawlerEntryPoints(t *testing.T) {
 	}
 }
 
+// ── PEI WDF workflow API tests ────────────────────────────────────────────────
+
+// TestCrawlPrinceEdwardIslandBills_UsesWorkflowAPI verifies that when the WDF
+// workflow API endpoint serves valid JSON, bills are parsed from it instead of
+// falling back to HTML scraping.
+func TestCrawlPrinceEdwardIslandBills_UsesWorkflowAPI(t *testing.T) {
+	const billsJSON = `{"processInstanceId":"t1","messages":{"error":[]},"data":[{"id":"1","type":"TableV2","data":{},"children":[{"id":"2","type":"TableV2Row","data":{},"children":[{"id":"3","type":"TableV2Cell","data":{},"children":[{"id":"4","type":"LinkV2","data":{"text":"Bill 1 - An Act to Amend the Highway Traffic Act","routerLink":"/bills/bill-1","queryParams":{}},"children":[]}]},{"id":"5","type":"TableV2Cell","data":{"text":"1"},"children":[]},{"id":"6","type":"TableV2Cell","data":{"text":"First Reading"},"children":[]},{"id":"7","type":"TableV2Cell","data":{"text":"March 15, 2026"},"children":[]}]}]}]}`
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/legislative-assembly/services/api/workflow", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(billsJSON))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	bills, err := scraper.CrawlPrinceEdwardIslandBills(srv.URL, 68, 1, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlPrinceEdwardIslandBills: %v", err)
+	}
+	if len(bills) == 0 {
+		t.Fatal("expected at least one bill from WDF API")
+	}
+	if bills[0].Number != "1" {
+		t.Errorf("bill number: got %q, want %q", bills[0].Number, "1")
+	}
+	if bills[0].ProvinceCode != "pe" {
+		t.Errorf("province: got %q, want %q", bills[0].ProvinceCode, "pe")
+	}
+}
+
+// TestCrawlPrinceEdwardIslandBills_FallsBackOnWorkflowNon200 verifies that a
+// non-200 response from the WDF API causes the scraper to fall back to HTML.
+func TestCrawlPrinceEdwardIslandBills_FallsBackOnWorkflowNon200(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/legislative-assembly/services/api/workflow", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><body><a href="/bills/5">Bill 5 - A Test Act</a></body></html>`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	bills, err := scraper.CrawlPrinceEdwardIslandBills(srv.URL, 68, 1, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlPrinceEdwardIslandBills: %v", err)
+	}
+	if len(bills) == 0 {
+		t.Fatal("expected bills from HTML fallback when WDF API returns non-200")
+	}
+}
+
+// TestCrawlPrinceEdwardIslandVotes_UsesWorkflowAPI verifies that when the WDF
+// journals workflow API serves valid JSON with a journal URL, divisions are parsed
+// from the linked journal HTML page.
+func TestCrawlPrinceEdwardIslandVotes_UsesWorkflowAPI(t *testing.T) {
+	const journalHTML = `<html><body>
+<h3>Bill 1 second reading</h3>
+<table><tr><td>Yeas: 15</td><td>Nays: 7</td></tr></table>
+</body></html>`
+
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	journalsJSON := `{"processInstanceId":"t2","messages":{"error":[]},"data":[{"id":"1","type":"TableV2","data":{},"children":[{"id":"2","type":"TableV2Row","data":{},"children":[{"id":"3","type":"TableV2Cell","data":{},"children":[{"id":"4","type":"LinkV2","data":{"text":"Journal April 7 2026","href":"` + srv.URL + `/journals/2026-04-07"},"children":[]}]}]}]}]}`
+
+	mux.HandleFunc("/legislative-assembly/services/api/workflow", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(journalsJSON))
+	})
+	mux.HandleFunc("/journals/2026-04-07", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(journalHTML))
+	})
+
+	divs, err := scraper.CrawlPrinceEdwardIslandVotes(srv.URL, 68, 1, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlPrinceEdwardIslandVotes: %v", err)
+	}
+	if len(divs) == 0 {
+		t.Fatal("expected at least one division from WDF journals API")
+	}
+	if divs[0].Division.Yeas != 15 || divs[0].Division.Nays != 7 {
+		t.Errorf("counts=(%d,%d), want (15,7)", divs[0].Division.Yeas, divs[0].Division.Nays)
+	}
+}
+
+// TestCrawlPrinceEdwardIslandVotes_FallsBackOnWorkflowNon200 verifies that a
+// non-200 response from the WDF journals API causes the scraper to fall back to
+// the existing HTML-based journals parser.
+func TestCrawlPrinceEdwardIslandVotes_FallsBackOnWorkflowNon200(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/legislative-assembly/services/api/workflow", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><body><a href="/votes/2026-04-07">Votes and Proceedings</a></body></html>`))
+	})
+	mux.HandleFunc("/votes/2026-04-07", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><body><table><tr><td>Yeas: 9</td><td>Nays: 2</td></tr></table></body></html>`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	divs, err := scraper.CrawlPrinceEdwardIslandVotes(srv.URL, 68, 1, srv.Client())
+	if err != nil {
+		t.Fatalf("CrawlPrinceEdwardIslandVotes: %v", err)
+	}
+	if len(divs) == 0 {
+		t.Fatal("expected divisions from HTML fallback when WDF API returns non-200")
+	}
+}
+

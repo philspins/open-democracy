@@ -21,6 +21,7 @@ vendor/
 .vscode/
 *.swp
 *.swo
+.claude/*
 
 *.db-shm
 *.db-wal
@@ -36,3 +37,6 @@ vendor/
 # ignore sensitive files
 sshlogin.sh
 upload_db.sh
+
+# Node.js stuff
+node_modules/

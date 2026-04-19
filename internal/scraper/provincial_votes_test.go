@@ -176,6 +176,90 @@ func TestParseNLJournalDivisions_OutcomeOnly(t *testing.T) {
 	}
 }
 
+func TestParsePEIJournalDivisions_YeasAndNays(t *testing.T) {
+	// Minimal text modelled on the real April 10, 2026 journal (Nays first, then Yeas).
+	text := `Hon. Premier moved the following Motion. Hon. Mr. Speaker put the Question. ` +
+		`A Recorded Division being sought, the names were recorded by the Clerk as follows: ` +
+		`Nays (2\ Leader of the Third Party Karla Bernard (Charlottetown - Victoria Park\ Gordon McNeilly (Charlottetown - West Royalty\ ` +
+		`Yeas (3\ Hon. Darlene Compton (Land and Environment\ Hon. Premier Hon. Bloyce Thompson (Agriculture, Justice and Public Safety, Attorney General\ ` +
+		`The Motion was CARRIED and resolved accordingly.`
+
+	divs := scraper.ParsePEIJournalDivisionsForTest(text, "https://docs.assembly.pe.ca/test.pdf", 67, 3, 1, "2026-04-10")
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	d := divs[0]
+	if d.Division.Nays != 2 || d.Division.Yeas != 3 {
+		t.Errorf("counts=(%d,%d), want (2,3)", d.Division.Nays, d.Division.Yeas)
+	}
+	if d.Division.Result != "Carried" {
+		t.Errorf("result=%q, want Carried", d.Division.Result)
+	}
+
+	var yeas, nays []string
+	for _, v := range d.Votes {
+		if v.Vote == "Yea" {
+			yeas = append(yeas, v.MemberName)
+		} else {
+			nays = append(nays, v.MemberName)
+		}
+	}
+	if len(nays) != 2 {
+		t.Errorf("nay voters=%v, want 2", nays)
+	}
+	if len(yeas) != 2 {
+		t.Errorf("yea voters=%v, want 2", yeas)
+	}
+}
+
+func TestParsePEIJournalDivisions_NaysFirst(t *testing.T) {
+	text := `A Recorded Division being sought, the names were recorded by the Clerk as follows: ` +
+		`Nays (12\ Hon. Darlene Compton (Land and Environment\ Hon. Jill Burridge (Finance and Affordability\ ` +
+		`Hon. Bloyce Thompson (Agriculture, Justice and Public Safety, Attorney General\ Hon. Zack Bell (Workforce and Advanced Learning\ ` +
+		`Hon. Ernie Hudson (Fisheries, Rural Development and Tourism\ Tyler DesRoches (Summerside - Wilmot\ ` +
+		`Hon. Barb Ramsay (Social Development and Seniors\ Hon. Robin Croucher (Education and Early Years\ ` +
+		`Hon. Jenn Redmond (Economic Development, Trade and Artificial Intelligence\ Hon. Kent Dollar (Housing and Communities\ ` +
+		`Susie Dillon (Charlottetown - Belvedere\ Brendan Curran (Georgetown - Pownal\ ` +
+		`Yeas (7\ Leader of the Third Party Karla Bernard (Charlottetown - Victoria Park\ Gordon McNeilly (Charlottetown - West Royalty\ ` +
+		`Hon. Leader of the Opposition Peter Bevan - Baker (New Haven - Rocky Point\ ` +
+		`Robert Henderson (O'Leary - Inverness\ Carolyn Simpson (Charlottetown - Hillsborough Park\ ` +
+		`Motion resolved in the Negative.`
+
+	divs := scraper.ParsePEIJournalDivisionsForTest(text, "https://docs.assembly.pe.ca/test.pdf", 67, 3, 1, "2026-04-07")
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	d := divs[0]
+	if d.Division.Nays != 12 || d.Division.Yeas != 7 {
+		t.Errorf("counts=(%d,%d), want (12,7)", d.Division.Nays, d.Division.Yeas)
+	}
+	if d.Division.Result != "Negatived" {
+		t.Errorf("result=%q, want Negatived", d.Division.Result)
+	}
+	if len(d.Votes) < 5 {
+		t.Errorf("too few votes: %d", len(d.Votes))
+	}
+}
+
+func TestParsePEIJournalDivisions_CountsWithoutParentheses(t *testing.T) {
+	text := `Hon. Mr. Speaker put the Question. A Recorded Division being sought, the names were recorded by the Clerk as follows: ` +
+		`Nays 12 \ Hon. Darlene Compton Land and Environment\ Hon. Jill Burridge Finance and Affordability\ ` +
+		`Yea 7 \ Leader of the Third Party Karla Bernard Charlottetown - Victoria Park\ Gordon McNeilly Charlottetown - West Royalty\ ` +
+		`Motion resolved in the Negative.`
+
+	divs := scraper.ParsePEIJournalDivisionsForTest(text, "https://docs.assembly.pe.ca/test.pdf", 67, 3, 1, "2026-04-07")
+	if len(divs) != 1 {
+		t.Fatalf("len(divs)=%d, want 1", len(divs))
+	}
+	d := divs[0]
+	if d.Division.Nays != 12 || d.Division.Yeas != 7 {
+		t.Errorf("counts=(%d,%d), want (12,7)", d.Division.Nays, d.Division.Yeas)
+	}
+	if d.Division.Result != "Negatived" {
+		t.Errorf("result=%q, want Negatived", d.Division.Result)
+	}
+}
+
 func TestCrawlPrinceEdwardIslandVotes_HandlesCaptcha(t *testing.T) {
 	srv := newTestServer(`<html><body><link rel="stylesheet" href="https://captcha.perfdrive.com/challenge.css"></body></html>`)
 	defer srv.Close()
@@ -300,4 +384,3 @@ func TestParliamentOrdinal(t *testing.T) {
 		}
 	}
 }
-

@@ -295,10 +295,26 @@ func CrawlSenate(conn *sql.DB, client *http.Client, delay time.Duration, indexUR
 	return nil
 }
 
-// CrawlProvincial runs all configured provincial crawlers with bounded concurrency.
-func CrawlProvincial(conn *sql.DB, client *http.Client, delay time.Duration, parallelism int, enqueueSummary BillSummaryEnqueue) error {
-	fns := make([]func(), 0, len(ProvincialSources))
-	for _, src := range ProvincialSources {
+// CrawlProvincial runs configured provincial crawlers with bounded concurrency.
+// If codes is non-empty only the named province codes (e.g. "pe", "on") are
+// crawled; otherwise all sources in ProvincialSources run.
+func CrawlProvincial(conn *sql.DB, client *http.Client, delay time.Duration, parallelism int, codes []string, enqueueSummary BillSummaryEnqueue) error {
+	sources := ProvincialSources
+	if len(codes) > 0 {
+		set := make(map[string]bool, len(codes))
+		for _, c := range codes {
+			set[strings.ToLower(strings.TrimSpace(c))] = true
+		}
+		filtered := make([]ProvincialSource, 0, len(codes))
+		for _, src := range ProvincialSources {
+			if set[src.Code] {
+				filtered = append(filtered, src)
+			}
+		}
+		sources = filtered
+	}
+	fns := make([]func(), 0, len(sources))
+	for _, src := range sources {
 		src := src
 		fns = append(fns, func() {
 			if err := CrawlProvinceSource(conn, client, delay, src, enqueueSummary); err != nil {
@@ -634,6 +650,13 @@ func resolveProvincialLegislatureSession(conn *sql.DB, src ProvincialSource, cli
 		return l, s
 	}
 
+	if src.Code == "pe" {
+		if l, s, ok := fetchPEICurrentAssemblySession(); ok {
+			log.Printf("[pe] auto-detected assembly=%d session=%d from WDF API", l, s)
+			return l, s
+		}
+		return peiGeneralAssembly, peiAssemblySession
+	}
 	switch src.Special {
 	case "on":
 		return OntarioParliament, OntarioSession
@@ -819,8 +842,25 @@ func normalisePersonName(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = strings.ReplaceAll(s, ".", " ")
 	s = strings.ReplaceAll(s, ",", " ")
+	s = strings.ReplaceAll(s, "-", " ")
+	s = strings.ReplaceAll(s, "(", " ")
+	s = strings.ReplaceAll(s, ")", " ")
+	s = strings.ReplaceAll(s, "'", "")
 	s = strings.Join(strings.Fields(s), " ")
 	return s
+}
+
+func commonPrefixLen(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return n
 }
 
 func resolveProvincialMemberID(conn *sql.DB, province, sourceName string) (string, error) {
@@ -865,6 +905,107 @@ func resolveProvincialMemberID(conn *sql.DB, province, sourceName string) (strin
 			if len(nameParts) > 0 && nameParts[len(nameParts)-1] == last {
 				return c.ID, nil
 			}
+		}
+		bestID := ""
+		bestScore := 0
+		tie := false
+		for _, c := range list {
+			nameParts := strings.Fields(normalisePersonName(c.Name))
+			if len(nameParts) < 2 {
+				continue
+			}
+			score := 0
+			for i := 1; i < len(nameParts); i++ {
+				p := commonPrefixLen(last, nameParts[i])
+				if p > score {
+					score = p
+				}
+			}
+			if score < 4 {
+				continue
+			}
+			if score > bestScore {
+				bestScore = score
+				bestID = c.ID
+				tie = false
+			} else if score == bestScore {
+				tie = true
+			}
+		}
+		if bestID != "" && !tie {
+			return bestID, nil
+		}
+	}
+
+	// OCR-heavy provincial journals (especially PEI PDFs) may merge surname with
+	// riding text (e.g., "thompsoagriculture"). Fall back to a deterministic
+	// first-name + surname-prefix match when it produces one clear best candidate.
+	if len(parts) >= 2 {
+		wantFirst := parts[0]
+		wantSurnameLike := parts[1]
+
+		bestID := ""
+		bestScore := 0
+		tie := false
+
+		for _, c := range list {
+			nameParts := strings.Fields(normalisePersonName(c.Name))
+			if len(nameParts) < 2 || nameParts[0] != wantFirst {
+				continue
+			}
+			score := 0
+			for i := 1; i < len(nameParts); i++ {
+				p := commonPrefixLen(wantSurnameLike, nameParts[i])
+				if p > score {
+					score = p
+				}
+			}
+			if score < 4 {
+				continue
+			}
+			if score > bestScore {
+				bestScore = score
+				bestID = c.ID
+				tie = false
+			} else if score == bestScore {
+				tie = true
+			}
+		}
+
+		if bestID != "" && !tie {
+			return bestID, nil
+		}
+
+		// Last-resort fallback: if the first name is OCR-corrupted, resolve by a
+		// unique strong surname-prefix match across candidates for this province.
+		bestID = ""
+		bestScore = 0
+		tie = false
+		for _, c := range list {
+			nameParts := strings.Fields(normalisePersonName(c.Name))
+			if len(nameParts) < 2 {
+				continue
+			}
+			score := 0
+			for i := 1; i < len(nameParts); i++ {
+				p := commonPrefixLen(wantSurnameLike, nameParts[i])
+				if p > score {
+					score = p
+				}
+			}
+			if score < 4 {
+				continue
+			}
+			if score > bestScore {
+				bestScore = score
+				bestID = c.ID
+				tie = false
+			} else if score == bestScore {
+				tie = true
+			}
+		}
+		if bestID != "" && !tie {
+			return bestID, nil
 		}
 	}
 
